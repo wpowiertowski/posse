@@ -1,15 +1,16 @@
 # POSSE
-POSSE (Publish Own Site, Syndicate Elsewhere) is a simple python based docker image that synchronizes ghost blog with mastodon and bluesky profiles. Blog posts can be categorized by tags and posted to different profiles across either services.
+POSSE (Publish Own Site, Syndicate Elsewhere) is a small Python project that synchronizes Ghost blog posts with social profiles (e.g., Mastodon, Bluesky). The repository uses a src-layout and is built & run with Docker and Poetry.
 
-## Project Structure
+## Project layout
 
 ```
 .
 ├── docker-compose.yml      # Docker Compose configuration
-├── Dockerfile              # Docker image definition
+├── Dockerfile              # Docker image definition (installs the package into container env)
 ├── pyproject.toml          # Poetry configuration and dependencies
-├── hello_world.py          # Main application code
-├── test_hello_world.py     # Test suite
+├── src/
+│   └── posse/              # package implementation (importable as `posse`)
+├── tests/                  # pytest test suite
 └── README.md               # This file
 ```
 
@@ -71,9 +72,9 @@ docker compose run --rm app bash
 
 Then you can run commands like:
 ```bash
-poetry run python hello_world.py
+poetry run python -m posse
 poetry run pytest
-poetry run hello  # Uses the script defined in pyproject.toml
+poetry run posse  # Uses the console script defined in pyproject.toml
 ```
 
 ## Development
@@ -117,5 +118,5 @@ docker compose down --rmi all  # Also remove images
 ## Notes
 
 - The application code is mounted as a volume, so changes are reflected immediately
-- Poetry virtual environment is created inside the container
+- The Dockerfile is configured to install dependencies into the container environment (no in-project Poetry virtualenv), so you do not need to set `PYTHONPATH` in the container to import `posse`.
 - Coverage reports are generated in the `htmlcov/` directory
