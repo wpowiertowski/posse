@@ -1,160 +1,39 @@
-# Posse
+# POSSE
 
-[![CI](https://github.com/wpowiertowski/posse/workflows/CI/badge.svg)](https://github.com/wpowiertowski/posse/actions)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue)](https://www.python.org/downloads/)
-[![Poetry](https://img.shields.io/badge/poetry-enabled-blue)](https://python-poetry.org/)
-[![Docker](https://img.shields.io/badge/docker-supported-blue)](https://www.docker.com/)
-
-A Python project for managing and orchestrating distributed tasks.
-
-## Project Layout
-
-```
-posse/
-├── src/
-│   └── posse/
-│       ├── __init__.py
-│       ├── main.py
-│       └── ...
-├── tests/
-│   ├── __init__.py
-│   ├── test_main.py
-│   └── ...
-├── docs/
-│   └── ...
-├── pyproject.toml
-├── poetry.lock
-├── Dockerfile
-├── README.md
-└── LICENSE
-```
+POSSE stands for **Post Own Site, Syndicate Elsewhere**. This project implements the POSSE philosophy by automatically retrieving the latest posts from a Ghost blog and reposting them to both Mastodon and Bluesky accounts.
 
 ## Prerequisites
 
-- Python 3.14 or higher
-- Poetry (for dependency management)
-- Docker (optional, for containerized deployment)
-- Git
+The only prerequisite required to run this project is **Docker**.
 
-## Setup
+## Project Structure
 
-### Using Poetry
+The repository is organized as follows:
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/wpowiertowski/posse.git
-   cd posse
-   ```
+- **src/** - Source code for the POSSE application
+- **tests/** - Test suite for the project
+- **Dockerfile** - Docker configuration for containerizing the application
+- **docker-compose.yml** - Docker Compose configuration for orchestrating services
+- **pyproject.toml** - Python project configuration and dependencies
+- **poetry.lock** - Locked dependency versions for reproducible builds
+- **Makefile** - Utility commands for common development tasks
 
-2. Install dependencies:
-   ```bash
-   poetry install
-   ```
+## How It Works
 
-3. Activate the virtual environment:
-   ```bash
-   poetry shell
-   ```
+This project automates the POSSE workflow by:
 
-### Using Docker
+1. Retrieving the latest posts from a configured Ghost blog
+2. Reposting them to your Mastodon account
+3. Reposting them to your Bluesky account
 
-1. Build the Docker image:
-   ```bash
-   docker build -t posse:latest .
-   ```
+This ensures your content is syndicated across multiple platforms while maintaining your Ghost blog as the primary source of truth.
 
-2. Run the container:
-   ```bash
-   docker run -it posse:latest
-   ```
+## Getting Started
 
-## Usage
-
-### Basic Usage
-
-```python
-from posse import main
-
-# Your usage example here
-```
-
-### Command Line
+Ensure Docker is installed on your system, then use Docker Compose to run the application:
 
 ```bash
-poetry run posse --help
+docker-compose up
 ```
 
-## Development
-
-### Install Development Dependencies
-
-```bash
-poetry install --with dev
-```
-
-### Code Style
-
-This project uses:
-- `black` for code formatting
-- `flake8` for linting
-- `mypy` for type checking
-
-Format your code:
-```bash
-poetry run black src/ tests/
-```
-
-Run linting:
-```bash
-poetry run flake8 src/ tests/
-```
-
-Run type checking:
-```bash
-poetry run mypy src/
-```
-
-## Testing
-
-Run the test suite:
-
-```bash
-poetry run pytest
-```
-
-Run tests with coverage:
-
-```bash
-poetry run pytest --cov=src --cov-report=html
-```
-
-Run tests with verbose output:
-
-```bash
-poetry run pytest -v
-```
-
-## Cleanup
-
-Remove virtual environment and cache files:
-
-```bash
-poetry env remove
-find . -type d -name __pycache__ -exec rm -r {} +
-find . -type f -name "*.pyc" -delete
-find . -type d -name ".pytest_cache" -exec rm -r {} +
-find . -type d -name ".mypy_cache" -exec rm -r {} +
-```
-
-## Notes
-
-- Ensure you have Python 3.14+ installed before setting up the project.
-- Poetry automatically creates and manages virtual environments.
-- All dependencies are specified in `pyproject.toml`.
-- For Docker usage, refer to the `Dockerfile` for image specifications.
-- Contributions are welcome! Please follow the development guidelines above.
-
----
-
-For more information, see the [documentation](docs/) or open an [issue](https://github.com/wpowiertowski/posse/issues).
+Refer to the Makefile for additional development and utility commands.
