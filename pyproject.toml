@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "posse"
+version = "0.1.0"
+description = "POSSE (Publish Own Site, Syndicate Elsewhere) is a simple python based docker image that synchronizes ghost blog with mastodon and bluesky profiles. Blog posts can be categorized by tags and posted to different profiles across either services."
+authors = ["Wojtek Powiertowski <wojtek@powiertowski.com>"]
+readme = "README.md"
+packages = [
+    { include = "posse", from = "src" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.14"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.0.2"
+
+[tool.poetry.scripts]
+posse = "posse.posse:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "."]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+]
