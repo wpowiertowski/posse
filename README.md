@@ -22,11 +22,17 @@ The repository is organized as follows:
 
 This project automates the POSSE workflow by:
 
-1. Retrieving the latest posts from a configured Ghost blog
+1. Retrieving the latest published posts from a configured Ghost blog via [webhook](https://docs.ghost.org/webhooks)
 2. Reposting them to your Mastodon account
 3. Reposting them to your Bluesky account
 
 This ensures your content is syndicated across multiple platforms while maintaining your Ghost blog as the primary source of truth.
+
+## TODO
+- [x] build and test flow
+- [ ] flask server to receive POST requests from Ghost with contents of the published post
+- [ ] authenticate and post to Mastodon account
+- [ ] authenticate and post to Bluesky account
 
 ## Getting Started
 
