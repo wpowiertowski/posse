@@ -15,15 +15,28 @@ The only prerequisite required to run this project is **Docker**.
 
 ## Project Structure
 
-The repository is organized as follows:
-
-- **src/** - Source code for the POSSE application
-- **tests/** - Test suite for the project
-- **Dockerfile** - Docker configuration for containerizing the application
-- **docker-compose.yml** - Docker Compose configuration for orchestrating services
-- **pyproject.toml** - Python project configuration and dependencies
-- **poetry.lock** - Locked dependency versions for reproducible builds
-- **Makefile** - Utility commands for common development tasks
+```
+posse/
+├── src/
+│   ├── posse/          # Main POSSE orchestration package
+│   │   └── posse.py    # Entry point that starts webhook receiver
+│   ├── ghost/          # Ghost webhook receiver
+│   │   ├── ghost.py    # Flask app with validation and logging
+│   │   └── gunicorn_config.py  # Production server configuration
+│   └── schema/         # JSON Schema validation
+│       ├── schema.py   # Schema loading utilities
+│       └── ghost_post_schema.json  # Ghost post schema definition
+├── tests/
+│   ├── test_posse.py   # POSSE integration tests
+│   ├── test_ghost.py   # Webhook receiver tests
+│   └── fixtures/
+│       └── valid_ghost_post.json  # Test data
+├── Dockerfile          # Container configuration
+├── docker-compose.yml  # Service orchestration
+├── pyproject.toml      # Python dependencies and project metadata
+├── poetry.lock         # Locked dependency versions
+└── Makefile            # Development commands
+```
 
 ## How It Works
 
@@ -37,7 +50,7 @@ This ensures your content is syndicated across multiple platforms while maintain
 
 ## TODO
 - [x] build and test flow
-- [ ] flask server to receive POST requests from Ghost with contents of the published post
+- [x] flask server to receive POST requests from Ghost with contents of the published post
 - [ ] authenticate and post to Mastodon account
 - [ ] authenticate and post to Bluesky account
 

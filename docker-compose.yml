@@ -6,7 +6,7 @@ services:
     container_name: posse 
     volumes:
       - .:/app
-    command: poetry run posse
+    command: poetry run gunicorn -c src/ghost/gunicorn_config.py ghost.ghost:app
     stdin_open: true
     tty: true
 

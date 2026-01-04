@@ -38,5 +38,8 @@ COPY . .
 # Install the project
 RUN poetry install
 
-# Default command
-CMD ["poetry", "run", "posse"]
+# Expose port
+EXPOSE 5000
+
+# Default command - use Gunicorn with extensive logging config
+CMD ["poetry", "run", "gunicorn", "-c", "src/ghost/gunicorn_config.py", "ghost.ghost:app"]
