@@ -46,7 +46,7 @@ This ensures your content is syndicated across multiple platforms while maintain
 Ensure Docker is installed on your system, then use Docker Compose to run the application:
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 Refer to the Makefile for additional development and utility commands.
