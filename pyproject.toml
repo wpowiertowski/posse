@@ -5,17 +5,22 @@ description = "POSSE (Publish Own Site, Syndicate Elsewhere) is a simple python 
 authors = ["Wojtek Powiertowski <wojtek@powiertowski.com>"]
 readme = "README.md"
 packages = [
-    { include = "posse", from = "src" }
+    { include = "posse", from = "src" },
+    { include = "ghost", from = "src" },
+    { include = "schema", from = "src" }
 ]
 
 [tool.poetry.dependencies]
 python = "^3.14"
+flask = "^3.1.0"
+jsonschema = "^4.23.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.2"
 
 [tool.poetry.scripts]
 posse = "posse.posse:main"
+ghost-webhook = "ghost.ghost:main"
 
 [build-system]
 requires = ["poetry-core"]

@@ -1,0 +1,45 @@
+{
+  "id": "507f1f77bcf86cd799439011",
+  "comment_id": "507f1f77bcf86cd799439011",
+  "title": "Welcome to Ghost",
+  "slug": "welcome-to-ghost",
+  "excerpt": "You're live! Nice. We've put together a little post to introduce you to the Ghost editor and get you started.",
+  "content": "<p>Welcome to Ghost! This is your first post. You can edit or delete it by clicking on the post and then clicking the settings icon in the toolbar.</p>",
+  "url": "https://demo.ghost.io/welcome/",
+  "feature_image": "https://demo.ghost.io/content/images/size/w1000/2022/05/welcome-to-ghost.png",
+  "feature_image_alt": "Welcome banner",
+  "feature_image_caption": "Welcome to Ghost blogging platform",
+  "featured": true,
+  "page": false,
+  "meta_title": "Welcome to Ghost - Getting Started",
+  "meta_description": "An introduction to the Ghost publishing platform",
+  "published_at": "2024-01-15T10:30:00.000Z",
+  "updated_at": "2024-01-15T10:30:00.000Z",
+  "created_at": "2024-01-15T10:00:00.000Z",
+  "primary_author": {
+    "id": "1",
+    "name": "Ghost Admin",
+    "slug": "ghost-admin",
+    "url": "https://demo.ghost.io/author/ghost-admin/"
+  },
+  "tags": [
+    {
+      "id": "507f191e810c19729de860ea",
+      "name": "Getting Started",
+      "slug": "getting-started",
+      "url": "https://demo.ghost.io/tag/getting-started/"
+    },
+    {
+      "id": "507f191e810c19729de860eb",
+      "name": "Tutorial",
+      "slug": "tutorial",
+      "url": "https://demo.ghost.io/tag/tutorial/"
+    }
+  ],
+  "primary_tag": {
+    "id": "507f191e810c19729de860ea",
+    "name": "Getting Started",
+    "slug": "getting-started",
+    "url": "https://demo.ghost.io/tag/getting-started/"
+  }
+}
