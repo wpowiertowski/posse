@@ -54,23 +54,61 @@ def main() -> None:
         4. Track syndication status and handle retries
         5. Add authentication and rate limiting
         
-    The webhook receiver is production-ready with:
+    The webhook receiver runs with Gunicorn for production deployment:
         - Schema validation for data integrity
         - Structured logging (INFO, DEBUG, ERROR levels)
         - Health check endpoint for monitoring
         - Appropriate error handling and HTTP status codes
+        - Single worker (concurrent workers not needed for webhook receiver)
         
     Returns:
         None
         
     Example:
         $ poetry run posse
-        2026-01-04 10:00:00,000 - ghost.ghost - INFO - Starting Ghost webhook receiver on port 5000
-        * Running on http://0.0.0.0:5000/ (Press CTRL+C to quit)
+        Starting Gunicorn with extensive logging for debugging
+        Gunicorn server is ready to accept connections
     """
-    # Start the Ghost webhook receiver
-    # This is a blocking call that runs the Flask server
-    ghost_main()
+    # Import Gunicorn application for production deployment
+    # This replaces the Flask development server with a production-ready WSGI server
+    from gunicorn.app.base import BaseApplication
+    from ghost.ghost import app
+    import sys
+    import os
+    
+    # Load Gunicorn configuration from ghost package
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'ghost', 'gunicorn_config.py')
+    
+    class StandaloneApplication(BaseApplication):
+        """Custom Gunicorn application for embedding within posse entry point."""
+        
+        def __init__(self, app, options=None):
+            self.options = options or {}
+            self.application = app
+            super().__init__()
+        
+        def load_config(self):
+            # Load configuration from file
+            config_file = self.options.get('config')
+            if config_file:
+                self.cfg.set("config", config_file)
+                # Execute the config file to load settings
+                with open(config_file, 'r') as f:
+                    config_code = f.read()
+                config_namespace = {}
+                exec(config_code, config_namespace)
+                for key, value in config_namespace.items():
+                    if key in self.cfg.settings and value is not None:
+                        self.cfg.set(key.lower(), value)
+        
+        def load(self):
+            return self.application
+    
+    # Start Gunicorn with the Flask app
+    options = {
+        'config': config_path
+    }
+    StandaloneApplication(app, options).run()
 
 
 # Allow running as a script for development/testing

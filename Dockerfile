@@ -41,5 +41,5 @@ RUN poetry install
 # Expose port
 EXPOSE 5000
 
-# Default command - use Gunicorn with extensive logging config
-CMD ["poetry", "run", "gunicorn", "-c", "src/ghost/gunicorn_config.py", "ghost.ghost:app"]
+# Default command - use posse entry point (which runs Gunicorn internally)
+CMD ["poetry", "run", "posse"]

@@ -12,8 +12,8 @@ import sys
 bind = "0.0.0.0:5000"
 
 # Worker configuration
-# Adjust based on available CPU cores: (2 x $num_cores) + 1
-workers = 4
+# Single worker is sufficient for webhook receiver (not high concurrency)
+workers = 1
 worker_class = "sync"  # Use sync workers for I/O bound Flask app
 worker_connections = 1000
 timeout = 30
