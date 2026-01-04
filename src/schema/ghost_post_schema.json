@@ -1,0 +1,165 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ghost.org/schemas/post.json",
+  "title": "Ghost Post",
+  "description": "Schema for a Ghost post object in the post context",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "The Object ID of the post"
+    },
+    "comment_id": {
+      "type": "string",
+      "description": "The old, pre-1.0 incremental id of a post if present, or else the new Object ID"
+    },
+    "title": {
+      "type": "string",
+      "description": "The title of your site post"
+    },
+    "slug": {
+      "type": "string",
+      "description": "Slugified version of the title (used in urls and also useful for class names)"
+    },
+    "excerpt": {
+      "type": "string",
+      "description": "A short preview of your post content"
+    },
+    "content": {
+      "type": "string",
+      "description": "The content of the post"
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "The web address for the post page (calculated based on permalink settings)"
+    },
+    "feature_image": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "description": "The cover image associated with the post"
+    },
+    "feature_image_alt": {
+      "type": ["string", "null"],
+      "description": "Alt text for the cover image associated with the post"
+    },
+    "feature_image_caption": {
+      "type": ["string", "null"],
+      "description": "Caption for the cover image associated with the post (supports basic html)"
+    },
+    "featured": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indicates a featured post"
+    },
+    "page": {
+      "type": "boolean",
+      "default": false,
+      "description": "True if the post is a page"
+    },
+    "meta_title": {
+      "type": ["string", "null"],
+      "description": "Custom meta title for the post"
+    },
+    "meta_description": {
+      "type": ["string", "null"],
+      "description": "Custom meta description for the post"
+    },
+    "published_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Date and time when the post was published"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Date and time when the post was last updated"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Date and time when the post was created"
+    },
+    "primary_author": {
+      "type": "object",
+      "description": "A formatted link to the first author",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The author's unique identifier"
+        },
+        "name": {
+          "type": "string",
+          "description": "The author's name"
+        },
+        "slug": {
+          "type": "string",
+          "description": "The author's slug"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "The author's profile URL"
+        }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "description": "A list of tags associated with the post",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The tag's unique identifier"
+          },
+          "name": {
+            "type": "string",
+            "description": "The tag's name"
+          },
+          "slug": {
+            "type": "string",
+            "description": "The tag's slug"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "The tag's URL"
+          }
+        }
+      }
+    },
+    "primary_tag": {
+      "type": ["object", "null"],
+      "description": "Direct reference to the first tag associated with the post",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The tag's unique identifier"
+        },
+        "name": {
+          "type": "string",
+          "description": "The tag's name"
+        },
+        "slug": {
+          "type": "string",
+          "description": "The tag's slug"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "The tag's URL"
+        }
+      }
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "slug",
+    "content",
+    "url",
+    "created_at",
+    "updated_at"
+  ]
+}
