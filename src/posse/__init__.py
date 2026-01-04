@@ -11,6 +11,6 @@ Exported Functions:
     hello: Returns a greeting message
     main: Entry point for the posse console command
 """
-from .posse import hello, main
+from .posse import main
 
-__all__ = ["hello", "main"]
+__all__ = ["main"]

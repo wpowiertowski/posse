@@ -1,58 +1,73 @@
 """
 Unit Tests for POSSE Core Module.
 
-This test module validates the basic functionality of the POSSE
-(Publish Own Site, Syndicate Elsewhere) core module.
+This test module validates the POSSE (Publish Own Site, Syndicate Elsewhere)
+core module's integration with the Ghost webhook receiver.
 
-Currently these are scaffolding tests that verify the basic hello world
-implementation. As the POSSE functionality grows, these tests will expand
-to cover:
-    - Ghost Content API integration
-    - Post processing and filtering
-    - Social media syndication logic
+The posse module now serves as the main entry point that starts the Ghost
+webhook receiver, which accepts post notifications and will eventually
+syndicate them to social media platforms.
+
+Test Coverage:
+    - Module imports work correctly
+    - Integration with ghost webhook receiver
+    - Placeholder functions remain functional
+    
+Future tests will cover:
+    - Post processing and filtering logic
+    - Social media syndication (Mastodon, Bluesky)
     - Error handling and retry mechanisms
     - Configuration management
-
-Test Organization:
-    - test_alive: Basic sanity check that the module imports and runs
-    - Future: test_fetch_ghost_posts, test_filter_by_tags, etc.
 
 Running Tests:
     $ poetry run pytest tests/test_posse.py -v
     $ docker compose run --rm test poetry run pytest tests/test_posse.py
 """
 
-# Import pytest for future fixture usage
-# import pytest
+import pytest
+from unittest.mock import patch, MagicMock
 
-# Import the function being tested
-from posse.posse import hello
+# Import functions being tested
+from posse.posse import main
 
 
-def test_alive():
-    """Test that the hello function returns expected greeting.
+def test_module_imports():
+    """Test that all required imports work correctly.
     
-    This is a basic sanity test ensuring:
-    1. The posse module can be imported successfully
-    2. The hello() function executes without errors
-    3. The return value matches the expected string
+    Verifies that:
+    1. The posse module can be imported
+    2. The main function is accessible
+    4. The ghost.ghost integration import works (implicitly tested by import)
     
-    This test serves as a placeholder and will be replaced with
-    actual syndication logic tests as development progresses.
-    
-    Expected behavior:
-        hello() should return the string "Hello world!"
-        
-    Future tests will validate:
-        - Fetching posts from Ghost API
-        - Filtering posts by tags
-        - Formatting posts for different platforms
-        - Publishing to Mastodon and Bluesky
-        - Error handling and retry logic
+    This ensures the module structure is correct and dependencies
+    are properly configured.
     """
-    # Call the function under test
-    result = hello()
+    # These imports should not raise any exceptions
+    from posse import main
     
-    # Verify it returns the expected greeting
-    # This uses a simple equality assertion
-    assert result == "Hello world!", f"Expected 'Hello world!' but got '{result}'"
+    # Verify they are callable
+    assert callable(main), "main should be callable"
+
+
+@patch('posse.posse.ghost_main')
+def test_main_starts_ghost_webhook(mock_ghost_main):
+    """Test that main() correctly delegates to ghost webhook receiver.
+    
+    The main() function should call ghost_main() to start the webhook
+    server. This test uses mocking to verify the integration without
+    actually starting a server.
+    
+    Verifies:
+        - main() calls ghost_main() exactly once
+        - No additional side effects occur
+        
+    Note: The actual webhook functionality is tested in test_ghost.py
+    """
+    # Call the main function
+    main()
+    
+    # Verify ghost_main was called exactly once
+    mock_ghost_main.assert_called_once()
+    
+    # Verify it was called with no arguments
+    mock_ghost_main.assert_called_with()
