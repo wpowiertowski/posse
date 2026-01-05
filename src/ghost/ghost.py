@@ -209,11 +209,12 @@ def create_app(events_queue: Queue) -> Flask:
                    -H "Content-Type: application/json" \\
                    -d '{"id":"123","title":"Test",...}'
         """
+        # Get notifier and events queue from app config at function start
+        # This ensures they're accessible in exception handlers
+        notifier = current_app.config['PUSHOVER_NOTIFIER']
+        events_queue = current_app.config['EVENTS_QUEUE']
+        
         try:
-            # Get notifier and events queue from app config
-            notifier = current_app.config['PUSHOVER_NOTIFIER']
-            events_queue = current_app.config['EVENTS_QUEUE']
-            
             # Step 1: Validate Content-Type header
             # Ghost should send application/json, but verify to prevent errors
             if not request.is_json:
@@ -268,7 +269,6 @@ def create_app(events_queue: Queue) -> Flask:
             logger.error(f"Payload validation failed: {str(e)}")
             
             # Send Pushover notification for validation error
-            notifier = current_app.config['PUSHOVER_NOTIFIER']
             notifier.notify_validation_error(str(e))
             
             return jsonify({
