@@ -7,7 +7,8 @@ readme = "README.md"
 packages = [
     { include = "posse", from = "src" },
     { include = "ghost", from = "src" },
-    { include = "schema", from = "src" }
+    { include = "schema", from = "src" },
+    { include = "notifications", from = "src" }
 ]
 
 [tool.poetry.dependencies]
@@ -15,6 +16,7 @@ python = "^3.14"
 flask = "^3.1.2"
 jsonschema = "^4.25.1"
 gunicorn = "^23.0.0"
+requests = "^2.31.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.2"
