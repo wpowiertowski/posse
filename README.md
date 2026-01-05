@@ -71,19 +71,34 @@ This ensures your content is syndicated across multiple platforms while maintain
 
 ## Configuration
 
+### Application Configuration
+
+POSSE uses a `config.yml` file for application settings. The configuration file is located in the project root directory.
+
+**config.yml:**
+```yaml
+# Pushover Push Notifications
+pushover:
+  enabled: false  # Set to true to enable notifications
+  app_token_file: /run/secrets/pushover_app_token
+  user_key_file: /run/secrets/pushover_user_key
+```
+
 ### Pushover Notifications (Optional)
 
 To enable push notifications via [Pushover](https://pushover.net/):
 
-1. Create a Pushover account and install the mobile app
-2. Create an application in Pushover to get an API token
-3. Set the following environment variables:
-   - `PUSHOVER_APP_TOKEN`: Your Pushover application API token
-   - `PUSHOVER_USER_KEY`: Your Pushover user or group key
+1. **Create a Pushover account** and install the mobile app
+2. **Create an application** in Pushover to get an API token and user key
+3. **Create secret files** with your credentials:
+   ```bash
+   echo "your_app_token_here" > pushover_app_token.txt
+   echo "your_user_key_here" > pushover_user_key.txt
+   ```
+4. **Update config.yml** and set `pushover.enabled: true`
+5. **Update docker-compose.yml** to mount the secrets (uncomment the secrets sections)
 
-If these environment variables are not set, the application will run normally without sending notifications.
-
-**Docker Compose Example:**
+**Docker Compose with Secrets:**
 
 ```yaml
 services:
@@ -92,21 +107,22 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: posse
-    environment:
-      - PUSHOVER_APP_TOKEN=your_app_token_here
-      - PUSHOVER_USER_KEY=your_user_key_here
     volumes:
       - .:/app
+      - ./config.yml:/app/config.yml:ro
+    secrets:
+      - pushover_app_token
+      - pushover_user_key
     command: poetry run posse
+
+secrets:
+  pushover_app_token:
+    file: ./pushover_app_token.txt
+  pushover_user_key:
+    file: ./pushover_user_key.txt
 ```
 
-**Or set environment variables directly:**
-
-```bash
-export PUSHOVER_APP_TOKEN=your_app_token_here
-export PUSHOVER_USER_KEY=your_user_key_here
-docker compose up
-```
+If Pushover is not enabled in config.yml, the application will run normally without sending notifications.
 
 ### Notifications Sent
 

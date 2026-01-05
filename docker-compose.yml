@@ -6,6 +6,11 @@ services:
     container_name: posse 
     volumes:
       - .:/app
+      - ./config.yml:/app/config.yml:ro
+    # Uncomment secrets to enable Pushover notifications
+    # secrets:
+    #   - pushover_app_token
+    #   - pushover_user_key
     command: poetry run posse
     stdin_open: true
     tty: true
@@ -17,6 +22,20 @@ services:
     container_name: posse-test
     volumes:
       - .:/app
+      - ./config.yml:/app/config.yml:ro
     command: poetry run pytest
     profiles:
       - test
+
+# Docker secrets for Pushover credentials
+# To use secrets:
+# 1. Create secret files with your credentials:
+#    echo "your_app_token" > pushover_app_token.txt
+#    echo "your_user_key" > pushover_user_key.txt
+# 2. Uncomment the secrets section in the app service above
+# 3. Set pushover.enabled to true in config.yml
+# secrets:
+#   pushover_app_token:
+#     file: ./pushover_app_token.txt
+#   pushover_user_key:
+#     file: ./pushover_user_key.txt
