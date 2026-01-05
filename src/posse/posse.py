@@ -109,9 +109,12 @@ def main() -> None:
     # Import Gunicorn application for production deployment
     # This replaces the Flask development server with a production-ready WSGI server
     from gunicorn.app.base import BaseApplication
-    from ghost.ghost import app
+    from ghost.ghost import create_app
     import sys
     import os
+    
+    # Create Flask app with events_queue passed as dependency
+    app = create_app(events_queue)
     
     # Load Gunicorn configuration from ghost package
     config_path = os.path.join(os.path.dirname(__file__), '..', 'ghost', 'gunicorn_config.py')

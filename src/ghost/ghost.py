@@ -24,9 +24,11 @@ Schema Validation:
     - Type constraints and format validation (e.g., date-time, URIs)
 
 Events Queue:
-    Valid posts are pushed to the events_queue from posse.posse module.
+    Valid posts are pushed to an events_queue instance passed via the app factory.
     This queue will be consumed by Mastodon and Bluesky agents (to be implemented)
     for cross-posting to social media platforms.
+    
+    The queue is injected through create_app(events_queue) and stored in app.config.
     
 Logging Strategy:
     - Handler: FileHandler (ghost_posts.log) + StreamHandler (console)
@@ -80,12 +82,12 @@ Classes:
 import json
 import logging
 from typing import Any, Dict
+from queue import Queue
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, current_app
 from jsonschema import validate, ValidationError, Draft7Validator
 
 from schema import GHOST_POST_SCHEMA
-from posse.posse import events_queue
 
 # Configure logging with both file and console output
 # This ensures webhook activity is both saved to disk and visible in real-time
@@ -105,9 +107,189 @@ logger = logging.getLogger(__name__)
 # the path to the failing field and the specific constraint violated
 validator = Draft7Validator(GHOST_POST_SCHEMA)
 
-# Initialize Flask application
-# The app will be imported by gunicorn/uwsgi in production
-app = Flask(__name__)
+
+def create_app(events_queue: Queue) -> Flask:
+    """Factory function to create and configure the Flask application.
+    
+    This factory pattern allows dependency injection of the events_queue,
+    avoiding circular imports and making the app easier to test.
+    
+    Args:
+        events_queue: Thread-safe Queue instance for validated Ghost posts
+        
+    Returns:
+        Configured Flask application instance with webhook and health endpoints
+        
+    Example:
+        >>> from queue import Queue
+        >>> queue = Queue()
+        >>> app = create_app(queue)
+        >>> # Use app with test client or run with Gunicorn
+    """
+    app = Flask(__name__)
+    
+    # Store events_queue in app config for access in route handlers
+    app.config['EVENTS_QUEUE'] = events_queue
+    
+    @app.route('/webhook/ghost', methods=['POST'])
+    def receive_ghost_post():
+        """Webhook endpoint to receive Ghost post notifications.
+        
+        This is the main webhook endpoint that Ghost will POST to whenever
+        a post event occurs (published, updated, deleted). The handler:
+        
+        1. Validates Content-Type is application/json
+        2. Parses the JSON payload
+        3. Validates against Ghost post schema
+        4. Logs the post reception (INFO level)
+        5. Logs full payload (DEBUG level)
+        6. Pushes validated post to events queue for syndication
+        7. Returns success response with post ID
+        
+        Request Format:
+            POST /webhook/ghost
+            Content-Type: application/json
+            
+            {
+              "id": "string",
+              "title": "string",
+              "slug": "string",
+              "content": "string",
+              "url": "string",
+              "created_at": "ISO-8601 datetime",
+              "updated_at": "ISO-8601 datetime",
+              ... (additional optional fields)
+            }
+        
+        Success Response (200):
+            {
+              "status": "success",
+              "message": "Post received and validated",
+              "post_id": "507f1f77bcf86cd799439011"
+            }
+        
+        Error Response (400 - Validation Failed):
+            {
+              "status": "error",
+              "message": "Invalid Ghost post payload",
+              "details": "Schema validation failed: ..."
+            }
+        
+        Error Response (400 - Non-JSON):
+            {
+              "error": "Content-Type must be application/json"
+            }
+        
+        Error Response (500 - Internal Error):
+            {
+              "status": "error",
+              "message": "Internal server error"
+            }
+        
+        Returns:
+            tuple: (JSON response dict, HTTP status code)
+                - 200 on success
+                - 400 on validation error or bad request
+                - 500 on unexpected server error
+                
+        Side Effects:
+            - Logs INFO message with post id and title
+            - Logs DEBUG message with full payload JSON
+            - Pushes validated post to events_queue for syndication
+            - Logs ERROR message on validation failure
+            
+        Example:
+            $ curl -X POST http://localhost:5000/webhook/ghost \\
+                   -H "Content-Type: application/json" \\
+                   -d '{"id":"123","title":"Test",...}'
+        """
+        try:
+            # Step 1: Validate Content-Type header
+            # Ghost should send application/json, but verify to prevent errors
+            if not request.is_json:
+                logger.error("Received non-JSON payload")
+                return jsonify({"error": "Content-Type must be application/json"}), 400
+            
+            # Step 2: Parse JSON body from request
+            # Flask's get_json() handles parsing and returns None if invalid
+            payload = request.get_json()
+            
+            # Step 3: Validate payload against Ghost post schema
+            # This will raise GhostPostValidationError if validation fails
+            validate_ghost_post(payload)
+            
+            # Step 4: Extract key fields for logging
+            # Navigate nested structure: payload.post.current contains the post data
+            post_data = payload.get('post', {}).get('current', {})
+            post_id = post_data.get('id', 'unknown')
+            post_title = post_data.get('title', 'untitled')
+            
+            # Step 5: Log successful reception at INFO level
+            # This provides a concise audit trail of received posts
+            logger.info(f"Received Ghost post: id={post_id}, title='{post_title}'")
+            
+            # Step 6: Log full payload at DEBUG level
+            # Pretty-print JSON for readability (indent=2)
+            # This is verbose but crucial for debugging processing issues
+            logger.debug(f"Ghost post payload: {json.dumps(payload, indent=2)}")
+            
+            # Step 7: Push validated post to events queue
+            # The queue will be consumed by Mastodon and Bluesky agents
+            events_queue = current_app.config['EVENTS_QUEUE']
+            events_queue.put(payload)
+            logger.debug(f"Post queued for syndication: id={post_id}")
+            
+            # Step 8: Return success response with post metadata
+            return jsonify({
+                "status": "success",
+                "message": "Post received and validated",
+                "post_id": post_id
+            }), 200
+            
+        except GhostPostValidationError as e:
+            # Schema validation failed - log at ERROR level
+            # The error message includes which field failed and why
+            logger.error(f"Payload validation failed: {str(e)}")
+            return jsonify({
+                "status": "error",
+                "message": "Invalid Ghost post payload",
+                "details": str(e)
+            }), 400
+            
+        except Exception as e:
+            # Unexpected error (parsing, I/O, etc.)
+            # Log with full traceback for debugging (exc_info=True)
+            logger.error(f"Unexpected error processing Ghost post: {str(e)}", exc_info=True)
+            return jsonify({
+                "status": "error",
+                "message": "Internal server error"
+            }), 500
+    
+    @app.route('/health', methods=['GET'])
+    def health_check():
+        """Health check endpoint for monitoring and load balancers.
+        
+        Simple endpoint that returns 200 OK if the service is running.
+        Used by:
+        - Container orchestration (Kubernetes, Docker Swarm)
+        - Load balancers (HAProxy, nginx)
+        - Monitoring systems (Prometheus, Nagios)
+        
+        Returns:
+            tuple: (JSON response, 200 status code)
+            
+        Example:
+            $ curl http://localhost:5000/health
+            {"status": "healthy"}
+        """
+        return jsonify({"status": "healthy"}), 200
+    
+    return app
+
+
+# Create default app instance for backwards compatibility and testing
+# This will be replaced in production by create_app() with the actual queue
+app = create_app(Queue())
 
 
 class GhostPostValidationError(Exception):
@@ -165,156 +347,3 @@ def validate_ghost_post(payload: Dict[str, Any]) -> None:
         error_msg = f"Schema validation failed: {e.message} at path: {'.'.join(str(p) for p in e.path)}"
         raise GhostPostValidationError(error_msg) from e
 
-
-@app.route('/webhook/ghost', methods=['POST'])
-def receive_ghost_post():
-    """Webhook endpoint to receive Ghost post notifications.
-    
-    This is the main webhook endpoint that Ghost will POST to whenever
-    a post event occurs (published, updated, deleted). The handler:
-    
-    1. Validates Content-Type is application/json
-    2. Parses the JSON payload
-    3. Validates against Ghost post schema
-    4. Logs the post reception (INFO level)
-    5. Logs full payload (DEBUG level)
-    6. Pushes validated post to events queue for syndication
-    7. Returns success response with post ID
-    
-    Request Format:
-        POST /webhook/ghost
-        Content-Type: application/json
-        
-        {
-          "id": "string",
-          "title": "string",
-          "slug": "string",
-          "content": "string",
-          "url": "string",
-          "created_at": "ISO-8601 datetime",
-          "updated_at": "ISO-8601 datetime",
-          ... (additional optional fields)
-        }
-    
-    Success Response (200):
-        {
-          "status": "success",
-          "message": "Post received and validated",
-          "post_id": "507f1f77bcf86cd799439011"
-        }
-    
-    Error Response (400 - Validation Failed):
-        {
-          "status": "error",
-          "message": "Invalid Ghost post payload",
-          "details": "Schema validation failed: ..."
-        }
-    
-    Error Response (400 - Non-JSON):
-        {
-          "error": "Content-Type must be application/json"
-        }
-    
-    Error Response (500 - Internal Error):
-        {
-          "status": "error",
-          "message": "Internal server error"
-        }
-    
-    Returns:
-        tuple: (JSON response dict, HTTP status code)
-            - 200 on success
-            - 400 on validation error or bad request
-            - 500 on unexpected server error
-            
-    Side Effects:
-        - Logs INFO message with post id and title
-        - Logs DEBUG message with full payload JSON
-        - Pushes validated post to events_queue for syndication
-        - Logs ERROR message on validation failure
-        
-    Example:
-        $ curl -X POST http://localhost:5000/webhook/ghost \\
-               -H "Content-Type: application/json" \\
-               -d '{"id":"123","title":"Test",...}'
-    """
-    try:
-        # Step 1: Validate Content-Type header
-        # Ghost should send application/json, but verify to prevent errors
-        if not request.is_json:
-            logger.error("Received non-JSON payload")
-            return jsonify({"error": "Content-Type must be application/json"}), 400
-        
-        # Step 2: Parse JSON body from request
-        # Flask's get_json() handles parsing and returns None if invalid
-        payload = request.get_json()
-        
-        # Step 3: Validate payload against Ghost post schema
-        # This will raise GhostPostValidationError if validation fails
-        validate_ghost_post(payload)
-        
-        # Step 4: Extract key fields for logging
-        # Navigate nested structure: payload.post.current contains the post data
-        post_data = payload.get('post', {}).get('current', {})
-        post_id = post_data.get('id', 'unknown')
-        post_title = post_data.get('title', 'untitled')
-        
-        # Step 5: Log successful reception at INFO level
-        # This provides a concise audit trail of received posts
-        logger.info(f"Received Ghost post: id={post_id}, title='{post_title}'")
-        
-        # Step 6: Log full payload at DEBUG level
-        # Pretty-print JSON for readability (indent=2)
-        # This is verbose but crucial for debugging processing issues
-        logger.debug(f"Ghost post payload: {json.dumps(payload, indent=2)}")
-        
-        # Step 7: Push validated post to events queue
-        # The queue will be consumed by Mastodon and Bluesky agents
-        events_queue.put(payload)
-        logger.debug(f"Post queued for syndication: id={post_id}")
-        
-        # Step 8: Return success response with post metadata
-        return jsonify({
-            "status": "success",
-            "message": "Post received and validated",
-            "post_id": post_id
-        }), 200
-        
-    except GhostPostValidationError as e:
-        # Schema validation failed - log at ERROR level
-        # The error message includes which field failed and why
-        logger.error(f"Payload validation failed: {str(e)}")
-        return jsonify({
-            "status": "error",
-            "message": "Invalid Ghost post payload",
-            "details": str(e)
-        }), 400
-        
-    except Exception as e:
-        # Unexpected error (parsing, I/O, etc.)
-        # Log with full traceback for debugging (exc_info=True)
-        logger.error(f"Unexpected error processing Ghost post: {str(e)}", exc_info=True)
-        return jsonify({
-            "status": "error",
-            "message": "Internal server error"
-        }), 500
-
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Health check endpoint for monitoring and load balancers.
-    
-    Simple endpoint that returns 200 OK if the service is running.
-    Used by:
-    - Container orchestration (Kubernetes, Docker Swarm)
-    - Load balancers (HAProxy, nginx)
-    - Monitoring systems (Prometheus, Nagios)
-    
-    Returns:
-        tuple: (JSON response, 200 status code)
-        
-    Example:
-        $ curl http://localhost:5000/health
-        {"status": "healthy"}
-    """
-    return jsonify({"status": "healthy"}), 200
