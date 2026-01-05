@@ -55,7 +55,14 @@ class PushoverNotifier:
         ...     notifier.notify_post_received("Welcome Post", "welcome")
     """
     
+    # Pushover API endpoint
     PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json"
+    
+    # Pushover field length limits
+    MAX_TITLE_LENGTH = 250
+    MAX_MESSAGE_LENGTH = 1024
+    MAX_URL_LENGTH = 512
+    MAX_URL_TITLE_LENGTH = 100
     
     def __init__(self, app_token: Optional[str] = None, user_key: Optional[str] = None):
         """Initialize Pushover notifier with credentials.
@@ -72,7 +79,7 @@ class PushoverNotifier:
         """
         self.app_token = app_token or os.environ.get('PUSHOVER_APP_TOKEN')
         self.user_key = user_key or os.environ.get('PUSHOVER_USER_KEY')
-        self.enabled = bool(self.app_token and self.user_key)
+        self.enabled = self.app_token is not None and self.user_key is not None
         
         if not self.enabled:
             logger.warning(
@@ -120,15 +127,15 @@ class PushoverNotifier:
             payload = {
                 "token": self.app_token,
                 "user": self.user_key,
-                "title": title[:250],  # Enforce Pushover limit
-                "message": message[:1024],  # Enforce Pushover limit
+                "title": title[:self.MAX_TITLE_LENGTH],
+                "message": message[:self.MAX_MESSAGE_LENGTH],
                 "priority": priority,
             }
             
             if url:
-                payload["url"] = url[:512]  # Enforce Pushover limit
+                payload["url"] = url[:self.MAX_URL_LENGTH]
                 if url_title:
-                    payload["url_title"] = url_title[:100]  # Enforce Pushover limit
+                    payload["url_title"] = url_title[:self.MAX_URL_TITLE_LENGTH]
             
             response = requests.post(
                 self.PUSHOVER_API_URL,
