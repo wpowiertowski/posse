@@ -8,29 +8,28 @@ for important events in the POSSE workflow, such as:
 - Validation errors or system issues
 
 Pushover Configuration:
-    Requires two environment variables:
-    - PUSHOVER_APP_TOKEN: Your Pushover application API token
-    - PUSHOVER_USER_KEY: Your Pushover user/group key
+    Configure via config.yml:
+    - pushover.enabled: Set to true to enable notifications
+    - pushover.app_token_file: Path to Docker secret for app token
+    - pushover.user_key_file: Path to Docker secret for user key
 
 Usage:
-    >>> notifier = PushoverNotifier()
+    >>> from config import load_config
+    >>> config = load_config()
+    >>> notifier = PushoverNotifier.from_config(config)
     >>> notifier.notify_post_received("Post Title", "post-slug")
-    
-    >>> notifier.notify_post_queued("Post Title", "https://example.com/post")
-    
-    >>> notifier.notify_validation_error("Missing required field")
 
 API Reference:
     Pushover API: https://pushover.net/api
     
 Security:
-    - Credentials are loaded from environment variables only
+    - Credentials are loaded from Docker secrets
     - No credentials are logged or stored in code
     - API token and user key should be kept secret
 """
 import os
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any
 import requests
 
 
@@ -64,30 +63,71 @@ class PushoverNotifier:
     MAX_URL_LENGTH = 512
     MAX_URL_TITLE_LENGTH = 100
     
-    def __init__(self, app_token: Optional[str] = None, user_key: Optional[str] = None):
+    def __init__(self, app_token: Optional[str] = None, user_key: Optional[str] = None, 
+                 config_enabled: bool = True):
         """Initialize Pushover notifier with credentials.
         
         Args:
             app_token: Pushover application API token. If None, reads from 
-                      PUSHOVER_APP_TOKEN environment variable.
+                      PUSHOVER_APP_TOKEN environment variable (for backwards compatibility).
             user_key: Pushover user/group key. If None, reads from 
-                     PUSHOVER_USER_KEY environment variable.
-                     
+                     PUSHOVER_USER_KEY environment variable (for backwards compatibility).
+            config_enabled: Whether Pushover is enabled in config.yml (default: True)
+                      
         Note:
-            If either credential is missing, notifications will be disabled
-            and methods will log warnings instead of sending notifications.
+            Notifications will be disabled if:
+            - config_enabled is False
+            - Either credential is missing
         """
         self.app_token = app_token or os.environ.get('PUSHOVER_APP_TOKEN')
         self.user_key = user_key or os.environ.get('PUSHOVER_USER_KEY')
-        self.enabled = self.app_token is not None and self.user_key is not None
+        self.enabled = (config_enabled and 
+                       self.app_token is not None and 
+                       self.user_key is not None)
         
-        if not self.enabled:
+        if not config_enabled:
+            logger.info("Pushover notifications disabled via config.yml")
+        elif not self.enabled:
             logger.warning(
-                "Pushover notifications disabled: missing PUSHOVER_APP_TOKEN "
-                "or PUSHOVER_USER_KEY environment variables"
+                "Pushover notifications disabled: missing credentials"
             )
         else:
             logger.info("Pushover notifications enabled")
+    
+    @classmethod
+    def from_config(cls, config: Dict[str, Any]) -> 'PushoverNotifier':
+        """Create PushoverNotifier from configuration dictionary.
+        
+        This factory method reads configuration from config.yml and Docker secrets
+        to initialize the notifier.
+        
+        Args:
+            config: Configuration dictionary from config.yml
+            
+        Returns:
+            Initialized PushoverNotifier instance
+            
+        Example:
+            >>> from config import load_config
+            >>> config = load_config()
+            >>> notifier = PushoverNotifier.from_config(config)
+        """
+        from config import read_secret_file
+        
+        pushover_config = config.get('pushover', {})
+        enabled = pushover_config.get('enabled', False)
+        
+        if not enabled:
+            return cls(config_enabled=False)
+        
+        # Read credentials from Docker secrets
+        app_token_file = pushover_config.get('app_token_file', '/run/secrets/pushover_app_token')
+        user_key_file = pushover_config.get('user_key_file', '/run/secrets/pushover_user_key')
+        
+        app_token = read_secret_file(app_token_file)
+        user_key = read_secret_file(user_key_file)
+        
+        return cls(app_token=app_token, user_key=user_key, config_enabled=True)
     
     def _send_notification(
         self,

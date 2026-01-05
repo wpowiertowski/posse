@@ -284,3 +284,72 @@ class TestPushoverNotifier:
         
         # Verify timeout is set
         assert mock_post.call_args[1]['timeout'] == 10
+
+    def test_from_config_disabled(self):
+        """Test creating notifier from config when disabled."""
+        config = {
+            'pushover': {
+                'enabled': False
+            }
+        }
+        
+        notifier = PushoverNotifier.from_config(config)
+        assert notifier.enabled is False
+    
+    @patch('config.read_secret_file')
+    def test_from_config_enabled_with_secrets(self, mock_read_secret):
+        """Test creating notifier from config with Docker secrets."""
+        # Mock reading secret files
+        mock_read_secret.side_effect = lambda path: {
+            '/run/secrets/pushover_app_token': 'test_token',
+            '/run/secrets/pushover_user_key': 'test_key'
+        }.get(path)
+        
+        config = {
+            'pushover': {
+                'enabled': True,
+                'app_token_file': '/run/secrets/pushover_app_token',
+                'user_key_file': '/run/secrets/pushover_user_key'
+            }
+        }
+        
+        notifier = PushoverNotifier.from_config(config)
+        assert notifier.enabled is True
+        assert notifier.app_token == 'test_token'
+        assert notifier.user_key == 'test_key'
+    
+    @patch('config.read_secret_file')
+    def test_from_config_enabled_but_secrets_missing(self, mock_read_secret):
+        """Test creating notifier from config when secrets are missing."""
+        # Mock secret files not found
+        mock_read_secret.return_value = None
+        
+        config = {
+            'pushover': {
+                'enabled': True,
+                'app_token_file': '/run/secrets/pushover_app_token',
+                'user_key_file': '/run/secrets/pushover_user_key'
+            }
+        }
+        
+        notifier = PushoverNotifier.from_config(config)
+        # Should be disabled because secrets are missing
+        assert notifier.enabled is False
+    
+    def test_config_enabled_parameter(self):
+        """Test that config_enabled parameter controls notifications."""
+        # With config disabled, even with valid credentials
+        notifier = PushoverNotifier(
+            app_token="test_token",
+            user_key="test_key",
+            config_enabled=False
+        )
+        assert notifier.enabled is False
+        
+        # With config enabled and valid credentials
+        notifier = PushoverNotifier(
+            app_token="test_token",
+            user_key="test_key",
+            config_enabled=True
+        )
+        assert notifier.enabled is True

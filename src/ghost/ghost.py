@@ -89,6 +89,7 @@ from jsonschema import validate, ValidationError, Draft7Validator
 
 from schema import GHOST_POST_SCHEMA
 from notifications.pushover import PushoverNotifier
+from config import load_config
 
 # Configure logging with both file and console output
 # This ensures webhook activity is both saved to disk and visible in real-time
@@ -132,9 +133,10 @@ def create_app(events_queue: Queue) -> Flask:
     # Store events_queue in app config for access in route handlers
     app.config['EVENTS_QUEUE'] = events_queue
     
-    # Initialize Pushover notifier for push notifications
-    # Will be disabled if PUSHOVER_APP_TOKEN or PUSHOVER_USER_KEY env vars are not set
-    notifier = PushoverNotifier()
+    # Load configuration and initialize Pushover notifier
+    # Reads from config.yml and Docker secrets
+    config = load_config()
+    notifier = PushoverNotifier.from_config(config)
     app.config['PUSHOVER_NOTIFIER'] = notifier
     
     @app.route('/webhook/ghost', methods=['POST'])
