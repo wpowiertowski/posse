@@ -287,8 +287,9 @@ def create_app(events_queue: Queue) -> Flask:
     return app
 
 
-# Create default app instance for backwards compatibility and testing
-# This will be replaced in production by create_app() with the actual queue
+# Create default app instance with a temporary queue
+# This instance is used for module-level imports and fallback scenarios.
+# In production, posse.py calls create_app(events_queue) with the real queue.
 app = create_app(Queue())
 
 
