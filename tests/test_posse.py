@@ -11,6 +11,7 @@ WSGI server that accepts Ghost post notifications.
 Test Coverage:
     - Module imports work correctly
     - main function is callable (actual execution tested via integration/manual tests)
+    - Events queue is available and functional
     
 Note: The main() function starts a blocking Gunicorn server, so unit testing
       its execution is not practical. Integration testing is done via:
@@ -19,7 +20,7 @@ Note: The main() function starts a blocking Gunicorn server, so unit testing
       - End-to-end testing: curl POST to /webhook/ghost endpoint
       
       The webhook receiver itself is thoroughly tested in test_ghost.py with
-      8 tests covering valid posts, invalid payloads, schema validation, etc.
+      tests covering valid posts, invalid payloads, schema validation, etc.
 
 Future tests will cover:
     - Post processing and filtering logic (when implemented)
@@ -33,9 +34,10 @@ Running Tests:
 """
 
 import pytest
+from queue import Queue
 
 # Import functions being tested
-from posse.posse import main
+from posse.posse import main, events_queue
 
 
 def test_module_imports():
@@ -52,7 +54,7 @@ def test_module_imports():
     Note: This test doesn't execute main() because it's a blocking
           call that starts a Gunicorn server. The actual webhook
           functionality is tested via:
-          - test_ghost.py (8 tests for webhook receiver)
+          - test_ghost.py (tests for webhook receiver)
           - Integration tests (docker compose up + curl)
     """
     # These imports should not raise any exceptions
@@ -71,4 +73,52 @@ def test_module_imports():
         from ghost.ghost import app
     except ImportError as e:
         pytest.fail(f"Required dependency not available: {e}")
+
+
+def test_events_queue_exists():
+    """Test that events_queue is available and is a Queue instance.
+    
+    The events_queue is the core data structure for passing validated Ghost
+    posts from the webhook receiver to the Mastodon and Bluesky agents.
+    
+    Verifies:
+    1. events_queue can be imported from posse.posse
+    2. events_queue is an instance of Queue
+    3. events_queue is ready to accept items
+    """
+    # Verify events_queue can be imported
+    from posse.posse import events_queue
+    
+    # Verify it's a Queue instance
+    assert isinstance(events_queue, Queue), "events_queue should be a Queue instance"
+    
+    # Verify queue is functional (can accept items)
+    # We test this by putting an item and immediately getting it back
+    test_item = {"test": "data"}
+    events_queue.put(test_item)
+    retrieved_item = events_queue.get(timeout=1)
+    assert retrieved_item == test_item, "Queue should preserve items"
+
+
+def test_events_queue_is_thread_safe():
+    """Test that events_queue is thread-safe (Queue class property).
+    
+    The Queue class from Python's queue module is inherently thread-safe,
+    which is important because the webhook receiver (Flask) may handle
+    multiple requests concurrently, and the Mastodon/Bluesky agents will
+    consume from the queue in separate threads.
+    
+    This test verifies that the events_queue is an instance of the
+    thread-safe Queue class, not a simple list or other non-thread-safe
+    data structure.
+    """
+    # Verify events_queue is a Queue (which is thread-safe by design)
+    assert isinstance(events_queue, Queue), \
+        "events_queue must be a Queue for thread-safety"
+    
+    # Verify it has Queue's thread-safe methods
+    assert hasattr(events_queue, 'put'), "Queue should have put method"
+    assert hasattr(events_queue, 'get'), "Queue should have get method"
+    assert hasattr(events_queue, 'empty'), "Queue should have empty method"
+    assert hasattr(events_queue, 'qsize'), "Queue should have qsize method"
 

@@ -3,7 +3,8 @@ Unit Tests for Ghost Webhook Receiver.
 
 This test suite validates the Ghost webhook receiver functionality,
 ensuring that incoming Ghost post webhooks are properly received,
-validated against the JSON schema, and logged appropriately.
+validated against the JSON schema, logged appropriately, and queued
+for syndication.
 
 Test Coverage:
     - Endpoint availability (health check)
@@ -13,6 +14,7 @@ Test Coverage:
     - Content-Type validation
     - Response format verification
     - Validation function testing
+    - Events queue integration (valid posts queued, invalid posts not queued)
 
 Testing Strategy:
     Uses Flask's test client to simulate HTTP requests without
@@ -349,3 +351,86 @@ def test_post_with_optional_fields(client):
     # Verify response includes the post ID
     assert data['post_id'] == 'minimal123', \
         "Response should include correct post ID from nested structure"
+
+
+def test_valid_post_pushed_to_queue(client, valid_post_payload):
+    """Test that valid posts are pushed to the events queue.
+    
+    When a valid Ghost post is received, it should be pushed to the
+    events_queue for consumption by Mastodon and Bluesky agents.
+    
+    This test verifies:
+    1. Queue starts empty
+    2. Valid post is accepted (200 OK)
+    3. Post payload is added to the queue
+    4. Queued item matches the received payload
+    """
+    from posse.posse import events_queue
+    
+    # Clear the queue before test (in case previous tests left items)
+    while not events_queue.empty():
+        events_queue.get()
+    
+    # Verify queue is empty
+    assert events_queue.empty(), "Queue should be empty at start of test"
+    
+    # Send valid post to webhook
+    response = client.post(
+        '/webhook/ghost',
+        json=valid_post_payload,
+        content_type='application/json'
+    )
+    
+    # Verify request succeeded
+    assert response.status_code == 200, "Valid post should return 200 OK"
+    
+    # Verify item was added to queue
+    assert not events_queue.empty(), "Queue should contain the posted item"
+    
+    # Get item from queue and verify it matches the payload
+    queued_item = events_queue.get(timeout=1)
+    assert queued_item == valid_post_payload, \
+        "Queued item should match the posted payload"
+
+
+def test_invalid_post_not_queued(client):
+    """Test that invalid posts are not added to the events queue.
+    
+    When a post fails validation, it should:
+    1. Return 400 error
+    2. NOT be added to the events queue
+    
+    This ensures only valid, schema-compliant posts are syndicated.
+    """
+    from posse.posse import events_queue
+    
+    # Clear the queue before test
+    while not events_queue.empty():
+        events_queue.get()
+    
+    # Verify queue is empty
+    initial_size = events_queue.qsize()
+    
+    # Send invalid post (missing required fields)
+    invalid_payload = {
+        "post": {
+            "current": {
+                "id": "123",
+                "title": "Test"
+                # Missing required fields
+            }
+        }
+    }
+    
+    response = client.post(
+        '/webhook/ghost',
+        json=invalid_payload,
+        content_type='application/json'
+    )
+    
+    # Verify request was rejected
+    assert response.status_code == 400, "Invalid post should return 400"
+    
+    # Verify queue size didn't change (no item added)
+    assert events_queue.qsize() == initial_size, \
+        "Invalid post should not be added to queue"
