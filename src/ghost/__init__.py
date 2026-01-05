@@ -39,6 +39,6 @@ Logging:
     - DEBUG: Full payload details
     - ERROR: Validation failures and exceptions
 """
-from .ghost import app, main
+from .ghost import app
 
-__all__ = ["app", "main"]
+__all__ = ["app"]

@@ -245,9 +245,10 @@ def receive_ghost_post():
         validate_ghost_post(payload)
         
         # Step 4: Extract key fields for logging
-        # Use .get() with defaults to handle missing optional fields safely
-        post_id = payload.get('id', 'unknown')
-        post_title = payload.get('title', 'untitled')
+        # Navigate nested structure: payload.post.current contains the post data
+        post_data = payload.get('post', {}).get('current', {})
+        post_id = post_data.get('id', 'unknown')
+        post_title = post_data.get('title', 'untitled')
         
         # Step 5: Log successful reception at INFO level
         # This provides a concise audit trail of received posts
@@ -303,39 +304,3 @@ def health_check():
         {"status": "healthy"}
     """
     return jsonify({"status": "healthy"}), 200
-
-
-def main():
-    """Start the Flask application server.
-    
-    Entry point for the ghost-webhook console script. Starts the Flask
-    development server on all interfaces (0.0.0.0) at port 5000.
-    
-    Configuration:
-        host='0.0.0.0': Listen on all network interfaces (accessible externally)
-        port=5000: Default Flask port
-        debug=False: Disable debug mode for production-like behavior
-        
-    Note:
-        This uses Flask's built-in development server, which is NOT suitable
-        for production. In production, use:
-        - gunicorn: $ gunicorn -w 4 -b 0.0.0.0:5000 ghost.ghost:app
-        - uwsgi: $ uwsgi --http :5000 --wsgi-file ghost/ghost.py --callable app
-        - Docker: See Dockerfile for container deployment
-        
-    The server will log startup information and begin accepting webhooks.
-    Press Ctrl+C to stop the server gracefully.
-    
-    Example:
-        $ poetry run ghost-webhook
-        Starting Ghost webhook receiver on port 5000
-        * Running on http://0.0.0.0:5000/ (Press CTRL+C to quit)
-    """
-    logger.info("Starting Ghost webhook receiver on port 5000")
-    app.run(host='0.0.0.0', port=5000, debug=False)
-
-
-# Allow running directly as a script for development
-# Example: $ python -m ghost.ghost
-if __name__ == '__main__':
-    main()

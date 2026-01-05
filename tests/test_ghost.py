@@ -155,7 +155,7 @@ def test_receive_valid_post(client, valid_post_payload):
     # Verify response structure and content
     assert data['status'] == 'success', "Response status should be 'success'"
     assert data['message'] == 'Post received and validated', "Response should confirm receipt"
-    assert data['post_id'] == valid_post_payload['id'], "Response should include post ID"
+    assert data['post_id'] == valid_post_payload['post']['current']['id'], "Response should include post ID"
 
 
 def test_receive_non_json_payload(client):
@@ -191,23 +191,23 @@ def test_receive_non_json_payload(client):
 def test_receive_invalid_schema(client):
     """Test that payload missing required fields fails validation.
     
-    Ghost posts must include certain required fields according to the
-    JSON schema. This test verifies that posts missing required fields
-    are rejected with appropriate error messages.
+    Ghost webhook payloads must include a nested structure with post.current
+    and post.previous objects. This test verifies that posts missing required
+    fields are rejected with appropriate error messages.
     
-    The test uses a minimal invalid payload that only includes 'id'
-    and 'title' but is missing:
-    - slug (required)
-    - content (required)
-    - url (required)
-    - created_at (required)
-    - updated_at (required)
+    The test uses a minimal invalid payload that is missing the required
+    nested structure and fields.
     """
-    # Create invalid payload missing required fields
+    # Create invalid payload missing required nested structure
     invalid_payload = {
-        "id": "123",
-        "title": "Test"
-        # Missing: slug, content, url, created_at, updated_at
+        "post": {
+            "current": {
+                "id": "123",
+                "title": "Test"
+                # Missing: uuid, slug, status, url, created_at, updated_at
+            }
+            # Missing: previous
+        }
     }
     
     # Send POST request with invalid payload
@@ -283,8 +283,8 @@ def test_validate_ghost_post_failure():
     2. Capture the exception for inspection
     3. Check the error message contains useful information
     """
-    # Create invalid payload (only has 'id', missing all other required fields)
-    invalid_payload = {"id": "123"}
+    # Create invalid payload (missing required nested structure)
+    invalid_payload = {"invalid": "structure"}
     
     # Use pytest context manager to catch the expected exception
     with pytest.raises(GhostPostValidationError) as exc_info:
@@ -299,8 +299,8 @@ def test_validate_ghost_post_failure():
 def test_post_with_optional_fields(client):
     """Test post with only required fields (no optional fields) is valid.
     
-    The Ghost post schema defines some fields as required and others as
-    optional. This test verifies that a minimal valid post containing
+    The Ghost webhook schema defines some fields as required and others as
+    optional. This test verifies that a minimal valid webhook payload containing
     only required fields is accepted.
     
     This is important because:
@@ -309,21 +309,27 @@ def test_post_with_optional_fields(client):
     - Schema validation should not enforce optional fields
     
     Required fields tested:
-        - id, title, slug, content, url, created_at, updated_at
+        - post.current: id, uuid, title, slug, status, url, created_at, updated_at
+        - post.previous: (object, can be empty)
     
     Omitted optional fields:
-        - tags, primary_tag, primary_author, featured, page,
+        - html, plaintext, tags, primary_tag, primary_author, featured,
           feature_image, meta_title, meta_description, etc.
     """
     # Create minimal payload with only required fields
     minimal_payload = {
-        "id": "minimal123",
-        "title": "Minimal Post",
-        "slug": "minimal-post",
-        "content": "Just the basics",
-        "url": "https://example.com/minimal",
-        "created_at": "2024-01-01T00:00:00.000Z",
-        "updated_at": "2024-01-01T00:00:00.000Z"
+        "post": {
+            "current": {
+                "id": "minimal123",
+                "uuid": "uuid-minimal-123",
+                "title": "Minimal Post",
+                "slug": "minimal-post",
+                "status": "published",
+                "url": "https://example.com/minimal",
+                "created_at": "2024-01-01T00:00:00.000Z",
+                "updated_at": "2024-01-01T00:00:00.000Z"
+            }
+        }
     }
     
     # Send POST request with minimal valid payload
@@ -342,4 +348,4 @@ def test_post_with_optional_fields(client):
     
     # Verify response includes the post ID
     assert data['post_id'] == 'minimal123', \
-        "Response should include correct post ID"
+        "Response should include correct post ID from nested structure"

@@ -12,8 +12,8 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.14"
-flask = "^3.1.0"
-jsonschema = "^4.23.0"
+flask = "^3.1.2"
+jsonschema = "^4.25.1"
 gunicorn = "^23.0.0"
 
 [tool.poetry.group.dev.dependencies]

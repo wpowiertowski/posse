@@ -1,165 +1,322 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://ghost.org/schemas/post.json",
-  "title": "Ghost Post",
-  "description": "Schema for a Ghost post object in the post context",
+  "$id": "https://ghost.org/schemas/webhook-post.json",
+  "title": "Ghost Webhook Post",
+  "description": "Schema for Ghost webhook payload when a post is published or updated",
   "type": "object",
   "properties": {
-    "id": {
-      "type": "string",
-      "description": "The Object ID of the post"
-    },
-    "comment_id": {
-      "type": "string",
-      "description": "The old, pre-1.0 incremental id of a post if present, or else the new Object ID"
-    },
-    "title": {
-      "type": "string",
-      "description": "The title of your site post"
-    },
-    "slug": {
-      "type": "string",
-      "description": "Slugified version of the title (used in urls and also useful for class names)"
-    },
-    "excerpt": {
-      "type": "string",
-      "description": "A short preview of your post content"
-    },
-    "content": {
-      "type": "string",
-      "description": "The content of the post"
-    },
-    "url": {
-      "type": "string",
-      "format": "uri",
-      "description": "The web address for the post page (calculated based on permalink settings)"
-    },
-    "feature_image": {
-      "type": ["string", "null"],
-      "format": "uri",
-      "description": "The cover image associated with the post"
-    },
-    "feature_image_alt": {
-      "type": ["string", "null"],
-      "description": "Alt text for the cover image associated with the post"
-    },
-    "feature_image_caption": {
-      "type": ["string", "null"],
-      "description": "Caption for the cover image associated with the post (supports basic html)"
-    },
-    "featured": {
-      "type": "boolean",
-      "default": false,
-      "description": "Indicates a featured post"
-    },
-    "page": {
-      "type": "boolean",
-      "default": false,
-      "description": "True if the post is a page"
-    },
-    "meta_title": {
-      "type": ["string", "null"],
-      "description": "Custom meta title for the post"
-    },
-    "meta_description": {
-      "type": ["string", "null"],
-      "description": "Custom meta description for the post"
-    },
-    "published_at": {
-      "type": ["string", "null"],
-      "format": "date-time",
-      "description": "Date and time when the post was published"
-    },
-    "updated_at": {
-      "type": "string",
-      "format": "date-time",
-      "description": "Date and time when the post was last updated"
-    },
-    "created_at": {
-      "type": "string",
-      "format": "date-time",
-      "description": "Date and time when the post was created"
-    },
-    "primary_author": {
+    "post": {
       "type": "object",
-      "description": "A formatted link to the first author",
+      "description": "The post object containing current and previous state",
       "properties": {
-        "id": {
-          "type": "string",
-          "description": "The author's unique identifier"
-        },
-        "name": {
-          "type": "string",
-          "description": "The author's name"
-        },
-        "slug": {
-          "type": "string",
-          "description": "The author's slug"
-        },
-        "url": {
-          "type": "string",
-          "format": "uri",
-          "description": "The author's profile URL"
-        }
-      }
-    },
-    "tags": {
-      "type": "array",
-      "description": "A list of tags associated with the post",
-      "items": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "The tag's unique identifier"
+        "current": {
+          "type": "object",
+          "description": "Current state of the post after the event",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The Object ID of the post"
+            },
+            "uuid": {
+              "type": "string",
+              "description": "The UUID of the post"
+            },
+            "title": {
+              "type": "string",
+              "description": "The title of the post"
+            },
+            "slug": {
+              "type": "string",
+              "description": "URL-safe slug for the post"
+            },
+            "html": {
+              "type": ["string", "null"],
+              "description": "HTML content of the post"
+            },
+            "comment_id": {
+              "type": "string",
+              "description": "ID used for comments"
+            },
+            "plaintext": {
+              "type": ["string", "null"],
+              "description": "Plain text version of the post content"
+            },
+            "feature_image": {
+              "type": ["string", "null"],
+              "format": "uri",
+              "description": "URL to the featured image"
+            },
+            "featured": {
+              "type": "boolean",
+              "description": "Whether the post is featured"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["draft", "published", "scheduled"],
+              "description": "Publication status of the post"
+            },
+            "visibility": {
+              "type": "string",
+              "enum": ["public", "members", "paid"],
+              "description": "Visibility level of the post"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 timestamp when post was created"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 timestamp when post was last updated"
+            },
+            "published_at": {
+              "type": ["string", "null"],
+              "format": "date-time",
+              "description": "ISO 8601 timestamp when post was published"
+            },
+            "custom_excerpt": {
+              "type": ["string", "null"],
+              "description": "Custom excerpt for the post"
+            },
+            "codeinjection_head": {
+              "type": ["string", "null"],
+              "description": "Code injection for the head section"
+            },
+            "codeinjection_foot": {
+              "type": ["string", "null"],
+              "description": "Code injection for the footer section"
+            },
+            "custom_template": {
+              "type": ["string", "null"],
+              "description": "Custom template name"
+            },
+            "canonical_url": {
+              "type": ["string", "null"],
+              "format": "uri",
+              "description": "Canonical URL for the post"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Full URL to the post"
+            },
+            "excerpt": {
+              "type": "string",
+              "description": "Excerpt of the post"
+            },
+            "reading_time": {
+              "type": "integer",
+              "description": "Estimated reading time in minutes"
+            },
+            "authors": {
+              "type": "array",
+              "description": "List of authors for the post",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "slug": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "profile_image": {
+                    "type": ["string", "null"],
+                    "format": "uri"
+                  },
+                  "cover_image": {
+                    "type": ["string", "null"],
+                    "format": "uri"
+                  },
+                  "bio": {
+                    "type": ["string", "null"]
+                  },
+                  "website": {
+                    "type": ["string", "null"],
+                    "format": "uri"
+                  },
+                  "location": {
+                    "type": ["string", "null"]
+                  },
+                  "facebook": {
+                    "type": ["string", "null"]
+                  },
+                  "twitter": {
+                    "type": ["string", "null"]
+                  },
+                  "bluesky": {
+                    "type": ["string", "null"]
+                  },
+                  "mastodon": {
+                    "type": ["string", "null"]
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": ["id", "name", "slug"]
+              }
+            },
+            "tags": {
+              "type": "array",
+              "description": "List of tags associated with the post",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "slug": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": ["id", "name", "slug"]
+              }
+            },
+            "primary_author": {
+              "type": "object",
+              "description": "Primary author of the post",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string",
+                  "format": "email"
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": ["id", "name", "slug"]
+            },
+            "primary_tag": {
+              "type": ["object", "null"],
+              "description": "Primary tag of the post",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
+            },
+            "og_image": {
+              "type": ["string", "null"],
+              "format": "uri",
+              "description": "Open Graph image URL"
+            },
+            "og_title": {
+              "type": ["string", "null"],
+              "description": "Open Graph title"
+            },
+            "og_description": {
+              "type": ["string", "null"],
+              "description": "Open Graph description"
+            },
+            "twitter_image": {
+              "type": ["string", "null"],
+              "format": "uri",
+              "description": "Twitter card image URL"
+            },
+            "twitter_title": {
+              "type": ["string", "null"],
+              "description": "Twitter card title"
+            },
+            "twitter_description": {
+              "type": ["string", "null"],
+              "description": "Twitter card description"
+            },
+            "meta_title": {
+              "type": ["string", "null"],
+              "description": "Meta title for SEO"
+            },
+            "meta_description": {
+              "type": ["string", "null"],
+              "description": "Meta description for SEO"
+            },
+            "email_subject": {
+              "type": ["string", "null"],
+              "description": "Subject line for email"
+            },
+            "feature_image_alt": {
+              "type": ["string", "null"],
+              "description": "Alt text for featured image"
+            },
+            "feature_image_caption": {
+              "type": ["string", "null"],
+              "description": "Caption for featured image"
+            },
+            "email_only": {
+              "type": "boolean",
+              "description": "Whether post is email-only"
+            }
           },
-          "name": {
-            "type": "string",
-            "description": "The tag's name"
-          },
-          "slug": {
-            "type": "string",
-            "description": "The tag's slug"
-          },
-          "url": {
-            "type": "string",
-            "format": "uri",
-            "description": "The tag's URL"
+          "required": [
+            "id",
+            "uuid",
+            "title",
+            "slug",
+            "status",
+            "created_at",
+            "updated_at",
+            "url"
+          ]
+        },
+        "previous": {
+          "type": "object",
+          "description": "Previous state of the post before the event",
+          "properties": {
+            "status": {
+              "type": "string",
+              "description": "Previous publication status"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Previous update timestamp"
+            },
+            "published_at": {
+              "type": ["string", "null"],
+              "format": "date-time",
+              "description": "Previous published timestamp"
+            }
           }
         }
-      }
-    },
-    "primary_tag": {
-      "type": ["object", "null"],
-      "description": "Direct reference to the first tag associated with the post",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "The tag's unique identifier"
-        },
-        "name": {
-          "type": "string",
-          "description": "The tag's name"
-        },
-        "slug": {
-          "type": "string",
-          "description": "The tag's slug"
-        },
-        "url": {
-          "type": "string",
-          "format": "uri",
-          "description": "The tag's URL"
-        }
-      }
+      },
+      "required": ["current"]
     }
   },
-  "required": [
-    "id",
-    "title",
-    "slug",
-    "content",
-    "url",
-    "created_at",
-    "updated_at"
-  ]
+  "required": ["post"]
 }

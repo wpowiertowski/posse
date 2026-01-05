@@ -4,48 +4,71 @@ POSSE Core Module.
 This module provides the main entry point and core functionality
 for the POSSE (Publish Own Site, Syndicate Elsewhere) system.
 
-Currently implements the Ghost webhook receiver as the entry point,
-which listens for Ghost post notifications and will eventually:
-1. Receive posts from Ghost via webhooks
-2. Process and format posts for different platforms
-3. Publish to Mastodon and Bluesky accounts
-4. Track syndication status and handle errors
+The posse entry point embeds Gunicorn to run the Ghost webhook receiver
+as a production-ready WSGI application, which:
+1. Receives posts from Ghost via webhooks (POST /webhook/ghost)
+2. Validates posts against JSON Schema (post.current and post.previous structure)
+3. Logs post reception with full payload details
+4. Will eventually syndicate to Mastodon and Bluesky accounts
 
 Functions:
     main() -> None:
-        Entry point for the console script. Starts the Ghost webhook
-        receiver on port 5000 to listen for incoming post notifications.
+        Entry point for the console script. Starts Gunicorn with the Ghost 
+        webhook receiver Flask app on port 5000.
 
 Example:
     Run via console script:
         $ poetry run posse
-        Starting Ghost webhook receiver on port 5000
-        * Running on http://0.0.0.0:5000/
-    
-    Or import directly:
-        >>> from posse import hello
-        >>> hello()
-        'Hello world!'
+        Starting Gunicorn with extensive logging for debugging
+        Gunicorn server is ready to accept connections
 """
-
-# Import the Ghost webhook server
-from ghost.ghost import main as ghost_main
 
 
 def main() -> None:
     """Main entry point for the POSSE console command.
     
     This function is called when running 'poetry run posse' from
-    the command line. It starts the Ghost webhook receiver which
-    listens for incoming Ghost post notifications on port 5000.
+    the command line. It embeds and starts Gunicorn with the Ghost
+    webhook receiver Flask app.
+    
+    Architecture:
+        Docker → poetry run posse → posse.py main() → Gunicorn → Flask app
+        
+        This maintains posse.py as the orchestration layer that can
+        later add pre-processing, routing, or post-processing logic
+        before/after the webhook receiver.
     
     Current behavior:
-        Starts the Flask-based Ghost webhook server that:
+        Starts Gunicorn server with Ghost webhook Flask app that:
         - Listens on http://0.0.0.0:5000
-        - Accepts POST /webhook/ghost with Ghost post payloads
-        - Validates incoming posts against JSON schema
-        - Logs post reception and payload details
-        - Returns appropriate HTTP responses
+        - Accepts POST /webhook/ghost with Ghost webhook payloads
+        - Validates against JSON schema (nested post.current/post.previous structure)
+        - Logs post reception at INFO level with id and title
+        - Logs full payload at DEBUG level for debugging
+        - Returns appropriate HTTP responses (200/400/500)
+        
+    Webhook Payload Structure:
+        {
+          "post": {
+            "current": {
+              "id": "...",
+              "uuid": "...",
+              "title": "...",
+              "slug": "...",
+              "status": "published",
+              "url": "...",
+              "created_at": "...",
+              "updated_at": "...",
+              "authors": [...],
+              "tags": [...]
+            },
+            "previous": {
+              "status": "draft",
+              "updated_at": "...",
+              "published_at": null
+            }
+          }
+        }
         
     Future enhancements will:
         1. Process received posts according to tags and rules
@@ -54,12 +77,12 @@ def main() -> None:
         4. Track syndication status and handle retries
         5. Add authentication and rate limiting
         
-    The webhook receiver runs with Gunicorn for production deployment:
-        - Schema validation for data integrity
-        - Structured logging (INFO, DEBUG, ERROR levels)
-        - Health check endpoint for monitoring
-        - Appropriate error handling and HTTP status codes
-        - Single worker (concurrent workers not needed for webhook receiver)
+    Gunicorn Configuration (src/ghost/gunicorn_config.py):
+        - Single worker (sufficient for low-frequency webhooks)
+        - DEBUG level logging with comprehensive access logs
+        - All logs to stdout/stderr for Docker visibility
+        - 30s worker timeout, 2s keepalive
+        - Lifecycle hooks for monitoring
         
     Returns:
         None
