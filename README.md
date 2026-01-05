@@ -1,4 +1,4 @@
-[![CI](https://github.com/wpowiertowski/posse/workflows/CI/badge.svg?branch=main)](https://github.com/wpowiertowski/posse/actions?query=branch%3Amain)
+[![CI](https://github.com/wpowiertowski/posse/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wpowiertowski/posse/actions?query=branch%3Amain)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue)](https://www.python.org/downloads/)
 [![Poetry](https://img.shields.io/badge/poetry-managed-blue.svg)](https://python-poetry.org/)
