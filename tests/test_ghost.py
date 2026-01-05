@@ -38,9 +38,10 @@ Coverage:
 import json
 import pytest
 from pathlib import Path
+from queue import Queue
 
-# Import Flask app and validation functions
-from ghost.ghost import app, validate_ghost_post, GhostPostValidationError
+# Import Flask app factory and validation functions
+from ghost.ghost import create_app, validate_ghost_post, GhostPostValidationError
 
 
 @pytest.fixture
@@ -65,6 +66,10 @@ def client():
             response = client.get('/health')
             assert response.status_code == 200
     """
+    # Create a test queue and app
+    test_queue = Queue()
+    app = create_app(test_queue)
+    
     # Enable testing mode for better error messages
     app.config['TESTING'] = True
     
@@ -72,6 +77,28 @@ def client():
     # Using 'with' ensures proper cleanup after test
     with app.test_client() as client:
         yield client
+
+
+@pytest.fixture
+def client_with_queue():
+    """Create a Flask test client with access to the events queue.
+    
+    Returns a tuple of (client, events_queue) for tests that need to
+    verify queue behavior.
+    
+    Yields:
+        tuple: (FlaskClient, Queue) for testing queue integration
+    """
+    # Create a test queue and app
+    test_queue = Queue()
+    app = create_app(test_queue)
+    
+    # Enable testing mode for better error messages
+    app.config['TESTING'] = True
+    
+    # Create and yield test client with queue
+    with app.test_client() as client:
+        yield client, test_queue
 
 
 @pytest.fixture
@@ -353,7 +380,7 @@ def test_post_with_optional_fields(client):
         "Response should include correct post ID from nested structure"
 
 
-def test_valid_post_pushed_to_queue(client, valid_post_payload):
+def test_valid_post_pushed_to_queue(client_with_queue, valid_post_payload):
     """Test that valid posts are pushed to the events queue.
     
     When a valid Ghost post is received, it should be pushed to the
@@ -365,11 +392,7 @@ def test_valid_post_pushed_to_queue(client, valid_post_payload):
     3. Post payload is added to the queue
     4. Queued item matches the received payload
     """
-    from posse.posse import events_queue
-    
-    # Clear the queue before test (in case previous tests left items)
-    while not events_queue.empty():
-        events_queue.get()
+    client, events_queue = client_with_queue
     
     # Verify queue is empty
     assert events_queue.empty(), "Queue should be empty at start of test"
@@ -393,7 +416,7 @@ def test_valid_post_pushed_to_queue(client, valid_post_payload):
         "Queued item should match the posted payload"
 
 
-def test_invalid_post_not_queued(client):
+def test_invalid_post_not_queued(client_with_queue):
     """Test that invalid posts are not added to the events queue.
     
     When a post fails validation, it should:
@@ -402,11 +425,7 @@ def test_invalid_post_not_queued(client):
     
     This ensures only valid, schema-compliant posts are syndicated.
     """
-    from posse.posse import events_queue
-    
-    # Clear the queue before test
-    while not events_queue.empty():
-        events_queue.get()
+    client, events_queue = client_with_queue
     
     # Verify queue is empty
     initial_size = events_queue.qsize()
