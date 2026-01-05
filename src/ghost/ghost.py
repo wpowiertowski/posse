@@ -210,6 +210,10 @@ def create_app(events_queue: Queue) -> Flask:
                    -d '{"id":"123","title":"Test",...}'
         """
         try:
+            # Get notifier and events queue from app config
+            notifier = current_app.config['PUSHOVER_NOTIFIER']
+            events_queue = current_app.config['EVENTS_QUEUE']
+            
             # Step 1: Validate Content-Type header
             # Ghost should send application/json, but verify to prevent errors
             if not request.is_json:
@@ -236,7 +240,6 @@ def create_app(events_queue: Queue) -> Flask:
             logger.info(f"Received Ghost post: id={post_id}, title='{post_title}'")
             
             # Step 6: Send Pushover notification for post reception
-            notifier = current_app.config['PUSHOVER_NOTIFIER']
             notifier.notify_post_received(post_title, post_id)
             
             # Step 7: Log full payload at DEBUG level
@@ -246,7 +249,6 @@ def create_app(events_queue: Queue) -> Flask:
             
             # Step 8: Push validated post to events queue
             # The queue will be consumed by Mastodon and Bluesky agents
-            events_queue = current_app.config['EVENTS_QUEUE']
             events_queue.put(payload)
             logger.debug(f"Post queued for syndication: id={post_id}")
             

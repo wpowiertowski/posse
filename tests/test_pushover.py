@@ -247,10 +247,10 @@ class TestPushoverNotifier:
         )
         
         # Create strings that exceed Pushover limits
-        long_title = "A" * 300  # Exceeds 250 char limit
-        long_message = "B" * 1100  # Exceeds 1024 char limit
-        long_url = "https://example.com/" + "C" * 600  # Exceeds 512 char limit
-        long_url_title = "D" * 150  # Exceeds 100 char limit
+        long_title = "A" * 300  # Exceeds MAX_TITLE_LENGTH
+        long_message = "B" * 1100  # Exceeds MAX_MESSAGE_LENGTH
+        long_url = "https://example.com/" + "C" * 600  # Exceeds MAX_URL_LENGTH
+        long_url_title = "D" * 150  # Exceeds MAX_URL_TITLE_LENGTH
         
         result = notifier._send_notification(
             title=long_title,
@@ -262,11 +262,11 @@ class TestPushoverNotifier:
         assert result is True
         call_data = mock_post.call_args[1]['data']
         
-        # Verify truncation
-        assert len(call_data['title']) <= 250
-        assert len(call_data['message']) <= 1024
-        assert len(call_data['url']) <= 512
-        assert len(call_data['url_title']) <= 100
+        # Verify truncation using constants
+        assert len(call_data['title']) <= PushoverNotifier.MAX_TITLE_LENGTH
+        assert len(call_data['message']) <= PushoverNotifier.MAX_MESSAGE_LENGTH
+        assert len(call_data['url']) <= PushoverNotifier.MAX_URL_LENGTH
+        assert len(call_data['url_title']) <= PushoverNotifier.MAX_URL_TITLE_LENGTH
     
     @patch('notifications.pushover.requests.post')
     def test_notification_timeout(self, mock_post):
