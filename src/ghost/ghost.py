@@ -88,6 +88,7 @@ from flask import Flask, request, jsonify, current_app
 from jsonschema import validate, ValidationError, Draft7Validator
 
 from schema import GHOST_POST_SCHEMA
+from notifications.pushover import PushoverNotifier
 
 # Configure logging with both file and console output
 # This ensures webhook activity is both saved to disk and visible in real-time
@@ -130,6 +131,11 @@ def create_app(events_queue: Queue) -> Flask:
     
     # Store events_queue in app config for access in route handlers
     app.config['EVENTS_QUEUE'] = events_queue
+    
+    # Initialize Pushover notifier for push notifications
+    # Will be disabled if PUSHOVER_APP_TOKEN or PUSHOVER_USER_KEY env vars are not set
+    notifier = PushoverNotifier()
+    app.config['PUSHOVER_NOTIFIER'] = notifier
     
     @app.route('/webhook/ghost', methods=['POST'])
     def receive_ghost_post():
@@ -218,28 +224,36 @@ def create_app(events_queue: Queue) -> Flask:
             # This will raise GhostPostValidationError if validation fails
             validate_ghost_post(payload)
             
-            # Step 4: Extract key fields for logging
+            # Step 4: Extract key fields for logging and notifications
             # Navigate nested structure: payload.post.current contains the post data
             post_data = payload.get('post', {}).get('current', {})
             post_id = post_data.get('id', 'unknown')
             post_title = post_data.get('title', 'untitled')
+            post_url = post_data.get('url', '')
             
             # Step 5: Log successful reception at INFO level
             # This provides a concise audit trail of received posts
             logger.info(f"Received Ghost post: id={post_id}, title='{post_title}'")
             
-            # Step 6: Log full payload at DEBUG level
+            # Step 6: Send Pushover notification for post reception
+            notifier = current_app.config['PUSHOVER_NOTIFIER']
+            notifier.notify_post_received(post_title, post_id)
+            
+            # Step 7: Log full payload at DEBUG level
             # Pretty-print JSON for readability (indent=2)
             # This is verbose but crucial for debugging processing issues
             logger.debug(f"Ghost post payload: {json.dumps(payload, indent=2)}")
             
-            # Step 7: Push validated post to events queue
+            # Step 8: Push validated post to events queue
             # The queue will be consumed by Mastodon and Bluesky agents
             events_queue = current_app.config['EVENTS_QUEUE']
             events_queue.put(payload)
             logger.debug(f"Post queued for syndication: id={post_id}")
             
-            # Step 8: Return success response with post metadata
+            # Step 9: Send Pushover notification for post queued
+            notifier.notify_post_queued(post_title, post_url)
+            
+            # Step 10: Return success response with post metadata
             return jsonify({
                 "status": "success",
                 "message": "Post received and validated",
@@ -250,6 +264,11 @@ def create_app(events_queue: Queue) -> Flask:
             # Schema validation failed - log at ERROR level
             # The error message includes which field failed and why
             logger.error(f"Payload validation failed: {str(e)}")
+            
+            # Send Pushover notification for validation error
+            notifier = current_app.config['PUSHOVER_NOTIFIER']
+            notifier.notify_validation_error(str(e))
+            
             return jsonify({
                 "status": "error",
                 "message": "Invalid Ghost post payload",
