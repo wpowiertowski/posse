@@ -18,7 +18,7 @@ Usage:
     
     >>> notifier.notify_post_queued("Post Title", "https://example.com/post")
     
-    >>> notifier.notify_validation_error("Post Title", "Missing required field")
+    >>> notifier.notify_validation_error("Missing required field")
 
 API Reference:
     Pushover API: https://pushover.net/api
