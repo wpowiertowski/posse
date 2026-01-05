@@ -9,12 +9,19 @@ as a production-ready WSGI application, which:
 1. Receives posts from Ghost via webhooks (POST /webhook/ghost)
 2. Validates posts against JSON Schema (post.current and post.previous structure)
 3. Logs post reception with full payload details
-4. Will eventually syndicate to Mastodon and Bluesky accounts
+4. Queues valid posts to an events queue for syndication
+5. Will eventually syndicate to Mastodon and Bluesky accounts
+
+The events queue is a thread-safe Queue that receives validated Ghost posts
+from the webhook receiver and will be consumed by Mastodon and Bluesky agents.
 
 Functions:
     main() -> None:
         Entry point for the console script. Starts Gunicorn with the Ghost 
         webhook receiver Flask app on port 5000.
+
+Attributes:
+    events_queue: Thread-safe queue for validated Ghost posts
 
 Example:
     Run via console script:
@@ -22,6 +29,13 @@ Example:
         Starting Gunicorn with extensive logging for debugging
         Gunicorn server is ready to accept connections
 """
+
+from queue import Queue
+
+# Create a thread-safe events queue for validated Ghost posts
+# This queue will receive posts from the Ghost webhook receiver (ghost.py)
+# and will be consumed by Mastodon and Bluesky agents (to be implemented)
+events_queue: Queue = Queue()
 
 
 def main() -> None:

@@ -2,18 +2,19 @@
 Ghost Webhook Receiver - Flask Application.
 
 This module implements a Flask-based webhook receiver that accepts POST requests
-containing Ghost blog post data, validates them against a JSON schema, and logs
-them for further processing and syndication to social media platforms.
+containing Ghost blog post data, validates them against a JSON schema, logs them,
+and queues them for syndication to social media platforms.
 
 Architecture:
-    The webhook receiver follows a simple request-validation-logging pattern:
+    The webhook receiver follows a request-validation-logging-queuing pattern:
     1. Receive JSON payload via POST request
     2. Validate Content-Type header (must be application/json)
     3. Parse JSON body
     4. Validate against Ghost post schema (JSON Schema Draft 7)
     5. Log successful reception at INFO level
     6. Log full payload at DEBUG level
-    7. Return appropriate HTTP status code
+    7. Push validated post to events queue for syndication
+    8. Return appropriate HTTP status code
     
 Schema Validation:
     Uses jsonschema library with Draft7Validator to validate incoming posts
@@ -21,6 +22,11 @@ Schema Validation:
     - Required fields: id, title, slug, content, url, created_at, updated_at
     - Optional fields: tags, authors, featured, meta fields, etc.
     - Type constraints and format validation (e.g., date-time, URIs)
+
+Events Queue:
+    Valid posts are pushed to the events_queue from posse.posse module.
+    This queue will be consumed by Mastodon and Bluesky agents (to be implemented)
+    for cross-posting to social media platforms.
     
 Logging Strategy:
     - Handler: FileHandler (ghost_posts.log) + StreamHandler (console)
@@ -32,7 +38,7 @@ Logging Strategy:
         
 Error Handling:
     Returns appropriate HTTP status codes:
-    - 200: Success (post validated and logged)
+    - 200: Success (post validated, logged, and queued)
     - 400: Bad request (non-JSON, schema validation failure)
     - 500: Internal server error (unexpected exceptions)
     
@@ -79,6 +85,7 @@ from flask import Flask, request, jsonify
 from jsonschema import validate, ValidationError, Draft7Validator
 
 from schema import GHOST_POST_SCHEMA
+from posse.posse import events_queue
 
 # Configure logging with both file and console output
 # This ensures webhook activity is both saved to disk and visible in real-time
@@ -171,7 +178,8 @@ def receive_ghost_post():
     3. Validates against Ghost post schema
     4. Logs the post reception (INFO level)
     5. Logs full payload (DEBUG level)
-    6. Returns success response with post ID
+    6. Pushes validated post to events queue for syndication
+    7. Returns success response with post ID
     
     Request Format:
         POST /webhook/ghost
@@ -222,6 +230,7 @@ def receive_ghost_post():
     Side Effects:
         - Logs INFO message with post id and title
         - Logs DEBUG message with full payload JSON
+        - Pushes validated post to events_queue for syndication
         - Logs ERROR message on validation failure
         
     Example:
@@ -259,7 +268,12 @@ def receive_ghost_post():
         # This is verbose but crucial for debugging processing issues
         logger.debug(f"Ghost post payload: {json.dumps(payload, indent=2)}")
         
-        # Step 7: Return success response with post metadata
+        # Step 7: Push validated post to events queue
+        # The queue will be consumed by Mastodon and Bluesky agents
+        events_queue.put(payload)
+        logger.debug(f"Post queued for syndication: id={post_id}")
+        
+        # Step 8: Return success response with post metadata
         return jsonify({
             "status": "success",
             "message": "Post received and validated",
