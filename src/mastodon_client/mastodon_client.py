@@ -15,7 +15,7 @@ Usage:
     >>> config = load_config()
     >>> client = MastodonClient.from_config(config)
     >>> if client.enabled:
-    ...     result = client.post_status("Hello from POSSE!")
+    ...     result = client.post("Hello from POSSE!")
     ...     print(f"Posted: {result['url']}")
 
 Authentication:
@@ -38,17 +38,17 @@ import logging
 from typing import Optional, Dict, Any
 from mastodon import Mastodon, MastodonError
 
-from config import read_secret_file
+from social.base_client import SocialMediaClient
 
 
 logger = logging.getLogger(__name__)
 
 
-class MastodonClient:
+class MastodonClient(SocialMediaClient):
     """Client for posting to Mastodon instances.
     
-    This class encapsulates Mastodon API interactions using the Mastodon.py
-    library and provides methods for posting statuses.
+    This class extends SocialMediaClient to provide Mastodon-specific
+    functionality using the Mastodon.py library.
     
     Attributes:
         instance_url: URL of the Mastodon instance (e.g., https://mastodon.social)
@@ -62,57 +62,21 @@ class MastodonClient:
         ...     access_token="your_access_token"
         ... )
         >>> if client.enabled:
-        ...     client.post_status("Hello Mastodon!")
+        ...     client.post("Hello Mastodon!")
     """
     
-    def __init__(
-        self,
-        instance_url: str,
-        access_token: Optional[str] = None,
-        config_enabled: bool = True
-    ):
-        """Initialize Mastodon client with credentials.
+    def _initialize_api(self) -> None:
+        """Initialize the Mastodon API client.
         
-        Args:
-            instance_url: URL of the Mastodon instance (e.g., https://mastodon.social)
-            access_token: Access token for API authentication
-            config_enabled: Whether Mastodon is enabled in config.yml (default: True)
-            
-        Note:
-            Mastodon posting will be disabled if:
-            - config_enabled is False
-            - instance_url is not provided
-            - access_token is missing
+        Sets up the Mastodon.py client with the access token and instance URL.
+        
+        Raises:
+            Exception: If Mastodon API initialization fails
         """
-        self.instance_url = instance_url
-        self.access_token = access_token
-        self.api: Optional[Mastodon] = None
-        
-        # Determine if client is enabled
-        self.enabled = bool(
-            config_enabled and
-            instance_url and  # Check for non-empty string
-            access_token is not None
+        self.api = Mastodon(
+            access_token=self.access_token,
+            api_base_url=self.instance_url
         )
-        
-        if not config_enabled:
-            logger.info("Mastodon posting disabled via config.yml")
-        elif not self.enabled:
-            logger.warning(
-                "Mastodon posting disabled: missing instance URL or access token"
-            )
-        else:
-            try:
-                # Initialize Mastodon API client with just access token
-                self.api = Mastodon(
-                    access_token=self.access_token,
-                    api_base_url=self.instance_url
-                )
-                logger.info(f"Mastodon client initialized for {self.instance_url}")
-            except Exception as e:
-                logger.error(f"Failed to initialize Mastodon client: {e}")
-                self.enabled = False
-                self.api = None
     
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> 'MastodonClient':
@@ -132,46 +96,30 @@ class MastodonClient:
             >>> config = load_config()
             >>> client = MastodonClient.from_config(config)
         """
-        mastodon_config = config.get('mastodon', {})
-        
-        # Check if Mastodon is enabled in config
-        enabled = mastodon_config.get('enabled', False)
-        if not enabled:
-            return cls(instance_url="", config_enabled=False)
-        
-        # Get instance URL from config
-        instance_url = mastodon_config.get('instance_url', '')
-        
-        # Read access token from Docker secret
-        access_token_file = mastodon_config.get('access_token_file')
-        access_token = read_secret_file(access_token_file) if access_token_file else None
-        
-        return cls(
-            instance_url=instance_url,
-            access_token=access_token,
-            config_enabled=enabled
-        )
+        return super(MastodonClient, cls).from_config(config, 'mastodon')
     
-    def post_status(
+    def post(
         self,
-        status: str,
+        content: str,
         visibility: str = 'public',
         sensitive: bool = False,
-        spoiler_text: Optional[str] = None
+        spoiler_text: Optional[str] = None,
+        **kwargs
     ) -> Optional[Dict[str, Any]]:
-        """Post a status to Mastodon.
+        """Post content to Mastodon.
         
         Args:
-            status: Text content of the status (max 500 characters for most instances)
+            content: Text content of the status (max 500 characters for most instances)
             visibility: Post visibility ('public', 'unlisted', 'private', 'direct')
             sensitive: Whether to mark the post as sensitive content
             spoiler_text: Content warning text (if provided, post will be hidden behind CW)
+            **kwargs: Additional Mastodon-specific options
             
         Returns:
             Dictionary containing the posted status information, or None if posting failed
             
         Example:
-            >>> result = client.post_status("Hello from POSSE!")
+            >>> result = client.post("Hello from POSSE!")
             >>> if result:
             ...     print(f"Posted: {result['url']}")
         """
@@ -181,7 +129,7 @@ class MastodonClient:
         
         try:
             result = self.api.status_post(
-                status=status,
+                status=content,
                 visibility=visibility,
                 sensitive=sensitive,
                 spoiler_text=spoiler_text
@@ -191,6 +139,35 @@ class MastodonClient:
         except MastodonError as e:
             logger.error(f"Failed to post status to Mastodon: {e}")
             return None
+    
+    # Maintain backward compatibility with old method name
+    def post_status(
+        self,
+        status: str,
+        visibility: str = 'public',
+        sensitive: bool = False,
+        spoiler_text: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Post a status to Mastodon (backward compatibility method).
+        
+        This method is maintained for backward compatibility and delegates
+        to the post() method.
+        
+        Args:
+            status: Text content of the status
+            visibility: Post visibility ('public', 'unlisted', 'private', 'direct')
+            sensitive: Whether to mark the post as sensitive content
+            spoiler_text: Content warning text
+            
+        Returns:
+            Dictionary containing the posted status information, or None if posting failed
+        """
+        return self.post(
+            content=status,
+            visibility=visibility,
+            sensitive=sensitive,
+            spoiler_text=spoiler_text
+        )
     
     def verify_credentials(self) -> Optional[Dict[str, Any]]:
         """Verify that the access token is valid and get account information.

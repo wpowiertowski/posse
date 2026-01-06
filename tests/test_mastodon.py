@@ -99,7 +99,7 @@ class TestMastodonClient:
             assert client.enabled is False
             assert client.api is None
     
-    @patch('mastodon_client.mastodon_client.read_secret_file')
+    @patch('config.read_secret_file')
     def test_from_config_enabled(self, mock_read_secret):
         """Test from_config creates enabled client when properly configured."""
         # Mock secret file reading
@@ -120,7 +120,7 @@ class TestMastodonClient:
             assert client.access_token == "test_access_token"
             assert client.enabled is True
     
-    @patch('mastodon_client.mastodon_client.read_secret_file')
+    @patch('config.read_secret_file')
     def test_from_config_disabled(self, mock_read_secret):
         """Test from_config creates disabled client when not enabled in config."""
         config = {
@@ -137,7 +137,7 @@ class TestMastodonClient:
         # Should not attempt to read secrets when disabled
         mock_read_secret.assert_not_called()
     
-    @patch('mastodon_client.mastodon_client.read_secret_file')
+    @patch('config.read_secret_file')
     def test_from_config_missing_secrets(self, mock_read_secret):
         """Test from_config handles missing secret files gracefully."""
         # Mock secret files not found
