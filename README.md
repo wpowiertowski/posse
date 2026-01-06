@@ -141,11 +141,11 @@ The following notifications are sent automatically:
 The easiest way to get started is by using the pre-built Docker image from Docker Hub:
 
 ```bash
-docker pull <username>/posse:latest
-docker run -p 5000:5000 -v $(pwd)/config.yml:/app/config.yml:ro <username>/posse:latest
+docker pull wpowiertowski/posse:latest
+docker run -p 5000:5000 -v $(pwd)/config.yml:/app/config.yml:ro wpowiertowski/posse:latest
 ```
 
-Replace `<username>` with the actual Docker Hub username where the image is published.
+**Note**: The Docker image will be published to Docker Hub after the first successful CI build on the main branch.
 
 ### Building from Source
 
