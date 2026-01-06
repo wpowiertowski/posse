@@ -35,6 +35,16 @@ class TestPushoverIntegration:
     def _get_secrets_from_config(self):
         """Helper to read secrets from config.yml paths.
         
+        Note: This helper implements additional fallback logic beyond what
+        PushoverNotifier.from_config() uses in production. This is intentional
+        for integration testing purposes to:
+        1. Support multiple testing environments (Docker, local dev, CI)
+        2. Provide helpful diagnostics when secrets are misconfigured
+        3. Test the notifier with credentials from various sources
+        
+        Production code (PushoverNotifier.from_config) only reads from the
+        paths specified in config.yml (typically Docker secrets).
+        
         Returns:
             tuple: (app_token, user_key, enabled) or (None, None, False)
         """
@@ -45,12 +55,14 @@ class TestPushoverIntegration:
         if not enabled:
             return None, None, False
         
-        # Try to read from Docker secrets paths first
+        # Try to read from Docker secrets paths first (production behavior)
         app_token_file = pushover_config.get('app_token_file', '/run/secrets/pushover_app_token')
         user_key_file = pushover_config.get('user_key_file', '/run/secrets/pushover_user_key')
         
         app_token = read_secret_file(app_token_file)
         user_key = read_secret_file(user_key_file)
+        
+        # Additional fallbacks for testing/development (not in production code):
         
         # Fallback to local secrets/ directory for development/testing
         if not app_token:
@@ -182,12 +194,10 @@ class TestPushoverIntegration:
         assert notifier.enabled is True, \
             "Notifier should be enabled with valid credentials"
         
-        # Send a test notification
-        result = notifier._send_notification(
-            title="🧪 POSSE Integration Test",
-            message="This is a test notification from the POSSE integration test suite. "
-                   "If you receive this, your Pushover notification setup is working correctly!",
-            priority=0  # Normal priority
+        # Send a test notification using public API method
+        result = notifier.notify_post_received(
+            post_title="🧪 POSSE Integration Test",
+            post_id="integration-test-001"
         )
         
         # Verify notification was sent successfully
