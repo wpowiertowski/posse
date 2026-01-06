@@ -26,6 +26,106 @@ services:
     profiles:
       - test
 
+  # Mastodon OAuth Setup Services
+  # Run these services interactively to set up Mastodon OAuth credentials
+  
+  mastodon-register:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: posse-mastodon-register
+    volumes:
+      - ./secrets:/secrets
+    command: >
+      python3 -c "
+      from mastodon_client.mastodon_client import MastodonClient;
+      import os;
+      instance = os.environ.get('MASTODON_INSTANCE', 'https://mastodon.social');
+      print(f'\\n🔧 Registering POSSE with {instance}...');
+      client_id, client_secret = MastodonClient.register_app(
+        app_name='POSSE',
+        instance_url=instance,
+        to_file='/secrets/mastodon_client.secret'
+      );
+      print(f'\\n✅ App registered successfully!');
+      print(f'📁 Client credentials saved to secrets/mastodon_client.secret');
+      print('\\n▶️  Next step - Run OAuth authorization');
+      print('   docker compose run --rm mastodon-oauth');
+      "
+    environment:
+      - MASTODON_INSTANCE=${MASTODON_INSTANCE:-https://mastodon.social}
+    profiles:
+      - mastodon-setup
+  
+  mastodon-oauth:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: posse-mastodon-oauth
+    volumes:
+      - ./secrets:/secrets
+    stdin_open: true
+    tty: true
+    command: >
+      python3 -c "
+      from mastodon_client.mastodon_client import MastodonClient;
+      import os;
+      instance = os.environ.get('MASTODON_INSTANCE', 'https://mastodon.social');
+      print(f'\\n🔐 Starting OAuth authorization for {instance}...');
+      client = MastodonClient.create_for_oauth(
+        client_credential_file='/secrets/mastodon_client.secret',
+        instance_url=instance
+      );
+      auth_url = client.get_auth_request_url();
+      print(f'\\n📋 Step 1 - Visit this URL to authorize POSSE');
+      print(f'\\n{auth_url}\\n');
+      print(f'📋 Step 2 - After authorizing, copy the code and paste it below');
+      code = input('\\n🔑 Enter authorization code: ').strip();
+      access_token = client.login_with_code(
+        code=code,
+        to_file='/secrets/mastodon_access_token.txt'
+      );
+      print(f'\\n✅ Access token saved to secrets/mastodon_access_token.txt');
+      print('\\n▶️  Next step - Test posting with mastodon-test');
+      print('   docker compose run --rm mastodon-test');
+      "
+    environment:
+      - MASTODON_INSTANCE=${MASTODON_INSTANCE:-https://mastodon.social}
+    profiles:
+      - mastodon-setup
+
+  mastodon-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: posse-mastodon-test
+    volumes:
+      - ./secrets:/secrets
+    command: >
+      python3 -c "
+      from mastodon_client.mastodon_client import MastodonClient;
+      import os;
+      instance = os.environ.get('MASTODON_INSTANCE', 'https://mastodon.social');
+      print(f'\\n🚀 Testing Mastodon posting to {instance}...');
+      with open('/secrets/mastodon_access_token.txt', 'r') as f:
+        access_token = f.read().strip();
+      client = MastodonClient(
+        instance_url=instance,
+        access_token=access_token
+      );
+      result = client.toot('🚀 Hello from POSSE! Testing OAuth integration.');
+      if result:
+        print(f'\\n✅ Successfully posted!');
+        print(f'🔗 View at - {result[\"url\"]}');
+        print('\\n▶️  Setup complete! Enable Mastodon in config.yml to start using POSSE');
+      else:
+        print('\\n❌ Posting failed. Check your credentials.');
+      "
+    environment:
+      - MASTODON_INSTANCE=${MASTODON_INSTANCE:-https://mastodon.social}
+    profiles:
+      - mastodon-setup
+
 # Docker secrets for Pushover credentials
 # To use secrets:
 # 1. Create secrets directory and secret files with your credentials:
