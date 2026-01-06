@@ -93,6 +93,18 @@ class TestMastodonClient:
         assert client.enabled is False
         assert client.api is None
     
+    def test_init_with_empty_instance_url(self):
+        """Test initialization with empty instance URL disables client."""
+        client = MastodonClient(
+            instance_url="",
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            access_token="test_access_token"
+        )
+        
+        assert client.enabled is False
+        assert client.api is None
+    
     def test_init_disabled_via_config(self):
         """Test initialization with config_enabled=False disables client."""
         client = MastodonClient(

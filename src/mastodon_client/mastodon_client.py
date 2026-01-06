@@ -110,9 +110,9 @@ class MastodonClient:
         self.api: Optional[Mastodon] = None
         
         # Determine if client is enabled
-        self.enabled = (
+        self.enabled = bool(
             config_enabled and
-            instance_url is not None and
+            instance_url and  # Check for non-empty string
             client_id is not None and
             client_secret is not None and
             access_token is not None
