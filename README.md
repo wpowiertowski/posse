@@ -58,9 +58,8 @@ This ensures your content is syndicated across multiple platforms while maintain
   - 📝 New post received and validated
   - ✅ Post queued for syndication
   - ⚠️ Validation errors
-- **Mastodon Authentication**: Complete OAuth flow for Mastodon instances:
-  - App registration with any Mastodon instance
-  - User authorization via OAuth
+- **Mastodon Integration**: Simple access token authentication:
+  - Post to any Mastodon instance
   - Secure credential management with Docker secrets
   - Status posting with visibility controls
 - **Robust Validation**: JSON Schema validation for all incoming webhooks
@@ -95,8 +94,6 @@ pushover:
 mastodon:
   enabled: false  # Set to true to enable Mastodon posting
   instance_url: https://mastodon.social
-  client_id_file: /run/secrets/mastodon_client_id
-  client_secret_file: /run/secrets/mastodon_client_secret
   access_token_file: /run/secrets/mastodon_access_token
 ```
 
@@ -152,74 +149,40 @@ The following notifications are sent automatically:
 
 To enable posting to Mastodon:
 
-#### 1. Register Your Application
+#### 1. Get Your Access Token
 
-First, register POSSE as an application with your Mastodon instance. You can do this using the Python interactive shell:
+Visit your Mastodon instance and create an application:
 
-```python
-from mastodon_client import MastodonClient
+1. Go to your Mastodon instance (e.g., https://mastodon.social)
+2. Navigate to **Settings** → **Development** → **New Application**
+3. Fill in the application details:
+   - **Application name**: POSSE
+   - **Scopes**: Select `write:statuses` (minimum required)
+4. Click **Submit**
+5. Copy the **Your access token** value
 
-# Register app with your Mastodon instance
-client_id, client_secret = MastodonClient.register_app(
-    instance_url="https://mastodon.social",  # Replace with your instance
-    app_name="POSSE"
-)
+#### 2. Store Access Token Securely
 
-print(f"Client ID: {client_id}")
-print(f"Client Secret: {client_secret}")
-```
-
-#### 2. Obtain User Authorization
-
-Generate an authorization URL and visit it to authorize POSSE:
-
-```python
-from mastodon_client import MastodonClient
-
-client = MastodonClient(
-    instance_url="https://mastodon.social",
-    client_id="your_client_id",
-    client_secret="your_client_secret"
-)
-
-# Get authorization URL
-auth_url = client.get_authorization_url()
-print(f"Visit this URL to authorize: {auth_url}")
-
-# After visiting the URL and authorizing, you'll receive a code
-auth_code = input("Enter the authorization code: ")
-
-# Exchange code for access token
-access_token = client.get_access_token(auth_code)
-print(f"Access Token: {access_token}")
-```
-
-#### 3. Store Credentials Securely
-
-Create secret files with your Mastodon credentials:
+Create a secret file with your Mastodon access token:
 
 ```bash
 mkdir -p secrets
-echo "your_client_id" > secrets/mastodon_client_id.txt
-echo "your_client_secret" > secrets/mastodon_client_secret.txt
-echo "your_access_token" > secrets/mastodon_access_token.txt
+echo "your_access_token_here" > secrets/mastodon_access_token.txt
 ```
 
-#### 4. Enable Mastodon in Configuration
+#### 3. Enable Mastodon in Configuration
 
 Update `config.yml`:
 ```yaml
 mastodon:
   enabled: true
   instance_url: https://mastodon.social  # Your Mastodon instance URL
-  client_id_file: /run/secrets/mastodon_client_id
-  client_secret_file: /run/secrets/mastodon_client_secret
   access_token_file: /run/secrets/mastodon_access_token
 ```
 
-#### 5. Update Docker Compose
+#### 4. Update Docker Compose
 
-Add Mastodon secrets to your `docker-compose.yml`:
+Add Mastodon secret to your `docker-compose.yml`:
 
 ```yaml
 services:
@@ -234,8 +197,6 @@ services:
     secrets:
       - pushover_app_token
       - pushover_user_key
-      - mastodon_client_id
-      - mastodon_client_secret
       - mastodon_access_token
     command: poetry run posse
 
@@ -244,10 +205,6 @@ secrets:
     file: ./secrets/pushover_app_token.txt
   pushover_user_key:
     file: ./secrets/pushover_user_key.txt
-  mastodon_client_id:
-    file: ./secrets/mastodon_client_id.txt
-  mastodon_client_secret:
-    file: ./secrets/mastodon_client_secret.txt
   mastodon_access_token:
     file: ./secrets/mastodon_access_token.txt
 ```
