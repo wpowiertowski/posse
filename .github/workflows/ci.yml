@@ -19,6 +19,17 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Create secrets directory
+      run: mkdir -p secrets
+
+    - name: Write secrets to files
+      env:
+        PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+        PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+      run: |
+        echo "${PUSHOVER_APP_TOKEN:-dummy_token}" > secrets/pushover_app_token.txt
+        echo "${PUSHOVER_USER_KEY:-dummy_key}" > secrets/pushover_user_key.txt
+
     - name: Run tests with Docker Compose
       run: docker compose up test
       timeout-minutes: 2

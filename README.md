@@ -90,39 +90,89 @@ To enable push notifications via [Pushover](https://pushover.net/):
 
 1. **Create a Pushover account** and install the mobile app
 2. **Create an application** in Pushover to get an API token and user key
-3. **Create secret files** with your credentials:
-   ```bash
-   echo "your_app_token_here" > pushover_app_token.txt
-   echo "your_user_key_here" > pushover_user_key.txt
-   ```
+3. **Set up secrets** (see [Secrets Management](#secrets-management) section below)
 4. **Update config.yml** and set `pushover.enabled: true`
-5. **Update docker-compose.yml** to mount the secrets (uncomment the secrets sections)
-
-**Docker Compose with Secrets:**
-
-```yaml
-services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: posse
-    volumes:
-      - .:/app
-      - ./config.yml:/app/config.yml:ro
-    secrets:
-      - pushover_app_token
-      - pushover_user_key
-    command: poetry run posse
-
-secrets:
-  pushover_app_token:
-    file: ./pushover_app_token.txt
-  pushover_user_key:
-    file: ./pushover_user_key.txt
-```
 
 If Pushover is not enabled in config.yml, the application will run normally without sending notifications.
+
+### Secrets Management
+
+POSSE uses Docker secrets to securely manage sensitive credentials like Pushover API tokens. This approach ensures secrets are never exposed as environment variables or committed to version control.
+
+#### Local Development Setup
+
+1. **Create the secrets directory:**
+   ```bash
+   mkdir -p secrets
+   ```
+
+2. **Add your secret files:**
+   ```bash
+   echo "your_pushover_app_token" > secrets/pushover_app_token.txt
+   echo "your_pushover_user_key" > secrets/pushover_user_key.txt
+   ```
+
+3. **Verify secrets are in .gitignore:**
+   The `secrets/` directory is already configured to be ignored by Git, so your credentials will never be committed.
+
+4. **Enable Pushover in config.yml:**
+   ```yaml
+   pushover:
+     enabled: true
+   ```
+
+5. **Run the application:**
+   ```bash
+   docker compose up app
+   ```
+
+#### CI/CD Setup (GitHub Actions)
+
+For continuous integration and deployment:
+
+1. **Add secrets to your GitHub repository:**
+   - Go to your repository's Settings → Secrets and variables → Actions
+   - Add the following repository secrets:
+     - `PUSHOVER_APP_TOKEN`: Your Pushover application token
+     - `PUSHOVER_USER_KEY`: Your Pushover user key
+
+2. **Secrets are automatically configured:**
+   The CI workflow (`.github/workflows/ci.yml`) automatically:
+   - Creates the `secrets/` directory
+   - Writes secret values to the appropriate files
+   - Uses dummy values if secrets are not configured (for testing without notifications)
+
+#### Security Best Practices
+
+- ✅ **Never commit secrets** to version control
+- ✅ **Use `secrets/` directory** for all sensitive files (already in `.gitignore`)
+- ✅ **Use Docker secrets** instead of environment variables
+- ✅ **Set restrictive file permissions** on secret files (Docker handles this automatically)
+- ✅ **Rotate secrets regularly** by updating the files and restarting containers
+
+#### Troubleshooting Secrets
+
+If you encounter issues with secrets:
+
+1. **Verify secret files exist:**
+   ```bash
+   ls -la secrets/
+   ```
+
+2. **Check file contents (ensure no extra whitespace):**
+   ```bash
+   cat secrets/pushover_app_token.txt | wc -c
+   ```
+
+3. **Verify Docker can read secrets:**
+   ```bash
+   docker compose run --rm app cat /run/secrets/pushover_app_token
+   ```
+
+4. **Check application logs:**
+   ```bash
+   docker compose logs app
+   ```
 
 ### Notifications Sent
 
