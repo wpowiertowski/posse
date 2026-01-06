@@ -136,19 +136,6 @@ The following notifications are sent automatically:
 
 ## Getting Started
 
-### Using Docker Hub Image (Recommended)
-
-The easiest way to get started is by using the pre-built Docker image from Docker Hub:
-
-```bash
-docker pull wpowiertowski/posse:latest
-docker run -p 5000:5000 -v $(pwd)/config.yml:/app/config.yml:ro wpowiertowski/posse:latest
-```
-
-**Note**: The Docker image will be published to Docker Hub after the first successful CI build on the main branch.
-
-### Building from Source
-
 Ensure Docker is installed on your system, then use Docker Compose to run the application:
 
 ```bash
@@ -156,31 +143,3 @@ docker compose up
 ```
 
 Refer to the Makefile for additional development and utility commands.
-
-## CI/CD Pipeline
-
-This project uses GitHub Actions for continuous integration and deployment:
-
-### CI Workflow
-- Runs automatically on pushes to `main` and on pull requests
-- Executes all tests using Docker Compose
-- Must pass before Docker image publishing
-
-### Docker Hub Publishing
-- Automatically triggers after CI tests pass on the `main` branch
-- Builds and pushes Docker images to Docker Hub
-- Tags images with:
-  - `latest` - The most recent build from main
-  - `main-<sha>` - Build from specific commit SHA
-  - `main` - Branch-specific tag
-
-### Required GitHub Secrets
-
-To enable Docker Hub publishing, configure the following secrets in your GitHub repository settings:
-
-| Secret Name | Description |
-|------------|-------------|
-| `DOCKER_HUB_USERNAME` | Your Docker Hub username |
-| `DOCKER_HUB_TOKEN` | Docker Hub access token (create at https://hub.docker.com/settings/security) |
-
-**Note**: Never commit credentials directly to the repository. Always use GitHub Secrets for sensitive information.
