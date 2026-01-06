@@ -1,6 +1,6 @@
 name: Publish Docker Image
 
-on:
+'on':
   workflow_run:
     workflows: ["CI"]
     types:
