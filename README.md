@@ -143,3 +143,15 @@ docker compose up
 ```
 
 Refer to the Makefile for additional development and utility commands.
+
+## Example Usage
+
+For a complete production example of POSSE integrated with a Ghost blog, including webhook configuration and deployment setup, see:
+
+**[Ghost Blog Docker Compose Example](https://github.com/wpowiertowski/docker/blob/main/ghost/ghost.yml)**
+
+This example demonstrates:
+- Running POSSE alongside Ghost blog and MySQL database
+- Using Docker secrets for secure credential management
+- Network configuration for service communication
+- Production-ready deployment with Cloudflare tunnel
