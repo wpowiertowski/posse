@@ -27,8 +27,8 @@ jobs:
         PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
         PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
       run: |
-        echo "${PUSHOVER_APP_TOKEN:-dummy_token}" > secrets/pushover_app_token.txt
-        echo "${PUSHOVER_USER_KEY:-dummy_key}" > secrets/pushover_user_key.txt
+        printf '%s' "${PUSHOVER_APP_TOKEN:-dummy_token}" > secrets/pushover_app_token.txt
+        printf '%s' "${PUSHOVER_USER_KEY:-dummy_key}" > secrets/pushover_user_key.txt
 
     - name: Run tests with Docker Compose
       run: docker compose up test
