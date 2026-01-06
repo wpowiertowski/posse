@@ -106,10 +106,15 @@ POSSE uses Docker secrets to securely manage sensitive credentials like Pushover
    mkdir -p secrets
    ```
 
-2. **Add your secret files:**
+2. **Add your secret files (use a text editor to avoid shell history):**
    ```bash
-   echo "your_pushover_app_token" > secrets/pushover_app_token.txt
-   echo "your_pushover_user_key" > secrets/pushover_user_key.txt
+   # Option 1: Using printf (more secure, no trailing newline)
+   printf '%s' 'your_pushover_app_token' > secrets/pushover_app_token.txt
+   printf '%s' 'your_pushover_user_key' > secrets/pushover_user_key.txt
+   
+   # Option 2: Using a text editor (most secure)
+   nano secrets/pushover_app_token.txt  # Type your token and save
+   nano secrets/pushover_user_key.txt   # Type your key and save
    ```
 
 3. **Verify secrets are in .gitignore:**
