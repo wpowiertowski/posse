@@ -147,11 +147,111 @@ The following notifications are sent automatically:
 
 ### Mastodon Integration
 
-To enable posting to Mastodon:
+To enable posting to Mastodon, you can use either:
+- **Option A**: OAuth Flow (Recommended for automation) - Full programmatic setup
+- **Option B**: Manual Token (Quick start) - Get token from Mastodon UI
 
-#### 1. Get Your Access Token
+#### Option A: OAuth Flow Setup (Recommended)
 
-Visit your Mastodon instance and create an application:
+This approach uses the Mastodon.py library's OAuth flow to programmatically register your app and obtain credentials.
+
+##### Step 1: Register Your Application
+
+Create a secrets directory and register POSSE as an OAuth application:
+
+```bash
+mkdir -p secrets
+
+# Run app registration interactively
+docker run -it --rm \
+  -v $(pwd)/secrets:/secrets \
+  --entrypoint python3 \
+  wpowiertowski/posse:latest -c "
+from mastodon_client.mastodon_client import MastodonClient
+
+# Register app with your Mastodon instance
+client_id, client_secret = MastodonClient.register_app(
+    app_name='POSSE',
+    instance_url='https://mastodon.social',  # Change to your instance
+    to_file='/secrets/mastodon_client.secret'
+)
+print('✓ App registered successfully!')
+print(f'Client credentials saved to secrets/mastodon_client.secret')
+"
+```
+
+##### Step 2: Authorize and Get Access Token
+
+Generate an authorization URL, authorize the app, and exchange the code for an access token:
+
+```bash
+# Run OAuth authorization flow interactively
+docker run -it --rm \
+  -v $(pwd)/secrets:/secrets \
+  --entrypoint python3 \
+  wpowiertowski/posse:latest -c "
+from mastodon_client.mastodon_client import MastodonClient
+
+# Create OAuth client
+client = MastodonClient.create_for_oauth(
+    client_credential_file='/secrets/mastodon_client.secret',
+    instance_url='https://mastodon.social'  # Change to your instance
+)
+
+# Get authorization URL
+auth_url = client.get_auth_request_url()
+print('\\n📋 Step 1: Visit this URL to authorize POSSE:')
+print(auth_url)
+print('\\n📋 Step 2: After authorizing, copy the code and paste it below')
+
+# Get authorization code from user
+code = input('\\nEnter authorization code: ').strip()
+
+# Exchange code for access token
+access_token = client.login_with_code(
+    code=code,
+    to_file='/secrets/mastodon_access_token.txt'
+)
+print('\\n✓ Access token saved to secrets/mastodon_access_token.txt')
+print('✓ Mastodon OAuth setup complete!')
+"
+```
+
+##### Step 3: Test Your Setup
+
+Verify everything works by posting a test toot:
+
+```bash
+# Test posting
+docker run -it --rm \
+  -v $(pwd)/secrets:/secrets \
+  --entrypoint python3 \
+  wpowiertowski/posse:latest -c "
+from mastodon_client.mastodon_client import MastodonClient
+
+# Read access token
+with open('/secrets/mastodon_access_token.txt', 'r') as f:
+    access_token = f.read().strip()
+
+# Create client and post
+client = MastodonClient(
+    instance_url='https://mastodon.social',  # Change to your instance
+    access_token=access_token
+)
+
+result = client.toot('🚀 Hello from POSSE! Testing OAuth integration.')
+if result:
+    print(f\"✓ Successfully posted! View at: {result['url']}\")
+else:
+    print('✗ Posting failed')
+"
+```
+
+#### Option B: Manual Token Setup (Quick Start)
+
+Alternatively, get an access token directly from your Mastodon instance:
+
+##### Step 1: Create Application in Mastodon UI
 
 1. Go to your Mastodon instance (e.g., https://mastodon.social)
 2. Navigate to **Settings** → **Development** → **New Application**
@@ -161,16 +261,18 @@ Visit your Mastodon instance and create an application:
 4. Click **Submit**
 5. Copy the **Your access token** value
 
-#### 2. Store Access Token Securely
-
-Create a secret file with your Mastodon access token:
+##### Step 2: Store Access Token
 
 ```bash
 mkdir -p secrets
 echo "your_access_token_here" > secrets/mastodon_access_token.txt
 ```
 
-#### 3. Enable Mastodon in Configuration
+#### Configure POSSE for Production
+
+After completing either Option A or B, configure POSSE to use your Mastodon credentials:
+
+##### 1. Enable Mastodon in Configuration
 
 Update `config.yml`:
 ```yaml
@@ -180,7 +282,7 @@ mastodon:
   access_token_file: /run/secrets/mastodon_access_token
 ```
 
-#### 4. Update Docker Compose
+##### 2. Update Docker Compose
 
 Add Mastodon secret to your `docker-compose.yml`:
 
