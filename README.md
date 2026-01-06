@@ -58,6 +58,11 @@ This ensures your content is syndicated across multiple platforms while maintain
   - 📝 New post received and validated
   - ✅ Post queued for syndication
   - ⚠️ Validation errors
+- **Mastodon Authentication**: Complete OAuth flow for Mastodon instances:
+  - App registration with any Mastodon instance
+  - User authorization via OAuth
+  - Secure credential management with Docker secrets
+  - Status posting with visibility controls
 - **Robust Validation**: JSON Schema validation for all incoming webhooks
 - **Production Ready**: Gunicorn server with comprehensive logging
 - **Docker Support**: Easy deployment with Docker and Docker Compose
@@ -68,7 +73,8 @@ This ensures your content is syndicated across multiple platforms while maintain
 - [x] flask server to receive POST requests from Ghost with contents of the published post
 - [x] Pushover notifications for main events (post received, queued, validation errors)
 - [x] automated Docker Hub publishing on successful CI builds
-- [ ] authenticate and post to Mastodon account
+- [x] implement Mastodon app registration and user authentication
+- [ ] integrate Mastodon posting with Ghost webhook flow
 - [ ] authenticate and post to Bluesky account
 
 ## Configuration
@@ -84,6 +90,14 @@ pushover:
   enabled: false  # Set to true to enable notifications
   app_token_file: /run/secrets/pushover_app_token
   user_key_file: /run/secrets/pushover_user_key
+
+# Mastodon Configuration
+mastodon:
+  enabled: false  # Set to true to enable Mastodon posting
+  instance_url: https://mastodon.social
+  client_id_file: /run/secrets/mastodon_client_id
+  client_secret_file: /run/secrets/mastodon_client_secret
+  access_token_file: /run/secrets/mastodon_access_token
 ```
 
 ### Pushover Notifications (Optional)
@@ -133,6 +147,112 @@ The following notifications are sent automatically:
 - **📝 Post Received**: When a Ghost post is successfully received and validated
 - **✅ Post Queued**: When a post is queued for syndication (includes link to post)
 - **⚠️ Validation Error**: When a webhook fails validation (high priority)
+
+### Mastodon Integration
+
+To enable posting to Mastodon:
+
+#### 1. Register Your Application
+
+First, register POSSE as an application with your Mastodon instance. You can do this using the Python interactive shell:
+
+```python
+from mastodon_client import MastodonClient
+
+# Register app with your Mastodon instance
+client_id, client_secret = MastodonClient.register_app(
+    instance_url="https://mastodon.social",  # Replace with your instance
+    app_name="POSSE"
+)
+
+print(f"Client ID: {client_id}")
+print(f"Client Secret: {client_secret}")
+```
+
+#### 2. Obtain User Authorization
+
+Generate an authorization URL and visit it to authorize POSSE:
+
+```python
+from mastodon_client import MastodonClient
+
+client = MastodonClient(
+    instance_url="https://mastodon.social",
+    client_id="your_client_id",
+    client_secret="your_client_secret"
+)
+
+# Get authorization URL
+auth_url = client.get_authorization_url()
+print(f"Visit this URL to authorize: {auth_url}")
+
+# After visiting the URL and authorizing, you'll receive a code
+auth_code = input("Enter the authorization code: ")
+
+# Exchange code for access token
+access_token = client.get_access_token(auth_code)
+print(f"Access Token: {access_token}")
+```
+
+#### 3. Store Credentials Securely
+
+Create secret files with your Mastodon credentials:
+
+```bash
+mkdir -p secrets
+echo "your_client_id" > secrets/mastodon_client_id.txt
+echo "your_client_secret" > secrets/mastodon_client_secret.txt
+echo "your_access_token" > secrets/mastodon_access_token.txt
+```
+
+#### 4. Enable Mastodon in Configuration
+
+Update `config.yml`:
+```yaml
+mastodon:
+  enabled: true
+  instance_url: https://mastodon.social  # Your Mastodon instance URL
+  client_id_file: /run/secrets/mastodon_client_id
+  client_secret_file: /run/secrets/mastodon_client_secret
+  access_token_file: /run/secrets/mastodon_access_token
+```
+
+#### 5. Update Docker Compose
+
+Add Mastodon secrets to your `docker-compose.yml`:
+
+```yaml
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: posse
+    volumes:
+      - .:/app
+      - ./config.yml:/app/config.yml:ro
+    secrets:
+      - pushover_app_token
+      - pushover_user_key
+      - mastodon_client_id
+      - mastodon_client_secret
+      - mastodon_access_token
+    command: poetry run posse
+
+secrets:
+  pushover_app_token:
+    file: ./secrets/pushover_app_token.txt
+  pushover_user_key:
+    file: ./secrets/pushover_user_key.txt
+  mastodon_client_id:
+    file: ./secrets/mastodon_client_id.txt
+  mastodon_client_secret:
+    file: ./secrets/mastodon_client_secret.txt
+  mastodon_access_token:
+    file: ./secrets/mastodon_access_token.txt
+```
+
+If Mastodon is not enabled in config.yml, the application will run normally without posting to Mastodon.
 
 ## Getting Started
 
