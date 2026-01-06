@@ -7,10 +7,9 @@ services:
     volumes:
       - .:/app
       - ./config.yml:/app/config.yml:ro
-    # Uncomment secrets to enable Pushover notifications
-    # secrets:
-    #   - pushover_app_token
-    #   - pushover_user_key
+    secrets:
+      - pushover_app_token
+      - pushover_user_key
     command: poetry run posse
     stdin_open: true
     tty: true
@@ -29,13 +28,13 @@ services:
 
 # Docker secrets for Pushover credentials
 # To use secrets:
-# 1. Create secret files with your credentials:
-#    echo "your_app_token" > pushover_app_token.txt
-#    echo "your_user_key" > pushover_user_key.txt
-# 2. Uncomment the secrets section in the app service above
-# 3. Set pushover.enabled to true in config.yml
-# secrets:
-#   pushover_app_token:
-#     file: ./pushover_app_token.txt
-#   pushover_user_key:
-#     file: ./pushover_user_key.txt
+# 1. Create secrets directory and secret files with your credentials:
+#    mkdir -p secrets
+#    echo "your_app_token" > secrets/pushover_app_token.txt
+#    echo "your_user_key" > secrets/pushover_user_key.txt
+# 2. Set pushover.enabled to true in config.yml
+secrets:
+  pushover_app_token:
+    file: ./secrets/pushover_app_token.txt
+  pushover_user_key:
+    file: ./secrets/pushover_user_key.txt
