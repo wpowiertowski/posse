@@ -18,6 +18,6 @@ Usage:
     ...     client.post_status("Hello from POSSE!")
 """
 
-from .mastodon import MastodonClient
+from .mastodon_client import MastodonClient
 
 __all__ = ['MastodonClient']

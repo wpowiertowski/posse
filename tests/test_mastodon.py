@@ -38,7 +38,7 @@ import pytest
 from unittest.mock import patch, MagicMock, mock_open
 from mastodon import MastodonError
 
-from mastodon.mastodon import MastodonClient
+from mastodon_client.mastodon_client import MastodonClient
 
 
 class TestMastodonClient:
@@ -46,7 +46,7 @@ class TestMastodonClient:
     
     def test_init_with_credentials(self):
         """Test initialization with complete credentials enables client."""
-        with patch('mastodon.mastodon.Mastodon') as mock_mastodon:
+        with patch('mastodon_client.mastodon_client.Mastodon') as mock_mastodon:
             client = MastodonClient(
                 instance_url="https://mastodon.social",
                 client_id="test_client_id",
@@ -108,7 +108,7 @@ class TestMastodonClient:
     
     def test_init_with_api_error(self):
         """Test initialization handles Mastodon API errors gracefully."""
-        with patch('mastodon.mastodon.Mastodon', side_effect=Exception("API Error")):
+        with patch('mastodon_client.mastodon_client.Mastodon', side_effect=Exception("API Error")):
             client = MastodonClient(
                 instance_url="https://mastodon.social",
                 client_id="test_client_id",
@@ -119,7 +119,7 @@ class TestMastodonClient:
             assert client.enabled is False
             assert client.api is None
     
-    @patch('mastodon.mastodon.read_secret_file')
+    @patch('mastodon_client.mastodon_client.read_secret_file')
     def test_from_config_enabled(self, mock_read_secret):
         """Test from_config creates enabled client when properly configured."""
         # Mock secret file reading
@@ -139,7 +139,7 @@ class TestMastodonClient:
             }
         }
         
-        with patch('mastodon.mastodon.Mastodon'):
+        with patch('mastodon_client.mastodon_client.Mastodon'):
             client = MastodonClient.from_config(config)
             
             assert client.instance_url == "https://mastodon.social"
@@ -148,7 +148,7 @@ class TestMastodonClient:
             assert client.access_token == "test_access_token"
             assert client.enabled is True
     
-    @patch('mastodon.mastodon.read_secret_file')
+    @patch('mastodon_client.mastodon_client.read_secret_file')
     def test_from_config_disabled(self, mock_read_secret):
         """Test from_config creates disabled client when not enabled in config."""
         config = {
@@ -165,7 +165,7 @@ class TestMastodonClient:
         # Should not attempt to read secrets when disabled
         mock_read_secret.assert_not_called()
     
-    @patch('mastodon.mastodon.read_secret_file')
+    @patch('mastodon_client.mastodon_client.read_secret_file')
     def test_from_config_missing_secrets(self, mock_read_secret):
         """Test from_config handles missing secret files gracefully."""
         # Mock secret files not found
@@ -195,7 +195,7 @@ class TestMastodonClient:
         assert client.enabled is False
         assert client.api is None
     
-    @patch('mastodon.mastodon.Mastodon.create_app')
+    @patch('mastodon_client.mastodon_client.Mastodon.create_app')
     def test_register_app_success(self, mock_create_app):
         """Test successful app registration with Mastodon instance."""
         mock_create_app.return_value = ("client_id_123", "client_secret_456")
@@ -214,7 +214,7 @@ class TestMastodonClient:
             api_base_url="https://mastodon.social"
         )
     
-    @patch('mastodon.mastodon.Mastodon.create_app')
+    @patch('mastodon_client.mastodon_client.Mastodon.create_app')
     def test_register_app_with_custom_scopes(self, mock_create_app):
         """Test app registration with custom OAuth scopes."""
         mock_create_app.return_value = ("client_id_123", "client_secret_456")
@@ -235,7 +235,7 @@ class TestMastodonClient:
             api_base_url="https://mastodon.social"
         )
     
-    @patch('mastodon.mastodon.Mastodon.create_app')
+    @patch('mastodon_client.mastodon_client.Mastodon.create_app')
     def test_register_app_failure(self, mock_create_app):
         """Test app registration handles API errors."""
         mock_create_app.side_effect = MastodonError("Registration failed")
@@ -245,7 +245,7 @@ class TestMastodonClient:
                 instance_url="https://mastodon.social"
             )
     
-    @patch('mastodon.mastodon.Mastodon')
+    @patch('mastodon_client.mastodon_client.Mastodon')
     def test_get_authorization_url(self, mock_mastodon_class):
         """Test generation of OAuth authorization URL."""
         mock_instance = MagicMock()
@@ -277,7 +277,7 @@ class TestMastodonClient:
         with pytest.raises(ValueError, match="Client ID and secret required"):
             client.get_authorization_url()
     
-    @patch('mastodon.mastodon.Mastodon')
+    @patch('mastodon_client.mastodon_client.Mastodon')
     def test_get_access_token(self, mock_mastodon_class):
         """Test exchange of authorization code for access token."""
         mock_instance = MagicMock()
@@ -310,7 +310,7 @@ class TestMastodonClient:
         with pytest.raises(ValueError, match="Client ID and secret required"):
             client.get_access_token("auth_code_123")
     
-    @patch('mastodon.mastodon.Mastodon')
+    @patch('mastodon_client.mastodon_client.Mastodon')
     def test_get_access_token_failure(self, mock_mastodon_class):
         """Test access token exchange handles API errors."""
         mock_instance = MagicMock()
@@ -326,7 +326,7 @@ class TestMastodonClient:
         with pytest.raises(MastodonError):
             client.get_access_token("invalid_code")
     
-    @patch('mastodon.mastodon.Mastodon')
+    @patch('mastodon_client.mastodon_client.Mastodon')
     def test_post_status_success(self, mock_mastodon_class):
         """Test successful status posting to Mastodon."""
         mock_instance = MagicMock()
@@ -357,7 +357,7 @@ class TestMastodonClient:
             spoiler_text=None
         )
     
-    @patch('mastodon.mastodon.Mastodon')
+    @patch('mastodon_client.mastodon_client.Mastodon')
     def test_post_status_with_options(self, mock_mastodon_class):
         """Test status posting with visibility and content warning options."""
         mock_instance = MagicMock()
@@ -403,7 +403,7 @@ class TestMastodonClient:
         
         assert result is None
     
-    @patch('mastodon.mastodon.Mastodon')
+    @patch('mastodon_client.mastodon_client.Mastodon')
     def test_post_status_failure(self, mock_mastodon_class):
         """Test status posting handles API errors gracefully."""
         mock_instance = MagicMock()
@@ -421,7 +421,7 @@ class TestMastodonClient:
         
         assert result is None
     
-    @patch('mastodon.mastodon.Mastodon')
+    @patch('mastodon_client.mastodon_client.Mastodon')
     def test_verify_credentials_success(self, mock_mastodon_class):
         """Test successful credential verification."""
         mock_instance = MagicMock()
@@ -458,7 +458,7 @@ class TestMastodonClient:
         
         assert account is None
     
-    @patch('mastodon.mastodon.Mastodon')
+    @patch('mastodon_client.mastodon_client.Mastodon')
     def test_verify_credentials_failure(self, mock_mastodon_class):
         """Test credential verification handles API errors gracefully."""
         mock_instance = MagicMock()
@@ -480,8 +480,8 @@ class TestMastodonClient:
 class TestMastodonClientIntegration:
     """Integration tests for typical Mastodon client workflows."""
     
-    @patch('mastodon.mastodon.Mastodon.create_app')
-    @patch('mastodon.mastodon.Mastodon')
+    @patch('mastodon_client.mastodon_client.Mastodon.create_app')
+    @patch('mastodon_client.mastodon_client.Mastodon')
     def test_full_authentication_flow(self, mock_mastodon_class, mock_create_app):
         """Test complete authentication workflow from registration to posting."""
         # Step 1: Register app
