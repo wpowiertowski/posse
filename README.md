@@ -151,7 +151,7 @@ For a complete production example of POSSE integrated with a Ghost blog, includi
 **[Ghost Blog Docker Compose Example](https://github.com/wpowiertowski/docker/blob/main/ghost/ghost.yml)**
 
 This example demonstrates:
-- Running POSSE alongside Ghost blog and MySQL database
+- Running POSSE alongside a Ghost blog and MySQL database
 - Using Docker secrets for secure credential management
 - Network configuration for service communication
-- Production-ready deployment with Cloudflare tunnel
+- Production-ready deployment with a Cloudflare tunnel
