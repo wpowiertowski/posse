@@ -1,12 +1,10 @@
 """
 Mastodon Integration Module for POSSE.
 
-This module provides functionality for authenticating with Mastodon instances
-and posting content from Ghost blog posts.
+This module provides functionality for posting content to Mastodon 
+from Ghost blog posts.
 
 The module handles:
-- Mastodon app registration
-- User authentication via OAuth
 - Credential management via Docker secrets
 - Post creation and publishing
 

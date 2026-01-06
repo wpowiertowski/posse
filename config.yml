@@ -18,16 +18,14 @@ pushover:
 # Enable posting to Mastodon instance
 mastodon:
   # Set to true to enable Mastodon posting
-  # Requires Docker secrets: mastodon_client_id, mastodon_client_secret, mastodon_access_token
+  # Requires Docker secret: mastodon_access_token
   enabled: false
   
   # Mastodon instance URL (e.g., https://mastodon.social)
   instance_url: https://mastodon.social
   
-  # Secrets paths (when using Docker secrets)
-  # These will be mounted by Docker Compose at runtime
-  client_id_file: /run/secrets/mastodon_client_id
-  client_secret_file: /run/secrets/mastodon_client_secret
+  # Secret path (when using Docker secrets)
+  # This will be mounted by Docker Compose at runtime
   access_token_file: /run/secrets/mastodon_access_token
 
 # bluesky:
