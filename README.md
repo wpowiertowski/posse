@@ -61,11 +61,13 @@ This ensures your content is syndicated across multiple platforms while maintain
 - **Robust Validation**: JSON Schema validation for all incoming webhooks
 - **Production Ready**: Gunicorn server with comprehensive logging
 - **Docker Support**: Easy deployment with Docker and Docker Compose
+- **Automated Docker Hub Publishing**: Automatically publishes Docker images to Docker Hub when CI tests pass
 
 ## TODO
 - [x] build and test flow
 - [x] flask server to receive POST requests from Ghost with contents of the published post
 - [x] Pushover notifications for main events (post received, queued, validation errors)
+- [x] automated Docker Hub publishing on successful CI builds
 - [ ] authenticate and post to Mastodon account
 - [ ] authenticate and post to Bluesky account
 
