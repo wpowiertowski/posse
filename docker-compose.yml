@@ -30,8 +30,8 @@ services:
 # To use secrets:
 # 1. Create secrets directory and secret files with your credentials:
 #    mkdir -p secrets
-#    printf '%s' 'your_app_token' > secrets/pushover_app_token.txt
-#    printf '%s' 'your_user_key' > secrets/pushover_user_key.txt
+#    printf '%s' 'YOUR_ACTUAL_APP_TOKEN_HERE' > secrets/pushover_app_token.txt
+#    printf '%s' 'YOUR_ACTUAL_USER_KEY_HERE' > secrets/pushover_user_key.txt
 # 2. Set pushover.enabled to true in config.yml
 secrets:
   pushover_app_token:

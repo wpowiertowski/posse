@@ -166,7 +166,7 @@ If you encounter issues with secrets:
 
 2. **Check file contents (ensure no extra whitespace):**
    ```bash
-   cat secrets/pushover_app_token.txt | wc -c
+   wc -c < secrets/pushover_app_token.txt
    ```
 
 3. **Verify Docker can read secrets:**
