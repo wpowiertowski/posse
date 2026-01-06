@@ -31,5 +31,5 @@ jobs:
         printf '%s' "${PUSHOVER_USER_KEY:-dummy_key}" > secrets/pushover_user_key.txt
 
     - name: Run tests with Docker Compose
-      run: docker compose up test
+      run: docker compose run --rm test
       timeout-minutes: 2

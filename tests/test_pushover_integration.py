@@ -211,6 +211,10 @@ class TestPushoverIntegration:
         
         This test verifies the from_config() factory method works correctly
         with the actual configuration and secrets.
+        
+        Note: This test only checks if secrets are available from the production
+        paths specified in config.yml. The from_config() method does NOT have
+        fallback logic - it only reads from the configured paths.
         """
         config = load_config()
         notifier = PushoverNotifier.from_config(config)
@@ -224,16 +228,21 @@ class TestPushoverIntegration:
                 "Notifier should be disabled when config.enabled is False"
             pytest.skip("Pushover is disabled in config.yml")
         
-        # If config is enabled, check if secrets are available
-        app_token, user_key, _ = self._get_secrets_from_config()
+        # Check if secrets are available from PRODUCTION paths only
+        # (the paths specified in config.yml, not fallback paths)
+        app_token_file = pushover_config.get('app_token_file', '/run/secrets/pushover_app_token')
+        user_key_file = pushover_config.get('user_key_file', '/run/secrets/pushover_user_key')
+        
+        app_token = read_secret_file(app_token_file)
+        user_key = read_secret_file(user_key_file)
         
         if not app_token or not user_key:
-            # Secrets not available - notifier should be disabled
+            # Secrets not available from production paths - notifier should be disabled
             assert notifier.enabled is False, \
-                "Notifier should be disabled when secrets are missing"
-            pytest.skip("Pushover secrets are not available")
+                "Notifier should be disabled when secrets are missing from configured paths"
+            pytest.skip(f"Pushover secrets are not available at configured paths: {app_token_file}, {user_key_file}")
         
-        # Config is enabled and secrets are available
+        # Config is enabled and secrets are available from production paths
         assert notifier.enabled is True, \
             "Notifier should be enabled when config.enabled is True and secrets are available"
         assert notifier.app_token == app_token
