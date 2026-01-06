@@ -9,7 +9,8 @@ packages = [
     { include = "ghost", from = "src" },
     { include = "schema", from = "src" },
     { include = "notifications", from = "src" },
-    { include = "config", from = "src" }
+    { include = "config", from = "src" },
+    { include = "mastodon", from = "src" }
 ]
 
 [tool.poetry.dependencies]
@@ -19,6 +20,7 @@ jsonschema = "^4.25.1"
 gunicorn = "^23.0.0"
 requests = "^2.31.0"
 pyyaml = "^6.0"
+"Mastodon.py" = "^2.1.4"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.2"
