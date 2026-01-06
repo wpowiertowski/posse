@@ -228,7 +228,7 @@ class TestPushoverIntegration:
                 "Notifier should be disabled when config.enabled is False"
             pytest.skip("Pushover is disabled in config.yml")
         
-        # Check if secrets are available from PRODUCTION paths only
+        # Check if secrets are available from production paths only
         # (the paths specified in config.yml, not fallback paths)
         app_token_file = pushover_config.get('app_token_file', '/run/secrets/pushover_app_token')
         user_key_file = pushover_config.get('user_key_file', '/run/secrets/pushover_user_key')
@@ -239,8 +239,8 @@ class TestPushoverIntegration:
         if not app_token or not user_key:
             # Secrets not available from production paths - notifier should be disabled
             assert notifier.enabled is False, \
-                "Notifier should be disabled when secrets are missing from configured paths"
-            pytest.skip(f"Pushover secrets are not available at configured paths: {app_token_file}, {user_key_file}")
+                "Notifier should be disabled when secrets are missing from the configured paths"
+            pytest.skip(f"Pushover secrets are not available at the configured paths: {app_token_file}, {user_key_file}")
         
         # Config is enabled and secrets are available from production paths
         assert notifier.enabled is True, \
