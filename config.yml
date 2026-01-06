@@ -7,7 +7,7 @@
 pushover:
   # Set to true to enable Pushover notifications
   # Requires Docker secrets: pushover_app_token and pushover_user_key
-  enabled: false
+  enabled: true
   
   # Secrets paths (when using Docker secrets)
   # These will be mounted by Docker Compose at runtime
