@@ -35,8 +35,11 @@ Security:
     - Access token should be kept secret
 """
 import logging
-from typing import Optional, Dict, Any
+import tempfile
+import os
+from typing import Optional, Dict, Any, List
 from mastodon import Mastodon, MastodonError
+import requests
 
 from social.base_client import SocialMediaClient
 
@@ -64,6 +67,10 @@ class MastodonClient(SocialMediaClient):
         >>> if client.enabled:
         ...     client.post("Hello Mastodon!")
     """
+    
+    # Configuration constants
+    IMAGE_DOWNLOAD_TIMEOUT = 30  # seconds
+    DEFAULT_IMAGE_EXTENSION = '.jpg'  # fallback for images without file extension
     
     def _initialize_api(self) -> None:
         """Initialize the Mastodon API client.
@@ -101,12 +108,43 @@ class MastodonClient(SocialMediaClient):
         """
         return super(MastodonClient, cls).from_config(config, 'mastodon')
     
+    def _download_image(self, url: str) -> Optional[str]:
+        """Download an image from a URL to a temporary file.
+        
+        Args:
+            url: URL of the image to download
+            
+        Returns:
+            Path to the temporary file containing the image, or None if download fails
+            
+        Note:
+            Caller is responsible for deleting the temporary file after use
+        """
+        try:
+            response = requests.get(url, timeout=self.IMAGE_DOWNLOAD_TIMEOUT)
+            response.raise_for_status()
+            
+            # Create a temporary file to store the image
+            # We need to keep the file after closing it, so delete=False
+            suffix = os.path.splitext(url)[1] or self.DEFAULT_IMAGE_EXTENSION
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+            temp_file.write(response.content)
+            temp_file.close()
+            
+            logger.debug(f"Downloaded image from {url} to {temp_file.name}")
+            return temp_file.name
+        except Exception as e:
+            logger.error(f"Failed to download image from {url}: {e}")
+            return None
+    
     def post(
         self,
         content: str,
         visibility: str = 'public',
         sensitive: bool = False,
         spoiler_text: Optional[str] = None,
+        media_urls: Optional[List[str]] = None,
+        media_descriptions: Optional[List[str]] = None,
         **kwargs
     ) -> Optional[Dict[str, Any]]:
         """Post content to Mastodon.
@@ -116,6 +154,8 @@ class MastodonClient(SocialMediaClient):
             visibility: Post visibility ('public', 'unlisted', 'private', 'direct')
             sensitive: Whether to mark the post as sensitive content
             spoiler_text: Content warning text (if provided, post will be hidden behind CW)
+            media_urls: Optional list of image URLs to attach to the post
+            media_descriptions: Optional list of alt text descriptions for images (should match media_urls length)
             **kwargs: Additional Mastodon-specific options
             
         Returns:
@@ -125,23 +165,68 @@ class MastodonClient(SocialMediaClient):
             >>> result = client.post("Hello from POSSE!")
             >>> if result:
             ...     print(f"Posted: {result['url']}")
+            
+            >>> # Post with an image
+            >>> result = client.post(
+            ...     "Check out this photo!",
+            ...     media_urls=["https://example.com/image.jpg"],
+            ...     media_descriptions=["A beautiful sunset"]
+            ... )
         """
         if not self.enabled or not self.api:
             logger.warning("Cannot post to Mastodon: client not enabled")
             return None
         
+        media_ids = []
+        temp_files = []
+        
         try:
+            # Upload media if provided
+            if media_urls:
+                for i, url in enumerate(media_urls):
+                    # Download image to temporary file
+                    temp_path = self._download_image(url)
+                    if not temp_path:
+                        logger.warning(f"Skipping media upload for {url} due to download failure")
+                        continue
+                    
+                    temp_files.append(temp_path)
+                    
+                    # Get description for this image if available
+                    description = None
+                    if media_descriptions and i < len(media_descriptions):
+                        description = media_descriptions[i]
+                    
+                    # Upload to Mastodon
+                    try:
+                        media = self.api.media_post(temp_path, description=description)
+                        media_ids.append(media['id'])
+                        logger.debug(f"Uploaded media {url} with ID {media['id']}")
+                    except MastodonError as e:
+                        logger.error(f"Failed to upload media {url}: {e}")
+            
+            # Post status with media IDs
             result = self.api.status_post(
                 status=content,
                 visibility=visibility,
                 sensitive=sensitive,
-                spoiler_text=spoiler_text
+                spoiler_text=spoiler_text,
+                media_ids=media_ids if media_ids else None
             )
             logger.info(f"Successfully posted status to Mastodon: {result['url']}")
             return result
+            
         except MastodonError as e:
             logger.error(f"Failed to post status to Mastodon: {e}")
             return None
+        finally:
+            # Clean up temporary files
+            for temp_file in temp_files:
+                try:
+                    os.unlink(temp_file)
+                    logger.debug(f"Deleted temporary file {temp_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete temporary file {temp_file}: {e}")
     
     def verify_credentials(self) -> Optional[Dict[str, Any]]:
         """Verify that the access token is valid and get account information.
