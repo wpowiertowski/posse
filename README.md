@@ -58,10 +58,19 @@ This ensures your content is syndicated across multiple platforms while maintain
   - 📝 New post received and validated
   - ✅ Post queued for syndication
   - ⚠️ Validation errors
-- **Mastodon Integration**: Simple access token authentication:
-  - Post to any Mastodon instance
+- **Multi-Account Mastodon Support**: Post to multiple Mastodon accounts with smart filtering:
+  - Configure unlimited Mastodon accounts
+  - Per-account filters based on tags, visibility, featured status, etc.
+  - Simple access token authentication
   - Secure credential management with Docker secrets
   - Status posting with visibility controls
+- **Multi-Account Bluesky Support**: Same flexible multi-account support for Bluesky (coming soon)
+- **Smart Post Filtering**: Route posts to specific accounts based on criteria:
+  - Filter by Ghost post tags (include or exclude)
+  - Filter by visibility (public, members, paid)
+  - Filter by featured status
+  - Filter by publication status
+  - Combine multiple filters with AND/OR logic
 - **Robust Validation**: JSON Schema validation for all incoming webhooks
 - **Production Ready**: Gunicorn server with comprehensive logging
 - **Docker Support**: Easy deployment with Docker and Docker Compose
@@ -73,6 +82,7 @@ This ensures your content is syndicated across multiple platforms while maintain
 - [x] Pushover notifications for main events (post received, queued, validation errors)
 - [x] automated Docker Hub publishing on successful CI builds
 - [x] implement Mastodon app registration and user authentication
+- [x] multi-account support for Mastodon and Bluesky with per-account filters
 - [ ] integrate Mastodon posting with Ghost webhook flow
 - [ ] authenticate and post to Bluesky account
 
@@ -82,19 +92,103 @@ This ensures your content is syndicated across multiple platforms while maintain
 
 POSSE uses a `config.yml` file for application settings. The configuration file is located in the project root directory.
 
-**config.yml:**
+#### Multi-Account Configuration (Recommended)
+
+POSSE supports multiple accounts for both Mastodon and Bluesky, with per-account filters to control which posts get syndicated where.
+
+**config.yml (Multi-Account):**
 ```yaml
 # Pushover Push Notifications
 pushover:
-  enabled: false  # Set to true to enable notifications
+  enabled: true
   app_token_file: /run/secrets/pushover_app_token
   user_key_file: /run/secrets/pushover_user_key
 
-# Mastodon Configuration
+# Mastodon Multi-Account Configuration
 mastodon:
-  enabled: false  # Set to true to enable Mastodon posting
+  accounts:
+    - name: "personal"
+      instance_url: "https://mastodon.social"
+      access_token_file: "/run/secrets/mastodon_personal_access_token"
+      filters:
+        tags: ["personal", "tech", "photography"]  # Include posts with ANY of these tags
+        visibility: ["public"]                      # Only public posts
+    
+    - name: "professional"
+      instance_url: "https://fosstodon.org"
+      access_token_file: "/run/secrets/mastodon_professional_access_token"
+      filters:
+        tags: ["work", "security", "tech"]
+        exclude_tags: ["personal"]  # Don't cross-post personal content
+        visibility: ["public"]
+    
+    - name: "all_posts"
+      instance_url: "https://mastodon.example.com"
+      access_token_file: "/run/secrets/mastodon_all_access_token"
+      filters: {}  # Empty filters = syndicate all posts
+
+# Bluesky Multi-Account Configuration (same structure)
+bluesky:
+  accounts:
+    - name: "main"
+      instance_url: "https://bsky.social"
+      access_token_file: "/run/secrets/bluesky_main_access_token"
+      filters:
+        visibility: ["public"]
+```
+
+#### Legacy Single-Account Configuration (Still Supported)
+
+For backward compatibility, the original single-account format still works:
+
+**config.yml (Legacy):**
+```yaml
+# Pushover Push Notifications
+pushover:
+  enabled: false
+  app_token_file: /run/secrets/pushover_app_token
+  user_key_file: /run/secrets/pushover_user_key
+
+# Mastodon Single Account (Legacy)
+mastodon:
+  enabled: false
   instance_url: https://mastodon.social
   access_token_file: /run/secrets/mastodon_access_token
+```
+
+#### Filter Options
+
+Filters control which Ghost posts get syndicated to each account:
+
+- **`tags`**: Array of tag slugs to include (OR logic - post matches if ANY tag matches)
+- **`exclude_tags`**: Array of tag slugs to exclude (takes precedence over `tags`)
+- **`visibility`**: Array of visibility values (`"public"`, `"members"`, `"paid"`)
+- **`featured`**: Boolean - only featured posts (`true`) or non-featured (`false`)
+- **`status`**: Array of status values (`"draft"`, `"published"`, `"scheduled"`)
+
+**Filter Logic:**
+- Empty filters (`{}`) or omitted filters match **all posts**
+- All specified filter criteria must match (AND logic)
+- Within `tags` filter, ANY tag can match (OR logic)
+- `exclude_tags` takes precedence over `tags`
+
+**Examples:**
+
+```yaml
+# Only featured, public posts with tech tag
+filters:
+  tags: ["tech"]
+  visibility: ["public"]
+  featured: true
+
+# All posts except drafts and personal content
+filters:
+  exclude_tags: ["draft", "personal"]
+  status: ["published"]
+
+# All public and members posts
+filters:
+  visibility: ["public", "members"]
 ```
 
 ### Pushover Notifications (Optional)
@@ -147,42 +241,61 @@ The following notifications are sent automatically:
 
 ### Mastodon Integration
 
-To enable posting to Mastodon, get an access token directly from your Mastodon instance:
+POSSE supports multiple Mastodon accounts with per-account filters. This allows you to:
+- Post different content to different Mastodon accounts
+- Route posts based on tags, visibility, featured status, etc.
+- Maintain separate personal and professional presences
 
-##### Step 1: Create Application in Mastodon UI
+#### Step 1: Create Application(s) in Mastodon
 
-1. Go to your Mastodon instance (e.g., https://mastodon.social)
+For **each** Mastodon account you want to use:
+
+1. Go to your Mastodon instance (e.g., https://mastodon.social, https://fosstodon.org)
 2. Navigate to **Settings** → **Development** → **New Application**
 3. Fill in the application details:
-   - **Application name**: POSSE
+   - **Application name**: POSSE (or customize per account)
    - **Scopes**: Select `write:statuses` (minimum required)
 4. Click **Submit**
 5. Copy the **Your access token** value
 
-##### Step 2: Store Access Token
+#### Step 2: Store Access Tokens
+
+Create secret files using the naming convention: `{platform}_{account_name}_{credential_type}`
 
 ```bash
 mkdir -p secrets
-echo "your_access_token_here" > secrets/mastodon_access_token.txt
+
+# Personal Mastodon account
+echo "your_personal_token_here" > secrets/mastodon_personal_access_token.txt
+
+# Professional Mastodon account
+echo "your_professional_token_here" > secrets/mastodon_professional_access_token.txt
 ```
 
-#### Configure POSSE for Production
+#### Step 3: Configure Accounts in config.yml
 
-After obtaining your access token, configure POSSE to use your Mastodon credentials:
-
-##### 1. Enable Mastodon in Configuration
-
-Update `config.yml`:
 ```yaml
 mastodon:
-  enabled: true
-  instance_url: https://mastodon.social  # Your Mastodon instance URL
-  access_token_file: /run/secrets/mastodon_access_token
+  accounts:
+    - name: "personal"
+      instance_url: "https://mastodon.social"
+      access_token_file: "/run/secrets/mastodon_personal_access_token"
+      filters:
+        tags: ["personal", "photography", "travel"]
+        visibility: ["public"]
+    
+    - name: "professional"
+      instance_url: "https://fosstodon.org"
+      access_token_file: "/run/secrets/mastodon_professional_access_token"
+      filters:
+        tags: ["tech", "security", "work"]
+        exclude_tags: ["personal"]
+        visibility: ["public"]
 ```
 
-##### 2. Update Docker Compose
+#### Step 4: Update Docker Compose
 
-Add Mastodon secret to your `docker-compose.yml`:
+Add Mastodon secrets to your `docker-compose.yml`:
 
 ```yaml
 services:
@@ -197,7 +310,8 @@ services:
     secrets:
       - pushover_app_token
       - pushover_user_key
-      - mastodon_access_token
+      - mastodon_personal_access_token
+      - mastodon_professional_access_token
     command: poetry run posse
 
 secrets:
@@ -205,6 +319,27 @@ secrets:
     file: ./secrets/pushover_app_token.txt
   pushover_user_key:
     file: ./secrets/pushover_user_key.txt
+  mastodon_personal_access_token:
+    file: ./secrets/mastodon_personal_access_token.txt
+  mastodon_professional_access_token:
+    file: ./secrets/mastodon_professional_access_token.txt
+```
+
+#### Legacy Single-Account Configuration
+
+The original single-account format is still supported for backward compatibility:
+
+```yaml
+mastodon:
+  enabled: true
+  instance_url: https://mastodon.social
+  access_token_file: /run/secrets/mastodon_access_token
+```
+
+With corresponding Docker Compose secrets:
+
+```yaml
+secrets:
   mastodon_access_token:
     file: ./secrets/mastodon_access_token.txt
 ```

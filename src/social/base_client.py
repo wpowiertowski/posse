@@ -216,7 +216,8 @@ class SocialMediaClient(ABC):
             return clients
         
         # Legacy single-account format - return as list with one client
-        single_client = cls.from_config(config, platform_key)
+        # Call base class from_config directly to avoid signature mismatch with subclass
+        single_client = super(cls, cls).from_config(config, platform_key)
         return [single_client]
     
     @abstractmethod
