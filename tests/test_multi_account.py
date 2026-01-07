@@ -14,28 +14,6 @@ class TestMultiAccountConfiguration(unittest.TestCase):
     
     @patch('config.read_secret_file')
     @patch('mastodon_client.mastodon_client.Mastodon')
-    def test_legacy_single_account_config(self, mock_mastodon, mock_read_secret):
-        """Test loading legacy single-account configuration."""
-        mock_read_secret.return_value = "test_token"
-        
-        config = {
-            'mastodon': {
-                'enabled': True,
-                'instance_url': 'https://mastodon.social',
-                'access_token_file': '/run/secrets/mastodon_access_token'
-            }
-        }
-        
-        clients = MastodonClient.from_config_multi(config)
-        
-        # Should return list with one client for legacy format
-        self.assertEqual(len(clients), 1)
-        self.assertTrue(clients[0].enabled)
-        self.assertEqual(clients[0].instance_url, "https://mastodon.social")
-        self.assertEqual(clients[0].access_token, "test_token")
-    
-    @patch('config.read_secret_file')
-    @patch('mastodon_client.mastodon_client.Mastodon')
     def test_multi_account_config(self, mock_mastodon, mock_read_secret):
         """Test loading multi-account configuration."""
         # Mock different tokens for different accounts
@@ -67,7 +45,7 @@ class TestMultiAccountConfiguration(unittest.TestCase):
             }
         }
         
-        clients = MastodonClient.from_config_multi(config)
+        clients = MastodonClient.from_config(config)
         
         # Should return list with two clients
         self.assertEqual(len(clients), 2)
@@ -105,7 +83,7 @@ class TestMultiAccountConfiguration(unittest.TestCase):
             }
         }
         
-        clients = MastodonClient.from_config_multi(config)
+        clients = MastodonClient.from_config(config)
         
         self.assertEqual(len(clients), 1)
         self.assertTrue(clients[0].enabled)
@@ -129,7 +107,7 @@ class TestMultiAccountConfiguration(unittest.TestCase):
             }
         }
         
-        clients = MastodonClient.from_config_multi(config)
+        clients = MastodonClient.from_config(config)
         
         # Should create client but it should be disabled
         self.assertEqual(len(clients), 1)
@@ -154,30 +132,12 @@ class TestMultiAccountConfiguration(unittest.TestCase):
             }
         }
         
-        clients = MastodonClient.from_config_multi(config)
+        clients = MastodonClient.from_config(config)
         
         self.assertEqual(len(clients), 1)
         self.assertTrue(clients[0].enabled)
         # Should default to empty dict
         self.assertEqual(clients[0].filters, {})
-    
-    @patch('config.read_secret_file')
-    @patch('mastodon_client.mastodon_client.Mastodon')
-    def test_legacy_disabled_config(self, mock_mastodon, mock_read_secret):
-        """Test legacy config with enabled: false."""
-        config = {
-            'mastodon': {
-                'enabled': False,
-                'instance_url': 'https://mastodon.social',
-                'access_token_file': '/run/secrets/mastodon_access_token'
-            }
-        }
-        
-        clients = MastodonClient.from_config_multi(config)
-        
-        # Should return list with one disabled client
-        self.assertEqual(len(clients), 1)
-        self.assertFalse(clients[0].enabled)
     
     @patch('config.read_secret_file')
     @patch('mastodon_client.mastodon_client.Mastodon')
@@ -189,10 +149,37 @@ class TestMultiAccountConfiguration(unittest.TestCase):
             }
         }
         
-        clients = MastodonClient.from_config_multi(config)
+        clients = MastodonClient.from_config(config)
         
         # Should return empty list
         self.assertEqual(len(clients), 0)
+    
+    @patch('config.read_secret_file')
+    @patch('mastodon_client.mastodon_client.Mastodon')
+    def test_single_account_config(self, mock_mastodon, mock_read_secret):
+        """Test configuration with a single account."""
+        mock_read_secret.return_value = "test_token"
+        
+        config = {
+            'mastodon': {
+                'accounts': [
+                    {
+                        'name': 'main',
+                        'instance_url': 'https://mastodon.social',
+                        'access_token_file': '/run/secrets/mastodon_access_token',
+                        'filters': {}
+                    }
+                ]
+            }
+        }
+        
+        clients = MastodonClient.from_config(config)
+        
+        # Should return list with one client
+        self.assertEqual(len(clients), 1)
+        self.assertTrue(clients[0].enabled)
+        self.assertEqual(clients[0].instance_url, "https://mastodon.social")
+        self.assertEqual(clients[0].access_token, "test_token")
 
 
 if __name__ == '__main__':

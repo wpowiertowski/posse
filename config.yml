@@ -15,9 +15,9 @@ pushover:
   user_key_file: /run/secrets/pushover_user_key
 
 # Mastodon Configuration
-# Supports both single account (legacy) and multi-account formats
+# Configure multiple Mastodon accounts with per-account filters
 #
-# Multi-account format (recommended):
+# Example multi-account configuration:
 # mastodon:
 #   accounts:
 #     - name: "personal"
@@ -36,24 +36,19 @@ pushover:
 #         tags: ["work", "security"]
 #         exclude_tags: ["personal"]
 #
-# Legacy single account format (still supported):
-mastodon:
-  # Set to true to enable Mastodon posting
-  # Requires Docker secret: mastodon_access_token
-  enabled: false
-  
-  # Mastodon instance URL (e.g., https://mastodon.social)
-  instance_url: https://mastodon.social
-  
-  # Secret path (when using Docker secrets)
-  # This will be mounted by Docker Compose at runtime
-  access_token_file: /run/secrets/mastodon_access_token
+# For a single account, simply configure one account in the accounts array:
+# mastodon:
+#   accounts:
+#     - name: "main"
+#       instance_url: "https://mastodon.social"
+#       access_token_file: "/run/secrets/mastodon_access_token"
+#       filters: {}  # Empty filters = all posts
 
 # Bluesky Configuration
-# Supports both single account (legacy) and multi-account formats
+# Configure multiple Bluesky accounts with per-account filters
 # Same structure as Mastodon configuration above
 #
-# Multi-account format example:
+# Example multi-account configuration:
 # bluesky:
 #   accounts:
 #     - name: "main"
@@ -66,6 +61,3 @@ mastodon:
 #       filters:
 #         tags: ["work", "professional"]
 #         visibility: ["public"]
-#
-# bluesky:
-#   enabled: false

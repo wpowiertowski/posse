@@ -57,23 +57,8 @@ class BlueskyClient(SocialMediaClient):
         pass
     
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> 'BlueskyClient':
-        """Create BlueskyClient from configuration dictionary.
-        
-        Args:
-            config: Configuration dictionary from load_config()
-            
-        Returns:
-            BlueskyClient instance configured from config.yml
-        """
-        return super(BlueskyClient, cls).from_config(config, 'bluesky')
-    
-    @classmethod
-    def from_config_multi(cls, config: Dict[str, Any]) -> list['BlueskyClient']:
-        """Create multiple BlueskyClient instances from configuration dictionary.
-        
-        This factory method supports both legacy single-account and new
-        multi-account configuration formats.
+    def from_config(cls, config: Dict[str, Any]) -> list['BlueskyClient']:
+        """Create BlueskyClient instances from configuration dictionary.
         
         Args:
             config: Configuration dictionary from load_config()
@@ -84,12 +69,12 @@ class BlueskyClient(SocialMediaClient):
         Example:
             >>> from config import load_config
             >>> config = load_config()
-            >>> clients = BlueskyClient.from_config_multi(config)
+            >>> clients = BlueskyClient.from_config(config)
             >>> for client in clients:
             ...     if client.enabled:
             ...         client.post("Hello!")
         """
-        return super(BlueskyClient, cls).from_config_multi(config, 'bluesky')
+        return super(BlueskyClient, cls).from_config(config, 'bluesky')
     
     def post(
         self,

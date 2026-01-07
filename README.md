@@ -92,11 +92,11 @@ This ensures your content is syndicated across multiple platforms while maintain
 
 POSSE uses a `config.yml` file for application settings. The configuration file is located in the project root directory.
 
-#### Multi-Account Configuration (Recommended)
+#### Account Configuration
 
 POSSE supports multiple accounts for both Mastodon and Bluesky, with per-account filters to control which posts get syndicated where.
 
-**config.yml (Multi-Account):**
+**config.yml:**
 ```yaml
 # Pushover Push Notifications
 pushover:
@@ -104,7 +104,7 @@ pushover:
   app_token_file: /run/secrets/pushover_app_token
   user_key_file: /run/secrets/pushover_user_key
 
-# Mastodon Multi-Account Configuration
+# Mastodon Configuration
 mastodon:
   accounts:
     - name: "personal"
@@ -127,7 +127,7 @@ mastodon:
       access_token_file: "/run/secrets/mastodon_all_access_token"
       filters: {}  # Empty filters = syndicate all posts
 
-# Bluesky Multi-Account Configuration (same structure)
+# Bluesky Configuration (same structure)
 bluesky:
   accounts:
     - name: "main"
@@ -137,23 +137,17 @@ bluesky:
         visibility: ["public"]
 ```
 
-#### Legacy Single-Account Configuration (Still Supported)
+**Single Account Configuration:**
 
-For backward compatibility, the original single-account format still works:
+For a single account setup, simply configure one account in the accounts array:
 
-**config.yml (Legacy):**
 ```yaml
-# Pushover Push Notifications
-pushover:
-  enabled: false
-  app_token_file: /run/secrets/pushover_app_token
-  user_key_file: /run/secrets/pushover_user_key
-
-# Mastodon Single Account (Legacy)
 mastodon:
-  enabled: false
-  instance_url: https://mastodon.social
-  access_token_file: /run/secrets/mastodon_access_token
+  accounts:
+    - name: "main"
+      instance_url: "https://mastodon.social"
+      access_token_file: "/run/secrets/mastodon_access_token"
+      filters: {}  # Empty filters = all posts
 ```
 
 #### Filter Options
@@ -324,27 +318,6 @@ secrets:
   mastodon_professional_access_token:
     file: ./secrets/mastodon_professional_access_token.txt
 ```
-
-#### Legacy Single-Account Configuration
-
-The original single-account format is still supported for backward compatibility:
-
-```yaml
-mastodon:
-  enabled: true
-  instance_url: https://mastodon.social
-  access_token_file: /run/secrets/mastodon_access_token
-```
-
-With corresponding Docker Compose secrets:
-
-```yaml
-secrets:
-  mastodon_access_token:
-    file: ./secrets/mastodon_access_token.txt
-```
-
-If Mastodon is not enabled in config.yml, the application will run normally without posting to Mastodon.
 
 ## Getting Started
 

@@ -104,66 +104,13 @@ class SocialMediaClient(ABC):
         pass
     
     @classmethod
-    def from_config(cls, config: Dict[str, Any], platform_key: str) -> 'SocialMediaClient':
-        """Create a social media client from configuration dictionary (legacy single account).
+    def from_config(cls, config: Dict[str, Any], platform_key: str) -> list['SocialMediaClient']:
+        """Create social media clients from configuration dictionary.
         
         This factory method reads configuration from config.yml and loads
-        credentials from Docker secrets. This method supports the legacy
-        single-account configuration format for backward compatibility.
+        credentials from Docker secrets. Supports multiple accounts per platform.
         
-        For multi-account support, use from_config_multi() instead.
-        
-        Args:
-            config: Configuration dictionary from load_config()
-            platform_key: Key in config dict for this platform (e.g., 'mastodon', 'bluesky')
-            
-        Returns:
-            SocialMediaClient instance configured from config.yml and secrets
-            
-        Example:
-            >>> from config import load_config
-            >>> config = load_config()
-            >>> client = MastodonClient.from_config(config, 'mastodon')
-        """
-        from config import read_secret_file
-        
-        platform_config = config.get(platform_key, {})
-        
-        # Check if platform is enabled in config
-        enabled = platform_config.get('enabled', False)
-        if not enabled:
-            return cls(instance_url="", config_enabled=False)
-        
-        # Get instance URL from config
-        instance_url = platform_config.get('instance_url', '')
-        
-        # Read access token from Docker secret
-        access_token_file = platform_config.get('access_token_file')
-        access_token = read_secret_file(access_token_file) if access_token_file else None
-        
-        return cls(
-            instance_url=instance_url,
-            access_token=access_token,
-            config_enabled=enabled
-        )
-    
-    @classmethod
-    def from_config_multi(cls, config: Dict[str, Any], platform_key: str) -> list['SocialMediaClient']:
-        """Create multiple social media clients from configuration dictionary.
-        
-        This factory method supports both legacy single-account and new
-        multi-account configuration formats. It reads configuration from
-        config.yml and loads credentials from Docker secrets.
-        
-        Configuration Formats:
-            
-            Legacy single account:
-            platform:
-              enabled: true
-              instance_url: "https://instance.com"
-              access_token_file: "/run/secrets/token"
-            
-            Multi-account:
+        Configuration Format:
             platform:
               accounts:
                 - name: "personal"
@@ -171,18 +118,24 @@ class SocialMediaClient(ABC):
                   access_token_file: "/run/secrets/token"
                   filters:
                     tags: ["personal"]
+                - name: "work"
+                  instance_url: "https://work.instance.com"
+                  access_token_file: "/run/secrets/work_token"
+                  filters:
+                    tags: ["work"]
         
         Args:
             config: Configuration dictionary from load_config()
             platform_key: Key in config dict for this platform (e.g., 'mastodon', 'bluesky')
             
         Returns:
-            List of SocialMediaClient instances configured from config.yml and secrets
+            List of SocialMediaClient instances configured from config.yml and secrets.
+            Returns empty list if no accounts are configured.
             
         Example:
             >>> from config import load_config
             >>> config = load_config()
-            >>> clients = MastodonClient.from_config_multi(config, 'mastodon')
+            >>> clients = MastodonClient.from_config(config, 'mastodon')
             >>> for client in clients:
             ...     if client.enabled:
             ...         client.post("Hello!")
@@ -190,47 +143,29 @@ class SocialMediaClient(ABC):
         from config import read_secret_file
         
         platform_config = config.get(platform_key, {})
+        accounts_config = platform_config.get('accounts', [])
         
-        # Check for multi-account configuration
-        if 'accounts' in platform_config:
-            clients = []
-            for account_config in platform_config['accounts']:
-                account_name = account_config.get('name', 'unnamed')
-                instance_url = account_config.get('instance_url', '')
-                access_token_file = account_config.get('access_token_file')
-                access_token = read_secret_file(access_token_file) if access_token_file else None
-                filters = account_config.get('filters', {})
-                
-                # Account is enabled if it has required fields
-                enabled = bool(instance_url and access_token)
-                
-                client = cls(
-                    instance_url=instance_url,
-                    access_token=access_token,
-                    config_enabled=enabled,
-                    account_name=account_name,
-                    filters=filters
-                )
-                clients.append(client)
+        clients = []
+        for account_config in accounts_config:
+            account_name = account_config.get('name', 'unnamed')
+            instance_url = account_config.get('instance_url', '')
+            access_token_file = account_config.get('access_token_file')
+            access_token = read_secret_file(access_token_file) if access_token_file else None
+            filters = account_config.get('filters', {})
             
-            return clients
+            # Account is enabled if it has required fields
+            enabled = bool(instance_url and access_token)
+            
+            client = cls(
+                instance_url=instance_url,
+                access_token=access_token,
+                config_enabled=enabled,
+                account_name=account_name,
+                filters=filters
+            )
+            clients.append(client)
         
-        # Legacy single-account format - return as list with one client
-        enabled = platform_config.get('enabled', False)
-        
-        if not enabled:
-            return [cls(instance_url="", config_enabled=False)]
-        
-        instance_url = platform_config.get('instance_url', '')
-        access_token_file = platform_config.get('access_token_file')
-        access_token = read_secret_file(access_token_file) if access_token_file else None
-        
-        single_client = cls(
-            instance_url=instance_url,
-            access_token=access_token,
-            config_enabled=enabled
-        )
-        return [single_client]
+        return clients
     
     @abstractmethod
     def post(

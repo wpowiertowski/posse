@@ -32,15 +32,21 @@ class TestMastodonClient(unittest.TestCase):
         
         config = {
             'mastodon': {
-                'enabled': True,
-                'instance_url': 'https://mastodon.social',
-                'access_token_file': '/run/secrets/mastodon_access_token'
+                'accounts': [
+                    {
+                        'name': 'test',
+                        'instance_url': 'https://mastodon.social',
+                        'access_token_file': '/run/secrets/mastodon_access_token'
+                    }
+                ]
             }
         }
         
-        client = MastodonClient.from_config(config)
+        clients = MastodonClient.from_config(config)
         
         # Verify client is properly initialized with secrets
+        self.assertEqual(len(clients), 1)
+        client = clients[0]
         self.assertTrue(client.enabled)
         self.assertEqual(client.instance_url, "https://mastodon.social")
         self.assertEqual(client.access_token, "test_access_token")

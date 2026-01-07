@@ -79,31 +79,11 @@ class MastodonClient(SocialMediaClient):
         )
     
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> 'MastodonClient':
-        """Create MastodonClient from configuration dictionary.
+    def from_config(cls, config: Dict[str, Any]) -> list['MastodonClient']:
+        """Create MastodonClient instances from configuration dictionary.
         
         This factory method reads configuration from config.yml and loads
-        credentials from Docker secrets.
-        
-        Args:
-            config: Configuration dictionary from load_config()
-            
-        Returns:
-            MastodonClient instance configured from config.yml and secrets
-            
-        Example:
-            >>> from config import load_config
-            >>> config = load_config()
-            >>> client = MastodonClient.from_config(config)
-        """
-        return super(MastodonClient, cls).from_config(config, 'mastodon')
-    
-    @classmethod
-    def from_config_multi(cls, config: Dict[str, Any]) -> list['MastodonClient']:
-        """Create multiple MastodonClient instances from configuration dictionary.
-        
-        This factory method supports both legacy single-account and new
-        multi-account configuration formats.
+        credentials from Docker secrets. Supports multiple accounts.
         
         Args:
             config: Configuration dictionary from load_config()
@@ -114,12 +94,12 @@ class MastodonClient(SocialMediaClient):
         Example:
             >>> from config import load_config
             >>> config = load_config()
-            >>> clients = MastodonClient.from_config_multi(config)
+            >>> clients = MastodonClient.from_config(config)
             >>> for client in clients:
             ...     if client.enabled:
             ...         client.post("Hello!")
         """
-        return super(MastodonClient, cls).from_config_multi(config, 'mastodon')
+        return super(MastodonClient, cls).from_config(config, 'mastodon')
     
     def post(
         self,
