@@ -1,4 +1,6 @@
-FROM python:3.14-slim
+# Use Alpine base image which has BusyBox tar 1.37.0, not vulnerable to CVE-2025-45582
+# (CVE-2025-45582 only affects GNU tar <= 1.35)
+FROM python:3.14-alpine
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -14,11 +16,8 @@ ENV PYTHONUNBUFFERED=1 \
 # Add Poetry to PATH
 ENV PATH="$POETRY_HOME/bin:$PATH"
 
-# Install system dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Install system dependencies (if any)
+# No system dependencies required for this application
 
 # Install Poetry
 RUN pip install "poetry==$POETRY_VERSION"
