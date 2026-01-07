@@ -68,6 +68,10 @@ class MastodonClient(SocialMediaClient):
         ...     client.post("Hello Mastodon!")
     """
     
+    # Configuration constants
+    IMAGE_DOWNLOAD_TIMEOUT = 30  # seconds
+    DEFAULT_IMAGE_EXTENSION = '.jpg'  # fallback for images without file extension
+    
     def _initialize_api(self) -> None:
         """Initialize the Mastodon API client.
         
@@ -117,12 +121,12 @@ class MastodonClient(SocialMediaClient):
             Caller is responsible for deleting the temporary file after use
         """
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, timeout=self.IMAGE_DOWNLOAD_TIMEOUT)
             response.raise_for_status()
             
             # Create a temporary file to store the image
             # We need to keep the file after closing it, so delete=False
-            suffix = os.path.splitext(url)[1] or '.jpg'
+            suffix = os.path.splitext(url)[1] or self.DEFAULT_IMAGE_EXTENSION
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
             temp_file.write(response.content)
             temp_file.close()
