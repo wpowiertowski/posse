@@ -98,6 +98,29 @@ class MastodonClient(SocialMediaClient):
         """
         return super(MastodonClient, cls).from_config(config, 'mastodon')
     
+    @classmethod
+    def from_config_multi(cls, config: Dict[str, Any]) -> list['MastodonClient']:
+        """Create multiple MastodonClient instances from configuration dictionary.
+        
+        This factory method supports both legacy single-account and new
+        multi-account configuration formats.
+        
+        Args:
+            config: Configuration dictionary from load_config()
+            
+        Returns:
+            List of MastodonClient instances
+            
+        Example:
+            >>> from config import load_config
+            >>> config = load_config()
+            >>> clients = MastodonClient.from_config_multi(config)
+            >>> for client in clients:
+            ...     if client.enabled:
+            ...         client.post("Hello!")
+        """
+        return super(MastodonClient, cls).from_config_multi(config, 'mastodon')
+    
     def post(
         self,
         content: str,
