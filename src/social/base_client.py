@@ -216,10 +216,6 @@ class SocialMediaClient(ABC):
             return clients
         
         # Legacy single-account format - return as list with one client
-        # Call the base class method directly with proper arguments
-        from config import read_secret_file
-        
-        platform_config = config.get(platform_key, {})
         enabled = platform_config.get('enabled', False)
         
         if not enabled:

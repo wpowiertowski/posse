@@ -85,10 +85,14 @@ def matches_filters(ghost_post: Dict[str, Any], filters: Dict[str, Any]) -> bool
     # Extract post data from Ghost webhook structure
     post_data = ghost_post.get('post', {}).get('current', {})
     
+    # Extract tags once if needed for tag-based filters
+    post_tags = None
+    if 'exclude_tags' in filters or 'tags' in filters:
+        post_tags = _extract_tag_slugs(post_data)
+    
     # Check exclude_tags first (takes precedence)
     exclude_tags = filters.get('exclude_tags', [])
     if exclude_tags:
-        post_tags = _extract_tag_slugs(post_data)
         if any(tag in post_tags for tag in exclude_tags):
             logger.debug(f"Post excluded by exclude_tags filter: {exclude_tags}")
             return False
@@ -96,7 +100,6 @@ def matches_filters(ghost_post: Dict[str, Any], filters: Dict[str, Any]) -> bool
     # Check tags filter (OR logic - any tag matches)
     tags_filter = filters.get('tags', [])
     if tags_filter:
-        post_tags = _extract_tag_slugs(post_data)
         if not any(tag in post_tags for tag in tags_filter):
             logger.debug(f"Post does not match tags filter: {tags_filter}")
             return False
