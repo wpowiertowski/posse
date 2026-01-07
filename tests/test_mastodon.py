@@ -12,7 +12,7 @@ Testing Strategy:
     authentication initialization works correctly.
 
 Running Tests:
-    $ python -m unittest tests.test_mastodon -v
+    $ PYTHONPATH=src python -m unittest tests.test_mastodon -v
 """
 import unittest
 from unittest.mock import patch
