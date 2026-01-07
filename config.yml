@@ -14,9 +14,19 @@ pushover:
   app_token_file: /run/secrets/pushover_app_token
   user_key_file: /run/secrets/pushover_user_key
 
-# Future configuration sections
-# mastodon:
-#   enabled: false
+# Mastodon Configuration
+# Enable posting to Mastodon instance
+mastodon:
+  # Set to true to enable Mastodon posting
+  # Requires Docker secret: mastodon_access_token
+  enabled: false
+  
+  # Mastodon instance URL (e.g., https://mastodon.social)
+  instance_url: https://mastodon.social
+  
+  # Secret path (when using Docker secrets)
+  # This will be mounted by Docker Compose at runtime
+  access_token_file: /run/secrets/mastodon_access_token
 
 # bluesky:
 #   enabled: false

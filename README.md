@@ -58,6 +58,10 @@ This ensures your content is syndicated across multiple platforms while maintain
   - 📝 New post received and validated
   - ✅ Post queued for syndication
   - ⚠️ Validation errors
+- **Mastodon Integration**: Simple access token authentication:
+  - Post to any Mastodon instance
+  - Secure credential management with Docker secrets
+  - Status posting with visibility controls
 - **Robust Validation**: JSON Schema validation for all incoming webhooks
 - **Production Ready**: Gunicorn server with comprehensive logging
 - **Docker Support**: Easy deployment with Docker and Docker Compose
@@ -68,7 +72,8 @@ This ensures your content is syndicated across multiple platforms while maintain
 - [x] flask server to receive POST requests from Ghost with contents of the published post
 - [x] Pushover notifications for main events (post received, queued, validation errors)
 - [x] automated Docker Hub publishing on successful CI builds
-- [ ] authenticate and post to Mastodon account
+- [x] implement Mastodon app registration and user authentication
+- [ ] integrate Mastodon posting with Ghost webhook flow
 - [ ] authenticate and post to Bluesky account
 
 ## Configuration
@@ -84,6 +89,12 @@ pushover:
   enabled: false  # Set to true to enable notifications
   app_token_file: /run/secrets/pushover_app_token
   user_key_file: /run/secrets/pushover_user_key
+
+# Mastodon Configuration
+mastodon:
+  enabled: false  # Set to true to enable Mastodon posting
+  instance_url: https://mastodon.social
+  access_token_file: /run/secrets/mastodon_access_token
 ```
 
 ### Pushover Notifications (Optional)
@@ -133,6 +144,72 @@ The following notifications are sent automatically:
 - **📝 Post Received**: When a Ghost post is successfully received and validated
 - **✅ Post Queued**: When a post is queued for syndication (includes link to post)
 - **⚠️ Validation Error**: When a webhook fails validation (high priority)
+
+### Mastodon Integration
+
+To enable posting to Mastodon, get an access token directly from your Mastodon instance:
+
+##### Step 1: Create Application in Mastodon UI
+
+1. Go to your Mastodon instance (e.g., https://mastodon.social)
+2. Navigate to **Settings** → **Development** → **New Application**
+3. Fill in the application details:
+   - **Application name**: POSSE
+   - **Scopes**: Select `write:statuses` (minimum required)
+4. Click **Submit**
+5. Copy the **Your access token** value
+
+##### Step 2: Store Access Token
+
+```bash
+mkdir -p secrets
+echo "your_access_token_here" > secrets/mastodon_access_token.txt
+```
+
+#### Configure POSSE for Production
+
+After obtaining your access token, configure POSSE to use your Mastodon credentials:
+
+##### 1. Enable Mastodon in Configuration
+
+Update `config.yml`:
+```yaml
+mastodon:
+  enabled: true
+  instance_url: https://mastodon.social  # Your Mastodon instance URL
+  access_token_file: /run/secrets/mastodon_access_token
+```
+
+##### 2. Update Docker Compose
+
+Add Mastodon secret to your `docker-compose.yml`:
+
+```yaml
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: posse
+    volumes:
+      - .:/app
+      - ./config.yml:/app/config.yml:ro
+    secrets:
+      - pushover_app_token
+      - pushover_user_key
+      - mastodon_access_token
+    command: poetry run posse
+
+secrets:
+  pushover_app_token:
+    file: ./secrets/pushover_app_token.txt
+  pushover_user_key:
+    file: ./secrets/pushover_user_key.txt
+  mastodon_access_token:
+    file: ./secrets/mastodon_access_token.txt
+```
+
+If Mastodon is not enabled in config.yml, the application will run normally without posting to Mastodon.
 
 ## Getting Started
 
