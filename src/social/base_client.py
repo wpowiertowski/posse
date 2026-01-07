@@ -216,8 +216,24 @@ class SocialMediaClient(ABC):
             return clients
         
         # Legacy single-account format - return as list with one client
-        # Call base class from_config directly to avoid signature mismatch with subclass
-        single_client = super(cls, cls).from_config(config, platform_key)
+        # Call the base class method directly with proper arguments
+        from config import read_secret_file
+        
+        platform_config = config.get(platform_key, {})
+        enabled = platform_config.get('enabled', False)
+        
+        if not enabled:
+            return [cls(instance_url="", config_enabled=False)]
+        
+        instance_url = platform_config.get('instance_url', '')
+        access_token_file = platform_config.get('access_token_file')
+        access_token = read_secret_file(access_token_file) if access_token_file else None
+        
+        single_client = cls(
+            instance_url=instance_url,
+            access_token=access_token,
+            config_enabled=enabled
+        )
         return [single_client]
     
     @abstractmethod

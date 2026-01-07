@@ -29,6 +29,20 @@ from typing import Dict, Any, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def _extract_tag_slugs(post_data: Dict[str, Any]) -> List[str]:
+    """Extract tag slugs from Ghost post data.
+    
+    Helper function to avoid code duplication when extracting tags.
+    
+    Args:
+        post_data: Ghost post current data dictionary
+        
+    Returns:
+        List of tag slugs from the post
+    """
+    return [tag['slug'] for tag in post_data.get('tags', [])]
+
+
 def matches_filters(ghost_post: Dict[str, Any], filters: Dict[str, Any]) -> bool:
     """Check if a Ghost post matches the specified filters.
     
@@ -74,7 +88,7 @@ def matches_filters(ghost_post: Dict[str, Any], filters: Dict[str, Any]) -> bool
     # Check exclude_tags first (takes precedence)
     exclude_tags = filters.get('exclude_tags', [])
     if exclude_tags:
-        post_tags = [tag['slug'] for tag in post_data.get('tags', [])]
+        post_tags = _extract_tag_slugs(post_data)
         if any(tag in post_tags for tag in exclude_tags):
             logger.debug(f"Post excluded by exclude_tags filter: {exclude_tags}")
             return False
@@ -82,7 +96,7 @@ def matches_filters(ghost_post: Dict[str, Any], filters: Dict[str, Any]) -> bool
     # Check tags filter (OR logic - any tag matches)
     tags_filter = filters.get('tags', [])
     if tags_filter:
-        post_tags = [tag['slug'] for tag in post_data.get('tags', [])]
+        post_tags = _extract_tag_slugs(post_data)
         if not any(tag in post_tags for tag in tags_filter):
             logger.debug(f"Post does not match tags filter: {tags_filter}")
             return False
