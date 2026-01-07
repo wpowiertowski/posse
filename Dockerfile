@@ -1,6 +1,11 @@
 # Use Alpine base image which has BusyBox tar 1.37.0, not vulnerable to CVE-2025-45582
 # (CVE-2025-45582 only affects GNU tar <= 1.35)
+# CVE-2025-60876 fix: Install GNU wget to replace vulnerable BusyBox wget (1.37.0-r30)
 FROM python:3.14-alpine
+
+# Install GNU wget to mitigate CVE-2025-60876 (BusyBox wget vulnerability)
+# GNU wget is not affected by this vulnerability
+RUN apk add --no-cache wget
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
