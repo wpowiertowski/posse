@@ -225,7 +225,7 @@ Refer to the Makefile for additional development and utility commands.
 
 For a complete production example of POSSE integrated with a Ghost blog, including webhook configuration and deployment setup, see:
 
-**[Ghost Blog Docker Compose Example](https://github.com/wpowiertowski/docker/blob/main/ghost/ghost.yml)**
+**[Ghost Blog Docker Compose Example](https://github.com/wpowiertowski/docker/blob/main/ghost/compose.yml)**
 
 This example demonstrates:
 - Running POSSE alongside a Ghost blog and MySQL database
