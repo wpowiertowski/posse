@@ -58,19 +58,12 @@ This ensures your content is syndicated across multiple platforms while maintain
   - 📝 New post received and validated
   - ✅ Post queued for syndication
   - ⚠️ Validation errors
-- **Multi-Account Mastodon Support**: Post to multiple Mastodon accounts with smart filtering:
+- **Multi-Account Mastodon Support**: Post to multiple Mastodon accounts:
   - Configure unlimited Mastodon accounts
-  - Per-account filters based on tags, visibility, featured status, etc.
   - Simple access token authentication
   - Secure credential management with Docker secrets
   - Status posting with visibility controls
 - **Multi-Account Bluesky Support**: Same flexible multi-account support for Bluesky (coming soon)
-- **Smart Post Filtering**: Route posts to specific accounts based on criteria:
-  - Filter by Ghost post tags (include or exclude)
-  - Filter by visibility (public, members, paid)
-  - Filter by featured status
-  - Filter by publication status
-  - Combine multiple filters with AND/OR logic
 - **Robust Validation**: JSON Schema validation for all incoming webhooks
 - **Production Ready**: Gunicorn server with comprehensive logging
 - **Docker Support**: Easy deployment with Docker and Docker Compose
@@ -82,7 +75,7 @@ This ensures your content is syndicated across multiple platforms while maintain
 - [x] Pushover notifications for main events (post received, queued, validation errors)
 - [x] automated Docker Hub publishing on successful CI builds
 - [x] implement Mastodon app registration and user authentication
-- [x] multi-account support for Mastodon and Bluesky with per-account filters
+- [x] multi-account support for Mastodon and Bluesky
 - [ ] integrate Mastodon posting with Ghost webhook flow
 - [ ] authenticate and post to Bluesky account
 
@@ -94,7 +87,7 @@ POSSE uses a `config.yml` file for application settings. The configuration file 
 
 #### Account Configuration
 
-POSSE supports multiple accounts for both Mastodon and Bluesky, with per-account filters to control which posts get syndicated where.
+POSSE supports multiple accounts for both Mastodon and Bluesky.
 
 **config.yml:**
 ```yaml
@@ -110,22 +103,14 @@ mastodon:
     - name: "personal"
       instance_url: "https://mastodon.social"
       access_token_file: "/run/secrets/mastodon_personal_access_token"
-      filters:
-        tags: ["personal", "tech", "photography"]  # Include posts with ANY of these tags
-        visibility: ["public"]                      # Only public posts
     
     - name: "professional"
       instance_url: "https://fosstodon.org"
       access_token_file: "/run/secrets/mastodon_professional_access_token"
-      filters:
-        tags: ["work", "security", "tech"]
-        exclude_tags: ["personal"]  # Don't cross-post personal content
-        visibility: ["public"]
     
     - name: "all_posts"
       instance_url: "https://mastodon.example.com"
       access_token_file: "/run/secrets/mastodon_all_access_token"
-      filters: {}  # Empty filters = syndicate all posts
 
 # Bluesky Configuration (same structure)
 bluesky:
@@ -133,8 +118,6 @@ bluesky:
     - name: "main"
       instance_url: "https://bsky.social"
       access_token_file: "/run/secrets/bluesky_main_access_token"
-      filters:
-        visibility: ["public"]
 ```
 
 **Single Account Configuration:**
@@ -147,42 +130,6 @@ mastodon:
     - name: "main"
       instance_url: "https://mastodon.social"
       access_token_file: "/run/secrets/mastodon_access_token"
-      filters: {}  # Empty filters = all posts
-```
-
-#### Filter Options
-
-Filters control which Ghost posts get syndicated to each account:
-
-- **`tags`**: Array of tag slugs to include (OR logic - post matches if ANY tag matches)
-- **`exclude_tags`**: Array of tag slugs to exclude (takes precedence over `tags`)
-- **`visibility`**: Array of visibility values (`"public"`, `"members"`, `"paid"`)
-- **`featured`**: Boolean - only featured posts (`true`) or non-featured (`false`)
-- **`status`**: Array of status values (`"draft"`, `"published"`, `"scheduled"`)
-
-**Filter Logic:**
-- Empty filters (`{}`) or omitted filters match **all posts**
-- All specified filter criteria must match (AND logic)
-- Within `tags` filter, ANY tag can match (OR logic)
-- `exclude_tags` takes precedence over `tags`
-
-**Examples:**
-
-```yaml
-# Only featured, public posts with tech tag
-filters:
-  tags: ["tech"]
-  visibility: ["public"]
-  featured: true
-
-# All posts except drafts and personal content
-filters:
-  exclude_tags: ["draft", "personal"]
-  status: ["published"]
-
-# All public and members posts
-filters:
-  visibility: ["public", "members"]
 ```
 
 ### Pushover Notifications (Optional)
@@ -274,17 +221,10 @@ mastodon:
     - name: "personal"
       instance_url: "https://mastodon.social"
       access_token_file: "/run/secrets/mastodon_personal_access_token"
-      filters:
-        tags: ["personal", "photography", "travel"]
-        visibility: ["public"]
     
     - name: "professional"
       instance_url: "https://fosstodon.org"
       access_token_file: "/run/secrets/mastodon_professional_access_token"
-      filters:
-        tags: ["tech", "security", "work"]
-        exclude_tags: ["personal"]
-        visibility: ["public"]
 ```
 
 #### Step 4: Update Docker Compose

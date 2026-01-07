@@ -32,14 +32,12 @@ class TestMultiAccountConfiguration(unittest.TestCase):
                     {
                         'name': 'personal',
                         'instance_url': 'https://mastodon.social',
-                        'access_token_file': '/run/secrets/mastodon_personal_access_token',
-                        'filters': {'tags': ['personal']}
+                        'access_token_file': '/run/secrets/mastodon_personal_access_token'
                     },
                     {
                         'name': 'work',
                         'instance_url': 'https://fosstodon.org',
-                        'access_token_file': '/run/secrets/mastodon_work_access_token',
-                        'filters': {'tags': ['work'], 'exclude_tags': ['personal']}
+                        'access_token_file': '/run/secrets/mastodon_work_access_token'
                     }
                 ]
             }
@@ -55,39 +53,12 @@ class TestMultiAccountConfiguration(unittest.TestCase):
         self.assertEqual(clients[0].account_name, "personal")
         self.assertEqual(clients[0].instance_url, "https://mastodon.social")
         self.assertEqual(clients[0].access_token, "personal_token")
-        self.assertEqual(clients[0].filters, {'tags': ['personal']})
         
         # Check second account
         self.assertTrue(clients[1].enabled)
         self.assertEqual(clients[1].account_name, "work")
         self.assertEqual(clients[1].instance_url, "https://fosstodon.org")
         self.assertEqual(clients[1].access_token, "work_token")
-        self.assertEqual(clients[1].filters, {'tags': ['work'], 'exclude_tags': ['personal']})
-    
-    @patch('config.read_secret_file')
-    @patch('mastodon_client.mastodon_client.Mastodon')
-    def test_multi_account_with_empty_filters(self, mock_mastodon, mock_read_secret):
-        """Test multi-account with empty filters (matches all posts)."""
-        mock_read_secret.return_value = "test_token"
-        
-        config = {
-            'mastodon': {
-                'accounts': [
-                    {
-                        'name': 'all_posts',
-                        'instance_url': 'https://mastodon.social',
-                        'access_token_file': '/run/secrets/mastodon_all_access_token',
-                        'filters': {}  # Empty filters
-                    }
-                ]
-            }
-        }
-        
-        clients = MastodonClient.from_config(config)
-        
-        self.assertEqual(len(clients), 1)
-        self.assertTrue(clients[0].enabled)
-        self.assertEqual(clients[0].filters, {})
     
     @patch('config.read_secret_file')
     @patch('mastodon_client.mastodon_client.Mastodon')
@@ -113,31 +84,6 @@ class TestMultiAccountConfiguration(unittest.TestCase):
         self.assertEqual(len(clients), 1)
         self.assertFalse(clients[0].enabled)
     
-    @patch('config.read_secret_file')
-    @patch('mastodon_client.mastodon_client.Mastodon')
-    def test_multi_account_no_filters_key(self, mock_mastodon, mock_read_secret):
-        """Test multi-account when filters key is omitted."""
-        mock_read_secret.return_value = "test_token"
-        
-        config = {
-            'mastodon': {
-                'accounts': [
-                    {
-                        'name': 'no_filters',
-                        'instance_url': 'https://mastodon.social',
-                        'access_token_file': '/run/secrets/mastodon_token'
-                        # No 'filters' key
-                    }
-                ]
-            }
-        }
-        
-        clients = MastodonClient.from_config(config)
-        
-        self.assertEqual(len(clients), 1)
-        self.assertTrue(clients[0].enabled)
-        # Should default to empty dict
-        self.assertEqual(clients[0].filters, {})
     
     @patch('config.read_secret_file')
     @patch('mastodon_client.mastodon_client.Mastodon')
@@ -166,8 +112,7 @@ class TestMultiAccountConfiguration(unittest.TestCase):
                     {
                         'name': 'main',
                         'instance_url': 'https://mastodon.social',
-                        'access_token_file': '/run/secrets/mastodon_access_token',
-                        'filters': {}
+                        'access_token_file': '/run/secrets/mastodon_access_token'
                     }
                 ]
             }

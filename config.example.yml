@@ -9,81 +9,40 @@ pushover:
   user_key_file: /run/secrets/pushover_user_key
 
 # Mastodon Multi-Account Configuration
-# Configure multiple Mastodon accounts with per-account filters
+# Configure multiple Mastodon accounts
 mastodon:
   accounts:
-    # Personal account - posts about life, photography, travel
+    # Personal account
     - name: "personal"
       instance_url: "https://mastodon.social"
       access_token_file: "/run/secrets/mastodon_personal_access_token"
-      filters:
-        tags: ["personal", "photography", "travel", "life"]
-        visibility: ["public"]  # Only public posts
     
-    # Professional/Tech account - technical content
+    # Professional/Tech account
     - name: "tech"
       instance_url: "https://fosstodon.org"
       access_token_file: "/run/secrets/mastodon_tech_access_token"
-      filters:
-        tags: ["tech", "programming", "security", "opensource"]
-        exclude_tags: ["personal"]  # Don't cross-post personal content
-        visibility: ["public"]
-        featured: false  # Only non-featured posts
     
-    # Work account - only work-related, featured posts
+    # Work account
     - name: "work"
       instance_url: "https://mastodon.company.com"
       access_token_file: "/run/secrets/mastodon_work_access_token"
-      filters:
-        tags: ["work", "announcement"]
-        featured: true  # Only featured posts
-        visibility: ["public", "members"]
     
-    # Archive account - receives ALL posts (no filters)
+    # Archive account - receives ALL posts
     - name: "archive"
       instance_url: "https://mastodon.archive.org"
       access_token_file: "/run/secrets/mastodon_archive_access_token"
-      filters: {}  # Empty filters = all posts
 
 # Bluesky Multi-Account Configuration
-# Same structure as Mastodon - configure multiple accounts with filters
+# Same structure as Mastodon - configure multiple accounts
 bluesky:
   accounts:
     # Main Bluesky account
     - name: "main"
       instance_url: "https://bsky.social"
       access_token_file: "/run/secrets/bluesky_main_access_token"
-      filters:
-        visibility: ["public"]
-        exclude_tags: ["draft", "private"]
     
     # Professional Bluesky account
     - name: "professional"
       instance_url: "https://bsky.social"
       access_token_file: "/run/secrets/bluesky_professional_access_token"
-      filters:
-        tags: ["work", "tech", "security"]
-        visibility: ["public"]
 
-# Filter Options Reference:
-#
-# tags: ["tag1", "tag2"]
-#   - Include posts with ANY of these Ghost post tags (OR logic)
-#
-# exclude_tags: ["tag1", "tag2"]  
-#   - Exclude posts with ANY of these tags (takes precedence over tags)
-#
-# visibility: ["public", "members", "paid"]
-#   - Filter by Ghost post visibility level
-#
-# featured: true/false
-#   - true: only featured posts
-#   - false: only non-featured posts
-#   - omit: both featured and non-featured
-#
-# status: ["draft", "published", "scheduled"]
-#   - Filter by Ghost post status
-#
-# Empty filters ({}) or omitted filters = match ALL posts
-# All specified filters must match (AND logic)
-# Within tags, ANY tag can match (OR logic)
