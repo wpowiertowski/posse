@@ -166,7 +166,7 @@ class TestMastodonClient:
         assert client.api is None
     
     @patch('mastodon_client.mastodon_client.Mastodon')
-    def test_post_status_success(self, mock_mastodon_class):
+    def test_post_success(self, mock_mastodon_class):
         """Test successful status posting to Mastodon."""
         mock_instance = MagicMock()
         mock_instance.status_post.return_value = {
@@ -181,7 +181,7 @@ class TestMastodonClient:
             access_token="test_access_token"
         )
         
-        result = client.post_status("Test post")
+        result = client.post("Test post")
         
         assert result is not None
         assert result['id'] == '12345'
@@ -195,7 +195,7 @@ class TestMastodonClient:
         )
     
     @patch('mastodon_client.mastodon_client.Mastodon')
-    def test_post_status_with_options(self, mock_mastodon_class):
+    def test_post_with_options(self, mock_mastodon_class):
         """Test status posting with visibility and content warning options."""
         mock_instance = MagicMock()
         mock_instance.status_post.return_value = {
@@ -209,8 +209,8 @@ class TestMastodonClient:
             access_token="test_access_token"
         )
         
-        result = client.post_status(
-            status="Sensitive content",
+        result = client.post(
+            content="Sensitive content",
             visibility='unlisted',
             sensitive=True,
             spoiler_text="CW: Test"
@@ -225,19 +225,19 @@ class TestMastodonClient:
             spoiler_text="CW: Test"
         )
     
-    def test_post_status_when_disabled(self):
+    def test_post_when_disabled(self):
         """Test posting fails gracefully when client is disabled."""
         client = MastodonClient(
             instance_url="https://mastodon.social",
             access_token=None
         )
         
-        result = client.post_status("Test post")
+        result = client.post("Test post")
         
         assert result is None
     
     @patch('mastodon_client.mastodon_client.Mastodon')
-    def test_post_status_failure(self, mock_mastodon_class):
+    def test_post_failure(self, mock_mastodon_class):
         """Test status posting handles API errors gracefully."""
         mock_instance = MagicMock()
         mock_instance.status_post.side_effect = MastodonError("Posting failed")
@@ -248,7 +248,7 @@ class TestMastodonClient:
             access_token="test_access_token"
         )
         
-        result = client.post_status("Test post")
+        result = client.post("Test post")
         
         assert result is None
     

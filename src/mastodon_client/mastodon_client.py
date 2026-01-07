@@ -140,35 +140,6 @@ class MastodonClient(SocialMediaClient):
             logger.error(f"Failed to post status to Mastodon: {e}")
             return None
     
-    # Maintain backward compatibility with old method name
-    def post_status(
-        self,
-        status: str,
-        visibility: str = 'public',
-        sensitive: bool = False,
-        spoiler_text: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
-        """Post a status to Mastodon (backward compatibility method).
-        
-        This method is maintained for backward compatibility and delegates
-        to the post() method.
-        
-        Args:
-            status: Text content of the status
-            visibility: Post visibility ('public', 'unlisted', 'private', 'direct')
-            sensitive: Whether to mark the post as sensitive content
-            spoiler_text: Content warning text
-            
-        Returns:
-            Dictionary containing the posted status information, or None if posting failed
-        """
-        return self.post(
-            content=status,
-            visibility=visibility,
-            sensitive=sensitive,
-            spoiler_text=spoiler_text
-        )
-    
     def verify_credentials(self) -> Optional[Dict[str, Any]]:
         """Verify that the access token is valid and get account information.
         
