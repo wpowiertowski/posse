@@ -1,0 +1,48 @@
+# POSSE Multi-Account Configuration Example
+# This is a comprehensive example showing multi-account setup for Mastodon and Bluesky
+
+# Pushover Push Notifications
+# Optional: Get notified when posts are received and queued
+pushover:
+  enabled: true
+  app_token_file: /run/secrets/pushover_app_token
+  user_key_file: /run/secrets/pushover_user_key
+
+# Mastodon Multi-Account Configuration
+# Configure multiple Mastodon accounts
+mastodon:
+  accounts:
+    # Personal account
+    - name: "personal"
+      instance_url: "https://mastodon.social"
+      access_token_file: "/run/secrets/mastodon_personal_access_token"
+    
+    # Professional/Tech account
+    - name: "tech"
+      instance_url: "https://fosstodon.org"
+      access_token_file: "/run/secrets/mastodon_tech_access_token"
+    
+    # Work account
+    - name: "work"
+      instance_url: "https://mastodon.company.com"
+      access_token_file: "/run/secrets/mastodon_work_access_token"
+    
+    # Archive account - receives ALL posts
+    - name: "archive"
+      instance_url: "https://mastodon.archive.org"
+      access_token_file: "/run/secrets/mastodon_archive_access_token"
+
+# Bluesky Multi-Account Configuration
+# Same structure as Mastodon - configure multiple accounts
+bluesky:
+  accounts:
+    # Main Bluesky account
+    - name: "main"
+      instance_url: "https://bsky.social"
+      access_token_file: "/run/secrets/bluesky_main_access_token"
+    
+    # Professional Bluesky account
+    - name: "professional"
+      instance_url: "https://bsky.social"
+      access_token_file: "/run/secrets/bluesky_professional_access_token"
+

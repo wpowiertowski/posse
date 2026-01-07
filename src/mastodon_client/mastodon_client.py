@@ -79,22 +79,25 @@ class MastodonClient(SocialMediaClient):
         )
     
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> 'MastodonClient':
-        """Create MastodonClient from configuration dictionary.
+    def from_config(cls, config: Dict[str, Any]) -> list['MastodonClient']:
+        """Create MastodonClient instances from configuration dictionary.
         
         This factory method reads configuration from config.yml and loads
-        credentials from Docker secrets.
+        credentials from Docker secrets. Supports multiple accounts.
         
         Args:
             config: Configuration dictionary from load_config()
             
         Returns:
-            MastodonClient instance configured from config.yml and secrets
+            List of MastodonClient instances
             
         Example:
             >>> from config import load_config
             >>> config = load_config()
-            >>> client = MastodonClient.from_config(config)
+            >>> clients = MastodonClient.from_config(config)
+            >>> for client in clients:
+            ...     if client.enabled:
+            ...         client.post("Hello!")
         """
         return super(MastodonClient, cls).from_config(config, 'mastodon')
     

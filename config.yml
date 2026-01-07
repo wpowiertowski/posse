@@ -15,18 +15,35 @@ pushover:
   user_key_file: /run/secrets/pushover_user_key
 
 # Mastodon Configuration
-# Enable posting to Mastodon instance
-mastodon:
-  # Set to true to enable Mastodon posting
-  # Requires Docker secret: mastodon_access_token
-  enabled: false
-  
-  # Mastodon instance URL (e.g., https://mastodon.social)
-  instance_url: https://mastodon.social
-  
-  # Secret path (when using Docker secrets)
-  # This will be mounted by Docker Compose at runtime
-  access_token_file: /run/secrets/mastodon_access_token
+# Configure multiple Mastodon accounts
+#
+# Example multi-account configuration:
+# mastodon:
+#   accounts:
+#     - name: "personal"
+#       instance_url: "https://mastodon.social"
+#       access_token_file: "/run/secrets/mastodon_personal_access_token"
+#     - name: "work"
+#       instance_url: "https://fosstodon.org"
+#       access_token_file: "/run/secrets/mastodon_work_access_token"
+#
+# For a single account, simply configure one account in the accounts array:
+# mastodon:
+#   accounts:
+#     - name: "main"
+#       instance_url: "https://mastodon.social"
+#       access_token_file: "/run/secrets/mastodon_access_token"
 
+# Bluesky Configuration
+# Configure multiple Bluesky accounts
+# Same structure as Mastodon configuration above
+#
+# Example multi-account configuration:
 # bluesky:
-#   enabled: false
+#   accounts:
+#     - name: "main"
+#       instance_url: "https://bsky.social"
+#       access_token_file: "/run/secrets/bluesky_main_access_token"
+#     - name: "professional"
+#       instance_url: "https://bsky.social"
+#       access_token_file: "/run/secrets/bluesky_professional_access_token"
