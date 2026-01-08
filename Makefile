@@ -1,4 +1,4 @@
-.PHONY: help build up down run test test-verbose shell clean install update
+.PHONY: help build up down run test test-verbose test-mastodon test-unit shell clean install update
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -18,8 +18,14 @@ down: ## Stop and remove containers
 run: ## Run the application once
 	docker compose run --rm app
 
-test: ## Run tests
+test: ## Run all tests (unit and integration)
 	docker compose run --rm test
+
+test-unit: ## Run unit tests only (excluding integration tests)
+	docker compose run --rm test pytest tests/ --ignore=tests/test_mastodon_integration.py -v
+
+test-mastodon: ## Run Mastodon integration tests with test instance
+	./scripts/run-mastodon-tests.sh
 
 test-verbose: ## Run tests with verbose output
 	docker compose run --rm app poetry run pytest -v
@@ -30,6 +36,9 @@ shell: ## Open a shell in the container
 clean: ## Clean up containers, volumes, and coverage reports
 	docker compose down -v
 	rm -rf htmlcov .coverage .pytest_cache __pycache__
+
+clean-mastodon: ## Clean up Mastodon test containers and volumes
+	docker compose --profile test down -v
 
 install: ## Install/update dependencies
 	docker compose run --rm app poetry install

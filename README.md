@@ -269,6 +269,59 @@ docker compose up
 
 Refer to the Makefile for additional development and utility commands.
 
+## Testing
+
+POSSE includes comprehensive test coverage with both unit and integration tests.
+
+### Running Tests
+
+```bash
+# Run all unit tests (fast)
+make test-unit
+
+# Run Mastodon integration tests (requires Docker)
+make test-mastodon
+
+# Run all tests
+make test
+```
+
+### Mastodon Integration Tests
+
+The project includes integration tests that validate Mastodon functionality against a real Mastodon instance running in Docker. These tests:
+
+- Start a complete Mastodon instance with PostgreSQL and Redis
+- Create a test user and OAuth application
+- Post actual statuses and verify they were created correctly
+- Test media uploads, visibility settings, and content warnings
+- Automatically tear down the test environment after completion
+
+For detailed information about the integration testing setup, see [tests/MASTODON_INTEGRATION_TESTING.md](tests/MASTODON_INTEGRATION_TESTING.md).
+
+**Quick Start:**
+```bash
+# Automated - runs complete test suite
+./scripts/run-mastodon-tests.sh
+
+# Or use make
+make test-mastodon
+```
+
+**Manual Steps:**
+```bash
+# 1. Start test instance
+docker compose --profile test up -d
+
+# 2. Setup test user
+./scripts/setup-mastodon-test.sh
+
+# 3. Run tests
+docker compose --profile test run --rm test pytest tests/test_mastodon_integration.py -v
+
+# 4. Cleanup
+docker compose --profile test down -v
+```
+
 ## Example Usage
 
 For a complete production example of POSSE integrated with a Ghost blog, including webhook configuration and deployment setup, see:
