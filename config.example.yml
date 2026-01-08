@@ -39,10 +39,12 @@ bluesky:
     # Main Bluesky account
     - name: "main"
       instance_url: "https://bsky.social"
-      access_token_file: "/run/secrets/bluesky_main_access_token"
+      handle: "user.bsky.social"  # Your Bluesky handle
+      app_password_file: "/run/secrets/bluesky_main_app_password"
     
     # Professional Bluesky account
     - name: "professional"
       instance_url: "https://bsky.social"
-      access_token_file: "/run/secrets/bluesky_professional_access_token"
+      handle: "professional.bsky.social"  # Your Bluesky handle
+      app_password_file: "/run/secrets/bluesky_professional_app_password"
 

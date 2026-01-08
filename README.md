@@ -81,12 +81,13 @@ mastodon:
       instance_url: "https://fosstodon.org"
       access_token_file: "/run/secrets/mastodon_professional_access_token"
 
-# Configure Bluesky accounts (coming soon)
+# Configure Bluesky accounts
 bluesky:
   accounts:
     - name: "main"
       instance_url: "https://bsky.social"
-      access_token_file: "/run/secrets/bluesky_main_access_token"
+      handle: "user.bsky.social"
+      app_password_file: "/run/secrets/bluesky_main_app_password"
 ```
 
 ### Setting Up Mastodon
@@ -118,6 +119,44 @@ bluesky:
    ```
 
 Repeat these steps for each Mastodon account you want to configure.
+
+### Setting Up Bluesky
+
+1. **Create a Bluesky app password**:
+   - Go to **Settings** → **App Passwords**
+   - Create a new app password
+   - Give it a name like `POSSE`
+   - Copy the generated password (not your account password)
+
+2. **Store the app password securely**:
+   ```bash
+   mkdir -p secrets
+   echo "your_app_password" > secrets/bluesky_main_app_password.txt
+   ```
+
+3. **Update `config.yml`** with your Bluesky instance URL, handle, and account name:
+   ```yaml
+   bluesky:
+     accounts:
+       - name: "main"
+         instance_url: "https://bsky.social"
+         handle: "your-handle.bsky.social"
+         app_password_file: "/run/secrets/bluesky_main_app_password"
+   ```
+
+4. **Add secret to `docker-compose.yml`**:
+   ```yaml
+   services:
+     app:
+       secrets:
+         - bluesky_main_app_password
+   
+   secrets:
+     bluesky_main_app_password:
+       file: ./secrets/bluesky_main_app_password.txt
+   ```
+
+Repeat these steps for each Bluesky account you want to configure.
 
 ### Pushover Notifications (Optional)
 
@@ -169,11 +208,13 @@ make test-verbose
 - ✅ Ghost webhook receiver with validation
 - ✅ Pushover notifications
 - ✅ Multi-account support for Mastodon
+- ✅ Multi-account support for Bluesky
+- ✅ Bluesky authentication and credential verification
 - ✅ Automated Docker Hub publishing
 
 **In Progress**:
 - 🚧 Mastodon posting integration
-- 🚧 Bluesky authentication and posting
+- 🚧 Bluesky posting integration
 
 ## Examples
 
