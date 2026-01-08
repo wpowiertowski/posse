@@ -74,13 +74,18 @@ class BlueskyClient(SocialMediaClient):
         """Initialize the Bluesky ATProto client.
         
         Sets up the ATProto client with the session string.
-        The access_token is treated as a session string for Bluesky.
+        
+        Note:
+            The base class uses access_token as a generic credential field.
+            For Bluesky, we store the session string in this field, which
+            provides equivalent functionality to access tokens but uses
+            ATProto's session-based authentication instead.
         
         Raises:
             Exception: If API initialization fails
         """
         self.api = Client()
-        # Use the access_token as a session_string for Bluesky
+        # Use the access_token field (which contains the session_string for Bluesky)
         self.api.login(session_string=self.access_token)
     
     @classmethod
