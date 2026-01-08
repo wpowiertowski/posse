@@ -122,7 +122,7 @@ class TestBlueskyClient(unittest.TestCase):
         result = client.post('Hello Bluesky!')
         
         # Verify send_post was called
-        self.assertEqual(mock_client.send_post.call_count, 1)
+        mock_client.send_post.assert_called_once()
         
         # Verify result
         self.assertIsNotNone(result)

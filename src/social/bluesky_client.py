@@ -134,6 +134,12 @@ class BlueskyClient(SocialMediaClient):
                   handle: "user.bsky.social"
                   app_password_file: "/run/secrets/bluesky_personal_app_password"
         
+        Note:
+            The configuration supports both `app_password_file` (recommended) and
+            `access_token_file` (for backward compatibility) field names. Use
+            `app_password_file` for Bluesky configurations as it better reflects
+            that Bluesky uses app passwords rather than access tokens.
+        
         Args:
             config: Configuration dictionary from load_config()
             
