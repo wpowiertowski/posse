@@ -3,9 +3,10 @@
 # CVE-2025-60876 fix: Install GNU wget to replace vulnerable BusyBox wget (1.37.0-r30)
 FROM python:3.14-alpine
 
+# CVE-2026-22184 fix: Explicitly upgrade zlib to >= 1.3.1.3 to fix critical buffer overflow
+# This critical vulnerability (CVSS 9.3) affects zlib <= 1.3.1.2 in the untgz utility
 # Install GNU wget to mitigate CVE-2025-60876 (BusyBox wget vulnerability)
-# GNU wget is not affected by this vulnerability
-RUN apk add --no-cache wget
+RUN apk add --no-cache --upgrade zlib wget
 
 # Install build dependencies for Python packages with C extensions
 RUN apk add --no-cache gcc musl-dev libffi-dev
