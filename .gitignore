@@ -209,6 +209,3 @@ __marimo__/
 # Secrets directory (never commit)
 secrets/
 pushover_*.txt
-
-# Mastodon test instance files (never commit)
-.env.mastodon.test
