@@ -30,6 +30,75 @@ jobs:
         printf '%s' "${PUSHOVER_APP_TOKEN:-dummy_token}" > secrets/pushover_app_token.txt
         printf '%s' "${PUSHOVER_USER_KEY:-dummy_key}" > secrets/pushover_user_key.txt
 
-    - name: Run tests with Docker Compose
-      run: docker compose run --rm test
+    - name: Run unit tests (excluding integration tests)
+      run: docker compose run --rm test pytest tests/ --ignore=tests/test_mastodon_integration.py -v
       timeout-minutes: 2
+
+  mastodon-integration-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Create secrets directory
+      run: mkdir -p secrets
+
+    - name: Write secrets to files
+      env:
+        PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+        PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+      run: |
+        printf '%s' "${PUSHOVER_APP_TOKEN:-dummy_token}" > secrets/pushover_app_token.txt
+        printf '%s' "${PUSHOVER_USER_KEY:-dummy_key}" > secrets/pushover_user_key.txt
+
+    - name: Start Mastodon test instance
+      run: docker compose --profile test up -d
+      timeout-minutes: 5
+
+    - name: Wait for Mastodon to be healthy
+      run: |
+        echo "Waiting for Mastodon to be healthy..."
+        timeout=300
+        elapsed=0
+        while [ $elapsed -lt $timeout ]; do
+          if docker compose --profile test ps | grep -q "mastodon-test-web.*healthy"; then
+            echo "Mastodon is healthy!"
+            break
+          fi
+          echo "Waiting... ($elapsed/$timeout seconds)"
+          sleep 5
+          elapsed=$((elapsed + 5))
+        done
+        if [ $elapsed -ge $timeout ]; then
+          echo "ERROR: Timeout waiting for Mastodon to become healthy"
+          docker compose --profile test ps
+          docker compose --profile test logs mastodon-web
+          exit 1
+        fi
+        # Additional wait for full initialization
+        sleep 10
+      timeout-minutes: 6
+
+    - name: Setup Mastodon test user and access token
+      run: |
+        chmod +x scripts/setup-mastodon-test.sh
+        ./scripts/setup-mastodon-test.sh
+      timeout-minutes: 2
+
+    - name: Run Mastodon integration tests
+      run: docker compose --profile test run --rm test pytest tests/test_mastodon_integration.py -v
+      timeout-minutes: 5
+
+    - name: Show Mastodon logs on failure
+      if: failure()
+      run: |
+        echo "=== Mastodon Web Logs ==="
+        docker compose --profile test logs mastodon-web
+        echo "=== Mastodon Sidekiq Logs ==="
+        docker compose --profile test logs mastodon-sidekiq
+        echo "=== PostgreSQL Logs ==="
+        docker compose --profile test logs mastodon-db
+
+    - name: Cleanup Mastodon test instance
+      if: always()
+      run: docker compose --profile test down -v

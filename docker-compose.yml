@@ -29,9 +29,100 @@ services:
     volumes:
       - .:/app
       - ./config.yml:/app/config.yml:ro
+    environment:
+      - MASTODON_TEST_INSTANCE_URL=http://mastodon-web:3000
+      - MASTODON_TEST_ACCESS_TOKEN_FILE=/tmp/mastodon_test_token.txt
     command: poetry run pytest
+    depends_on:
+      mastodon-web:
+        condition: service_healthy
     profiles:
       - test
+    networks:
+      - test-network
+
+  # Mastodon test instance services
+  mastodon-db:
+    image: postgres:14-alpine
+    container_name: mastodon-test-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+      - POSTGRES_DB=mastodon_test
+      - POSTGRES_USER=mastodon
+    volumes:
+      - mastodon-db-data:/var/lib/postgresql/data
+    profiles:
+      - test
+    networks:
+      - test-network
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'mastodon']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mastodon-redis:
+    image: redis:7-alpine
+    container_name: mastodon-test-redis
+    restart: unless-stopped
+    volumes:
+      - mastodon-redis-data:/data
+    profiles:
+      - test
+    networks:
+      - test-network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mastodon-web:
+    image: ghcr.io/mastodon/mastodon:v4.2.1
+    container_name: mastodon-test-web
+    restart: unless-stopped
+    env_file: .env.mastodon.test
+    command: bash -c "rm -f /mastodon/tmp/pids/server.pid; bundle exec rails db:migrate; bundle exec rails s -p 3000 -b 0.0.0.0"
+    depends_on:
+      mastodon-db:
+        condition: service_healthy
+      mastodon-redis:
+        condition: service_healthy
+    profiles:
+      - test
+    networks:
+      - test-network
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider --proxy=off localhost:3000/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  mastodon-sidekiq:
+    image: ghcr.io/mastodon/mastodon:v4.2.1
+    container_name: mastodon-test-sidekiq
+    restart: unless-stopped
+    env_file: .env.mastodon.test
+    command: bundle exec sidekiq
+    depends_on:
+      mastodon-db:
+        condition: service_healthy
+      mastodon-redis:
+        condition: service_healthy
+    profiles:
+      - test
+    networks:
+      - test-network
+
+networks:
+  test-network:
+    driver: bridge
+
+volumes:
+  mastodon-db-data:
+  mastodon-redis-data:
 
 # Docker secrets for credentials
 # Secrets naming convention: {platform}_{account_name}_{credential_type}
