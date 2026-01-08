@@ -5,5 +5,6 @@ This module provides base classes and common functionality for social media inte
 """
 
 from .base_client import SocialMediaClient
+from .bluesky_client import BlueskyClient
 
-__all__ = ['SocialMediaClient']
+__all__ = ['SocialMediaClient', 'BlueskyClient']
