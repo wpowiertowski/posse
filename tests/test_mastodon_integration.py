@@ -21,89 +21,94 @@ Running Tests:
     $ docker compose --profile test run --rm test pytest tests/test_mastodon_integration.py -v
 """
 import os
-import pytest
+import tempfile
 import time
+import pytest
 from pathlib import Path
 
 from mastodon_client.mastodon_client import MastodonClient
 from mastodon import Mastodon
 
 
+# Shared fixtures for all test classes
+@pytest.fixture(scope="module")
+def mastodon_config():
+    """Get Mastodon test instance configuration.
+    
+    Returns:
+        dict: Configuration for test Mastodon instance
+    """
+    # Check for test configuration from environment
+    instance_url = os.environ.get('MASTODON_TEST_INSTANCE_URL', 'http://mastodon-web:3000')
+    token_file = os.environ.get('MASTODON_TEST_ACCESS_TOKEN_FILE', '/tmp/mastodon_test_token.txt')
+    
+    # Fallback to local secrets directory
+    if not Path(token_file).exists():
+        token_file = 'secrets/mastodon_test_access_token.txt'
+    
+    # Check if token file exists
+    if not Path(token_file).exists():
+        pytest.skip(
+            "Mastodon test instance not configured. "
+            "Run './scripts/setup-mastodon-test.sh' to set up the test instance."
+        )
+    
+    return {
+        'instance_url': instance_url,
+        'token_file': token_file
+    }
+
+
+@pytest.fixture(scope="module")
+def test_client(mastodon_config):
+    """Create a MastodonClient for testing.
+    
+    Args:
+        mastodon_config: Test instance configuration
+        
+    Returns:
+        MastodonClient: Configured client for testing
+    """
+    # Read token
+    with open(mastodon_config['token_file'], 'r') as f:
+        access_token = f.read().strip()
+    
+    # Create client
+    client = MastodonClient(
+        instance_url=mastodon_config['instance_url'],
+        access_token=access_token
+    )
+    
+    return client
+
+
+@pytest.fixture(scope="module")
+def verification_api(mastodon_config):
+    """Create a direct Mastodon API client for verification.
+    
+    This is used to verify that posts were created correctly.
+    
+    Args:
+        mastodon_config: Test instance configuration
+        
+    Returns:
+        Mastodon: Direct API client for verification
+    """
+    # Read token
+    with open(mastodon_config['token_file'], 'r') as f:
+        access_token = f.read().strip()
+    
+    # Create direct API client
+    api = Mastodon(
+        access_token=access_token,
+        api_base_url=mastodon_config['instance_url']
+    )
+    
+    return api
+
+
 class TestMastodonIntegration:
     """Integration tests for MastodonClient with real Mastodon instance."""
-
-    @pytest.fixture(scope="class")
-    def mastodon_config(self):
-        """Get Mastodon test instance configuration.
-        
-        Returns:
-            dict: Configuration for test Mastodon instance
-        """
-        # Check for test configuration from environment
-        instance_url = os.environ.get('MASTODON_TEST_INSTANCE_URL', 'http://mastodon-web:3000')
-        token_file = os.environ.get('MASTODON_TEST_ACCESS_TOKEN_FILE', '/tmp/mastodon_test_token.txt')
-        
-        # Fallback to local secrets directory
-        if not Path(token_file).exists():
-            token_file = 'secrets/mastodon_test_access_token.txt'
-        
-        # Check if token file exists
-        if not Path(token_file).exists():
-            pytest.skip(
-                "Mastodon test instance not configured. "
-                "Run './scripts/setup-mastodon-test.sh' to set up the test instance."
-            )
-        
-        return {
-            'instance_url': instance_url,
-            'token_file': token_file
-        }
-
-    @pytest.fixture(scope="class")
-    def test_client(self, mastodon_config):
-        """Create a MastodonClient for testing.
-        
-        Args:
-            mastodon_config: Test instance configuration
-            
-        Returns:
-            MastodonClient: Configured client for testing
-        """
-        # Read token
-        with open(mastodon_config['token_file'], 'r') as f:
-            access_token = f.read().strip()
-        
-        # Create client
-        client = MastodonClient(
-            instance_url=mastodon_config['instance_url'],
-            access_token=access_token
-        )
-        
-        return client
-
-    @pytest.fixture(scope="class")
-    def verification_api(self, mastodon_config):
-        """Create a direct Mastodon API client for verification.
-        
-        This is used to verify that posts were created correctly.
-        
-        Args:
-            mastodon_config: Test instance configuration
-            
-        Returns:
-            Mastodon: Direct API client for verification
-        """
-        # Read token
-        with open(mastodon_config['token_file'], 'r') as f:
-            access_token = f.read().strip()
-        
-        # Create direct API client
-        api = Mastodon(
-            access_token=access_token,
-            api_base_url=mastodon_config['instance_url']
-        )
-        
-        return api
 
     def test_mastodon_instance_available(self, mastodon_config):
         """Test that the Mastodon test instance is available and responding."""
@@ -242,7 +247,6 @@ class TestMastodonIntegration:
             access_token = f.read().strip()
         
         # Create a temporary token file for testing
-        import tempfile
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
             f.write(access_token)
             temp_token_file = f.name
@@ -274,7 +278,6 @@ class TestMastodonIntegration:
         
         finally:
             # Cleanup temp file
-            import os
             if os.path.exists(temp_token_file):
                 os.unlink(temp_token_file)
 
@@ -285,45 +288,6 @@ class TestMastodonIntegrationWithMedia:
     These tests require a working Mastodon instance and test
     actual media upload and attachment to posts.
     """
-
-    @pytest.fixture(scope="class")
-    def mastodon_config(self):
-        """Get Mastodon test instance configuration."""
-        instance_url = os.environ.get('MASTODON_TEST_INSTANCE_URL', 'http://mastodon-web:3000')
-        token_file = os.environ.get('MASTODON_TEST_ACCESS_TOKEN_FILE', '/tmp/mastodon_test_token.txt')
-        
-        if not Path(token_file).exists():
-            token_file = 'secrets/mastodon_test_access_token.txt'
-        
-        if not Path(token_file).exists():
-            pytest.skip("Mastodon test instance not configured")
-        
-        return {
-            'instance_url': instance_url,
-            'token_file': token_file
-        }
-
-    @pytest.fixture(scope="class")
-    def test_client(self, mastodon_config):
-        """Create a MastodonClient for testing."""
-        with open(mastodon_config['token_file'], 'r') as f:
-            access_token = f.read().strip()
-        
-        return MastodonClient(
-            instance_url=mastodon_config['instance_url'],
-            access_token=access_token
-        )
-
-    @pytest.fixture(scope="class")
-    def verification_api(self, mastodon_config):
-        """Create a direct Mastodon API client for verification."""
-        with open(mastodon_config['token_file'], 'r') as f:
-            access_token = f.read().strip()
-        
-        return Mastodon(
-            access_token=access_token,
-            api_base_url=mastodon_config['instance_url']
-        )
 
     @pytest.fixture(scope="class")
     def test_image_url(self):
