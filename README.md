@@ -63,7 +63,11 @@ This ensures your content is syndicated across multiple platforms while maintain
   - Simple access token authentication
   - Secure credential management with Docker secrets
   - Status posting with visibility controls
-- **Multi-Account Bluesky Support**: Same flexible multi-account support for Bluesky (coming soon)
+- **Multi-Account Bluesky Support**: Post to multiple Bluesky accounts:
+  - Configure unlimited Bluesky accounts
+  - Session string authentication via ATProto
+  - Secure credential management with Docker secrets
+  - Status posting and credential verification
 - **Robust Validation**: JSON Schema validation for all incoming webhooks
 - **Production Ready**: Gunicorn server with comprehensive logging
 - **Docker Support**: Easy deployment with Docker and Docker Compose
@@ -76,8 +80,9 @@ This ensures your content is syndicated across multiple platforms while maintain
 - [x] automated Docker Hub publishing on successful CI builds
 - [x] implement Mastodon app registration and user authentication
 - [x] multi-account support for Mastodon and Bluesky
+- [x] authenticate and post to Bluesky account
 - [ ] integrate Mastodon posting with Ghost webhook flow
-- [ ] authenticate and post to Bluesky account
+- [ ] integrate Bluesky posting with Ghost webhook flow
 
 ## Configuration
 
@@ -258,6 +263,136 @@ secrets:
   mastodon_professional_access_token:
     file: ./secrets/mastodon_professional_access_token.txt
 ```
+
+### Bluesky Integration
+
+POSSE supports multiple Bluesky accounts using session strings for authentication. This allows you to:
+- Post content to multiple Bluesky accounts
+- Maintain separate personal and professional presences
+- Route posts based on tags or other criteria
+
+#### Step 1: Obtain Session String(s)
+
+For **each** Bluesky account you want to use, you need to generate a session string:
+
+**Option A: Using Python directly**
+
+```python
+from atproto import Client
+
+client = Client()
+# Login with your Bluesky handle and app password
+profile = client.login('your.handle.bsky.social', 'your-app-password')
+# Export and save the session string
+session_string = client.export_session_string()
+print(session_string)
+```
+
+**Option B: Using the provided helper script**
+
+Create a file `scripts/get_bluesky_session.py`:
+```python
+#!/usr/bin/env python3
+"""Helper script to generate Bluesky session strings."""
+from atproto import Client
+import sys
+
+if len(sys.argv) != 3:
+    print("Usage: python scripts/get_bluesky_session.py <handle> <password>")
+    print("Example: python scripts/get_bluesky_session.py myhandle.bsky.social mypassword")
+    sys.exit(1)
+
+handle = sys.argv[1]
+password = sys.argv[2]
+
+try:
+    client = Client()
+    profile = client.login(handle, password)
+    session_string = client.export_session_string()
+    
+    print(f"\n✅ Successfully authenticated as @{profile.handle}")
+    print(f"\nYour session string (save this securely):")
+    print(session_string)
+    print(f"\nAdd this to your secrets file:")
+    print(f"echo '{session_string}' > secrets/bluesky_ACCOUNTNAME_access_token.txt")
+except Exception as e:
+    print(f"\n❌ Authentication failed: {e}")
+    sys.exit(1)
+```
+
+**Note:** For security, Bluesky recommends using [App Passwords](https://bsky.app/settings/app-passwords) instead of your main password. Generate an app password in your Bluesky settings and use it here.
+
+#### Step 2: Store Session Strings
+
+Create secret files using the naming convention: `bluesky_{account_name}_access_token.txt`
+
+```bash
+mkdir -p secrets
+
+# Main Bluesky account
+echo "your_main_session_string_here" > secrets/bluesky_main_access_token.txt
+
+# Professional Bluesky account
+echo "your_professional_session_string_here" > secrets/bluesky_professional_access_token.txt
+```
+
+#### Step 3: Configure Accounts in config.yml
+
+```yaml
+bluesky:
+  accounts:
+    - name: "main"
+      instance_url: "https://bsky.social"
+      access_token_file: "/run/secrets/bluesky_main_access_token"
+    
+    - name: "professional"
+      instance_url: "https://bsky.social"
+      access_token_file: "/run/secrets/bluesky_professional_access_token"
+```
+
+#### Step 4: Update Docker Compose
+
+Add Bluesky secrets to your `docker-compose.yml`:
+
+```yaml
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: posse
+    volumes:
+      - .:/app
+      - ./config.yml:/app/config.yml:ro
+    secrets:
+      - pushover_app_token
+      - pushover_user_key
+      - mastodon_personal_access_token
+      - mastodon_professional_access_token
+      - bluesky_main_access_token
+      - bluesky_professional_access_token
+    command: poetry run posse
+
+secrets:
+  pushover_app_token:
+    file: ./secrets/pushover_app_token.txt
+  pushover_user_key:
+    file: ./secrets/pushover_user_key.txt
+  mastodon_personal_access_token:
+    file: ./secrets/mastodon_personal_access_token.txt
+  mastodon_professional_access_token:
+    file: ./secrets/mastodon_professional_access_token.txt
+  bluesky_main_access_token:
+    file: ./secrets/bluesky_main_access_token.txt
+  bluesky_professional_access_token:
+    file: ./secrets/bluesky_professional_access_token.txt
+```
+
+**Important Notes:**
+- Session strings should be kept secure like passwords
+- Session strings expire when you change your password
+- If authentication fails, regenerate a new session string
+- Use app passwords instead of your main password for better security
 
 ## Getting Started
 
