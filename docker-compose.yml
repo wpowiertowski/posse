@@ -7,6 +7,7 @@ services:
     volumes:
       - .:/app
       - ./config.yml:/app/config.yml:ro
+      - poetry_cache:/root/.cache/pypoetry
     secrets:
       - pushover_app_token
       - pushover_user_key
@@ -29,6 +30,7 @@ services:
     volumes:
       - .:/app
       - ./config.yml:/app/config.yml:ro
+      - poetry_cache:/root/.cache/pypoetry
     command: poetry run pytest
     profiles:
       - test
@@ -61,3 +63,5 @@ secrets:
   #   file: ./secrets/bluesky_main_access_token.txt
   # bluesky_professional_access_token:
   #   file: ./secrets/bluesky_professional_access_token.txt
+volumes:
+  poetry_cache:
