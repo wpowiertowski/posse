@@ -7,6 +7,9 @@ FROM python:3.14-alpine
 # GNU wget is not affected by this vulnerability
 RUN apk add --no-cache wget
 
+# Install build dependencies for Python packages with C extensions
+RUN apk add --no-cache gcc musl-dev libffi-dev
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

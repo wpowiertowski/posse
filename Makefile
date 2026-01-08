@@ -15,13 +15,13 @@ up: ## Start the application
 down: ## Stop and remove containers
 	docker compose down
 
-run: ## Run the application once
+run: install ## Run the application once
 	docker compose run --rm app
 
-test: ## Run tests
+test: install ## Run tests
 	docker compose run --rm test
 
-test-verbose: ## Run tests with verbose output
+test-verbose: install ## Run tests with verbose output
 	docker compose run --rm app poetry run pytest -v
 
 shell: ## Open a shell in the container
@@ -32,7 +32,7 @@ clean: ## Clean up containers, volumes, and coverage reports
 	rm -rf htmlcov .coverage .pytest_cache __pycache__
 
 install: ## Install/update dependencies
-	docker compose run --rm app poetry install
+	docker compose run --rm test sh -c "rm -rf /root/.cache/pypoetry/virtualenvs && poetry install"
 
 update: ## Update dependencies
 	docker compose run --rm app poetry update
