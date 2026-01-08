@@ -15,13 +15,14 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.14"
+python = ">=3.14,<3.15"
 flask = "^3.1.2"
 jsonschema = "^4.25.1"
 gunicorn = "^23.0.0"
-requests = "^2.31.0"
-pyyaml = "^6.0"
+requests = "^2.32.5"
+pyyaml = "^6.0.3"
 "Mastodon.py" = "^2.1.4"
+atproto = "^0.0.65"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.2"
