@@ -27,37 +27,24 @@ POSSE is a Docker-ready Python application that receives webhooks from your Ghos
 
 **Prerequisites**: Docker must be installed on your system.
 
-1. **Clone the repository**:
+1. **Clone and configure**:
    ```bash
    git clone https://github.com/wpowiertowski/posse.git
    cd posse
-   ```
-
-2. **Create configuration file**:
-   ```bash
    cp config.example.yml config.yml
-   # Edit config.yml with your settings
+   # Edit config.yml with your settings (see Configuration section)
    ```
 
-3. **Set up credentials** (optional, for notifications and social accounts):
-   ```bash
-   mkdir -p secrets
-   echo "your_pushover_app_token" > secrets/pushover_app_token.txt
-   echo "your_pushover_user_key" > secrets/pushover_user_key.txt
-   ```
-
-4. **Start the application**:
+2. **Start the application**:
    ```bash
    docker compose up
    ```
 
-The webhook receiver will be available at `http://localhost:5000/webhook/ghost`.
-
-5. **Configure Ghost webhook**: In your Ghost admin panel, navigate to **Settings** → **Integrations** → **Custom Integrations** → **Add custom integration** and configure:
+3. **Configure Ghost webhook**: In your Ghost admin panel, navigate to **Settings** → **Integrations** → **Custom Integrations** → **Add custom integration**:
    - **Webhook URL**: `http://your-posse-host:5000/webhook/ghost`
    - **Event**: Post published
 
-For a complete production example with Ghost, see the [Ghost Blog Docker Compose Example](https://github.com/wpowiertowski/docker/blob/main/ghost/compose.yml).
+The webhook receiver will be available at `http://localhost:5000/webhook/ghost`. For detailed configuration including Mastodon, Bluesky, and Pushover setup, see the Configuration section below.
 
 ## How It Works
 
@@ -89,6 +76,10 @@ mastodon:
     - name: "personal"
       instance_url: "https://mastodon.social"
       access_token_file: "/run/secrets/mastodon_personal_access_token"
+    # Add more accounts as needed
+    - name: "professional"
+      instance_url: "https://fosstodon.org"
+      access_token_file: "/run/secrets/mastodon_professional_access_token"
 
 # Configure Bluesky accounts (coming soon)
 bluesky:
@@ -112,7 +103,7 @@ bluesky:
    echo "your_mastodon_token" > secrets/mastodon_personal_access_token.txt
    ```
 
-3. **Update `config.yml`** with your Mastodon instance URL and account name
+3. **Update `config.yml`** with your Mastodon instance URL and account name (see Basic Configuration above)
 
 4. **Add secret to `docker-compose.yml`**:
    ```yaml
@@ -126,37 +117,21 @@ bluesky:
        file: ./secrets/mastodon_personal_access_token.txt
    ```
 
-### Multiple Accounts
-
-POSSE supports multiple accounts for both Mastodon and Bluesky. Simply add more entries to the `accounts` array:
-
-```yaml
-mastodon:
-  accounts:
-    - name: "personal"
-      instance_url: "https://mastodon.social"
-      access_token_file: "/run/secrets/mastodon_personal_access_token"
-    
-    - name: "professional"
-      instance_url: "https://fosstodon.org"
-      access_token_file: "/run/secrets/mastodon_professional_access_token"
-```
-
-Create corresponding secret files and add them to your `docker-compose.yml`.
+Repeat these steps for each Mastodon account you want to configure.
 
 ### Pushover Notifications (Optional)
 
-Enable real-time push notifications for post events:
+To enable real-time push notifications for post events:
 
-1. **Create a Pushover account** at [pushover.net](https://pushover.net/)
-2. **Create an application** to get an API token
-3. **Store credentials**:
+1. **Create a Pushover account** at [pushover.net](https://pushover.net/) and create an application to get an API token
+2. **Store credentials**:
    ```bash
    mkdir -p secrets
    echo "your_app_token" > secrets/pushover_app_token.txt
    echo "your_user_key" > secrets/pushover_user_key.txt
    ```
-4. **Enable in `config.yml`**: Set `pushover.enabled: true`
+3. **Enable in `config.yml`**: Set `pushover.enabled: true` (see Basic Configuration above)
+4. **Add secrets to `docker-compose.yml`** following the same pattern as Mastodon secrets
 
 **Notification types**:
 - 📝 Post received and validated
