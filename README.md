@@ -6,113 +6,91 @@
 
 # POSSE
 
-POSSE stands for **Publish Own Site, Syndicate Elsewhere**. This project implements the POSSE philosophy by automatically retrieving the latest posts from a Ghost blog and reposting them to both Mastodon and Bluesky accounts.
+**Publish Own Site, Syndicate Elsewhere** - Automatically syndicate your Ghost blog posts to Mastodon and Bluesky.
 
-## Prerequisites
-
-The only prerequisite required to run this project is **Docker**.
-
-## Project Structure
-
-```
-posse/
-├── src/
-│   ├── posse/          # Main POSSE orchestration package
-│   │   └── posse.py    # Entry point that starts webhook receiver
-│   ├── ghost/          # Ghost webhook receiver
-│   │   ├── ghost.py    # Flask app with validation and logging
-│   │   └── gunicorn_config.py  # Production server configuration
-│   ├── notifications/  # Push notification services
-│   │   └── pushover.py # Pushover notification client
-│   └── schema/         # JSON Schema validation
-│       ├── schema.py   # Schema loading utilities
-│       └── ghost_post_schema.json  # Ghost post schema definition
-├── tests/
-│   ├── test_posse.py   # POSSE integration tests
-│   ├── test_ghost.py   # Webhook receiver tests
-│   ├── test_pushover.py # Pushover notification tests
-│   └── fixtures/
-│       └── valid_ghost_post.json  # Test data
-├── Dockerfile          # Container configuration
-├── docker-compose.yml  # Service orchestration
-├── pyproject.toml      # Python dependencies and project metadata
-├── poetry.lock         # Locked dependency versions
-└── Makefile            # Development commands
-```
-
-## How It Works
-
-This project automates the POSSE workflow by:
-
-1. Retrieving the latest published posts from a configured Ghost blog via [webhook](https://docs.ghost.org/webhooks)
-2. Sending push notifications via Pushover for main events (post received, queued, errors)
-3. Reposting them to your Mastodon account (coming soon)
-4. Reposting them to your Bluesky account (coming soon)
-
-This ensures your content is syndicated across multiple platforms while maintaining your Ghost blog as the primary source of truth.
+POSSE is a Docker-ready Python application that receives webhooks from your Ghost blog and cross-posts content to multiple Mastodon and Bluesky accounts. Keep your blog as the source of truth while maintaining a presence across the fediverse and social media platforms.
 
 ## Features
 
-- **Ghost Webhook Integration**: Receives and validates Ghost post webhooks
-- **Pushover Notifications**: Real-time push notifications for important events:
+- **Ghost Webhook Integration**: Automatically receives and validates Ghost post webhooks
+- **Multi-Account Support**: Configure unlimited Mastodon and Bluesky accounts
+- **Pushover Notifications**: Get real-time push notifications for important events:
   - 📝 New post received and validated
   - ✅ Post queued for syndication
   - ⚠️ Validation errors
-- **Multi-Account Mastodon Support**: Post to multiple Mastodon accounts:
-  - Configure unlimited Mastodon accounts
-  - Simple access token authentication
-  - Secure credential management with Docker secrets
-  - Status posting with visibility controls
-- **Multi-Account Bluesky Support**: Same flexible multi-account support for Bluesky (coming soon)
 - **Robust Validation**: JSON Schema validation for all incoming webhooks
-- **Production Ready**: Gunicorn server with comprehensive logging
+- **Production Ready**: Runs with Gunicorn and comprehensive logging
 - **Docker Support**: Easy deployment with Docker and Docker Compose
-- **Automated Docker Hub Publishing**: Automatically publishes Docker images to Docker Hub when CI tests pass
+- **Secure Credentials**: Credential management with Docker secrets
 
-## TODO
-- [x] build and test flow
-- [x] flask server to receive POST requests from Ghost with contents of the published post
-- [x] Pushover notifications for main events (post received, queued, validation errors)
-- [x] automated Docker Hub publishing on successful CI builds
-- [x] implement Mastodon app registration and user authentication
-- [x] multi-account support for Mastodon and Bluesky
-- [ ] integrate Mastodon posting with Ghost webhook flow
-- [ ] authenticate and post to Bluesky account
+## Quick Start
+
+**Prerequisites**: Docker must be installed on your system.
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/wpowiertowski/posse.git
+   cd posse
+   ```
+
+2. **Create configuration file**:
+   ```bash
+   cp config.example.yml config.yml
+   # Edit config.yml with your settings
+   ```
+
+3. **Set up credentials** (optional, for notifications and social accounts):
+   ```bash
+   mkdir -p secrets
+   echo "your_pushover_app_token" > secrets/pushover_app_token.txt
+   echo "your_pushover_user_key" > secrets/pushover_user_key.txt
+   ```
+
+4. **Start the application**:
+   ```bash
+   docker compose up
+   ```
+
+The webhook receiver will be available at `http://localhost:5000/webhook/ghost`.
+
+5. **Configure Ghost webhook**: In your Ghost admin panel, navigate to **Settings** → **Integrations** → **Custom Integrations** → **Add custom integration** and configure:
+   - **Webhook URL**: `http://your-posse-host:5000/webhook/ghost`
+   - **Event**: Post published
+
+For a complete production example with Ghost, see the [Ghost Blog Docker Compose Example](https://github.com/wpowiertowski/docker/blob/main/ghost/compose.yml).
+
+## How It Works
+
+POSSE automates the syndication workflow:
+
+1. **Receive**: Ghost sends a webhook when a post is published
+2. **Validate**: The post is validated against a JSON schema
+3. **Notify**: Optional push notifications via Pushover
+4. **Syndicate**: Posts are distributed to configured Mastodon and Bluesky accounts
+
+Your Ghost blog remains the source of truth while your content reaches audiences across multiple platforms.
 
 ## Configuration
 
-### Application Configuration
+### Basic Configuration
 
-POSSE uses a `config.yml` file for application settings. The configuration file is located in the project root directory.
+Create a `config.yml` file in the project root (use `config.example.yml` as a template):
 
-#### Account Configuration
-
-POSSE supports multiple accounts for both Mastodon and Bluesky.
-
-**config.yml:**
 ```yaml
-# Pushover Push Notifications
+# Optional: Enable Pushover notifications
 pushover:
   enabled: true
   app_token_file: /run/secrets/pushover_app_token
   user_key_file: /run/secrets/pushover_user_key
 
-# Mastodon Configuration
+# Configure Mastodon accounts
 mastodon:
   accounts:
     - name: "personal"
       instance_url: "https://mastodon.social"
       access_token_file: "/run/secrets/mastodon_personal_access_token"
-    
-    - name: "professional"
-      instance_url: "https://fosstodon.org"
-      access_token_file: "/run/secrets/mastodon_professional_access_token"
-    
-    - name: "all_posts"
-      instance_url: "https://mastodon.example.com"
-      access_token_file: "/run/secrets/mastodon_all_access_token"
 
-# Bluesky Configuration (same structure)
+# Configure Bluesky accounts (coming soon)
 bluesky:
   accounts:
     - name: "main"
@@ -120,100 +98,37 @@ bluesky:
       access_token_file: "/run/secrets/bluesky_main_access_token"
 ```
 
-**Single Account Configuration:**
+### Setting Up Mastodon
 
-For a single account setup, simply configure one account in the accounts array:
+1. **Create a Mastodon application** on your instance:
+   - Go to **Settings** → **Development** → **New Application**
+   - Application name: `POSSE`
+   - Required scope: `write:statuses`
+   - Copy the access token
 
-```yaml
-mastodon:
-  accounts:
-    - name: "main"
-      instance_url: "https://mastodon.social"
-      access_token_file: "/run/secrets/mastodon_access_token"
-```
-
-### Pushover Notifications (Optional)
-
-To enable push notifications via [Pushover](https://pushover.net/):
-
-1. **Create a Pushover account** and install the mobile app
-2. **Create an application** in Pushover to get an API token and user key
-3. **Create secret files** with your credentials:
+2. **Store the access token securely**:
    ```bash
    mkdir -p secrets
-   echo "your_app_token_here" > secrets/pushover_app_token.txt
-   echo "your_user_key_here" > secrets/pushover_user_key.txt
+   echo "your_mastodon_token" > secrets/mastodon_personal_access_token.txt
    ```
-4. **Update config.yml** and set `pushover.enabled: true`
 
-**Docker Compose with Secrets:**
+3. **Update `config.yml`** with your Mastodon instance URL and account name
 
-```yaml
-services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: posse
-    volumes:
-      - .:/app
-      - ./config.yml:/app/config.yml:ro
-    secrets:
-      - pushover_app_token
-      - pushover_user_key
-    command: poetry run posse
+4. **Add secret to `docker-compose.yml`**:
+   ```yaml
+   services:
+     app:
+       secrets:
+         - mastodon_personal_access_token
+   
+   secrets:
+     mastodon_personal_access_token:
+       file: ./secrets/mastodon_personal_access_token.txt
+   ```
 
-secrets:
-  pushover_app_token:
-    file: ./secrets/pushover_app_token.txt
-  pushover_user_key:
-    file: ./secrets/pushover_user_key.txt
-```
+### Multiple Accounts
 
-If Pushover is not enabled in config.yml, the application will run normally without sending notifications.
-
-### Notifications Sent
-
-The following notifications are sent automatically:
-
-- **📝 Post Received**: When a Ghost post is successfully received and validated
-- **✅ Post Queued**: When a post is queued for syndication (includes link to post)
-- **⚠️ Validation Error**: When a webhook fails validation (high priority)
-
-### Mastodon Integration
-
-POSSE supports multiple Mastodon accounts with per-account filters. This allows you to:
-- Post different content to different Mastodon accounts
-- Route posts based on tags, visibility, featured status, etc.
-- Maintain separate personal and professional presences
-
-#### Step 1: Create Application(s) in Mastodon
-
-For **each** Mastodon account you want to use:
-
-1. Go to your Mastodon instance (e.g., https://mastodon.social, https://fosstodon.org)
-2. Navigate to **Settings** → **Development** → **New Application**
-3. Fill in the application details:
-   - **Application name**: POSSE (or customize per account)
-   - **Scopes**: Select `write:statuses` (minimum required)
-4. Click **Submit**
-5. Copy the **Your access token** value
-
-#### Step 2: Store Access Tokens
-
-Create secret files using the naming convention: `{platform}_{account_name}_{credential_type}`
-
-```bash
-mkdir -p secrets
-
-# Personal Mastodon account
-echo "your_personal_token_here" > secrets/mastodon_personal_access_token.txt
-
-# Professional Mastodon account
-echo "your_professional_token_here" > secrets/mastodon_professional_access_token.txt
-```
-
-#### Step 3: Configure Accounts in config.yml
+POSSE supports multiple accounts for both Mastodon and Bluesky. Simply add more entries to the `accounts` array:
 
 ```yaml
 mastodon:
@@ -227,56 +142,102 @@ mastodon:
       access_token_file: "/run/secrets/mastodon_professional_access_token"
 ```
 
-#### Step 4: Update Docker Compose
+Create corresponding secret files and add them to your `docker-compose.yml`.
 
-Add Mastodon secrets to your `docker-compose.yml`:
+### Pushover Notifications (Optional)
 
-```yaml
-services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: posse
-    volumes:
-      - .:/app
-      - ./config.yml:/app/config.yml:ro
-    secrets:
-      - pushover_app_token
-      - pushover_user_key
-      - mastodon_personal_access_token
-      - mastodon_professional_access_token
-    command: poetry run posse
+Enable real-time push notifications for post events:
 
-secrets:
-  pushover_app_token:
-    file: ./secrets/pushover_app_token.txt
-  pushover_user_key:
-    file: ./secrets/pushover_user_key.txt
-  mastodon_personal_access_token:
-    file: ./secrets/mastodon_personal_access_token.txt
-  mastodon_professional_access_token:
-    file: ./secrets/mastodon_professional_access_token.txt
-```
+1. **Create a Pushover account** at [pushover.net](https://pushover.net/)
+2. **Create an application** to get an API token
+3. **Store credentials**:
+   ```bash
+   mkdir -p secrets
+   echo "your_app_token" > secrets/pushover_app_token.txt
+   echo "your_user_key" > secrets/pushover_user_key.txt
+   ```
+4. **Enable in `config.yml`**: Set `pushover.enabled: true`
 
-## Getting Started
+**Notification types**:
+- 📝 Post received and validated
+- ✅ Post queued for syndication
+- ⚠️ Validation errors (high priority)
 
-Ensure Docker is installed on your system, then use Docker Compose to run the application:
+## Development
+
+### Available Commands
+
+Use the Makefile for common development tasks:
 
 ```bash
-docker compose up
+make help          # Show all available commands
+make build         # Build Docker images
+make up            # Start the application
+make down          # Stop containers
+make test          # Run tests
+make shell         # Open a shell in the container
 ```
 
-Refer to the Makefile for additional development and utility commands.
+### Running Tests
 
-## Example Usage
+```bash
+# Run all tests
+make test
 
-For a complete production example of POSSE integrated with a Ghost blog, including webhook configuration and deployment setup, see:
+# Run tests with verbose output
+make test-verbose
+```
+
+### Project Status
+
+**Implemented**:
+- ✅ Ghost webhook receiver with validation
+- ✅ Pushover notifications
+- ✅ Multi-account support for Mastodon
+- ✅ Automated Docker Hub publishing
+
+**In Progress**:
+- 🚧 Mastodon posting integration
+- 🚧 Bluesky authentication and posting
+
+## Examples
+
+### Complete Production Setup
+
+For a complete production example showing POSSE integrated with Ghost, MySQL, and Cloudflare tunnel, see:
 
 **[Ghost Blog Docker Compose Example](https://github.com/wpowiertowski/docker/blob/main/ghost/compose.yml)**
 
 This example demonstrates:
-- Running POSSE alongside a Ghost blog and MySQL database
-- Using Docker secrets for secure credential management
+- Running POSSE alongside Ghost blog and database
+- Secure credential management with Docker secrets
 - Network configuration for service communication
-- Production-ready deployment with a Cloudflare tunnel
+- Production-ready deployment setup
+
+### Webhook Payload Example
+
+Ghost sends webhooks in this format:
+
+```json
+{
+  "post": {
+    "current": {
+      "id": "abc123",
+      "title": "My Blog Post",
+      "slug": "my-blog-post",
+      "status": "published",
+      "url": "https://myblog.com/my-blog-post/",
+      "tags": ["technology", "tutorial"],
+      "authors": [{"name": "John Doe"}]
+    }
+  }
+}
+```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
