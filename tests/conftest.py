@@ -1,0 +1,73 @@
+"""
+Pytest configuration and shared fixtures for all tests.
+
+This module provides shared fixtures and configuration for the test suite,
+including:
+- Event processor thread management
+- Queue cleanup between tests
+- Common test utilities
+"""
+
+import pytest
+import threading
+import time
+
+
+@pytest.fixture(scope="session", autouse=True)
+def start_event_processor():
+    """Start the event processor thread for the entire test session.
+    
+    This fixture automatically starts a daemon thread running process_events
+    at the beginning of the test session. The thread will consume events from
+    the module-level events_queue throughout all tests.
+    
+    The thread is a daemon so it will automatically terminate when the test
+    session ends.
+    """
+    from posse.posse import process_events
+    
+    # Start processor thread with no clients (tests don't need actual posting)
+    processor_thread = threading.Thread(
+        target=process_events,
+        args=([], []),  # Empty client lists
+        daemon=True
+    )
+    processor_thread.start()
+    
+    # Give thread time to start
+    time.sleep(0.1)
+    
+    yield
+    
+    # Thread will be cleaned up automatically (daemon)
+
+
+@pytest.fixture(autouse=True)
+def clear_events_queue():
+    """Clear the events queue before and after each test.
+    
+    This fixture ensures that tests don't interfere with each other by
+    leaving items in the queue. It clears the queue before each test starts
+    and after it completes.
+    
+    This is especially important for tests that put items in the queue but
+    don't consume them all, or tests that check queue state.
+    """
+    from posse.posse import events_queue
+    
+    # Clear queue before test
+    while not events_queue.empty():
+        try:
+            events_queue.get_nowait()
+        except:
+            break
+    
+    yield
+    
+    # Clear queue after test and wait for processor to complete any pending items
+    time.sleep(0.6)  # Wait slightly longer than test sleep time to ensure processing completes
+    while not events_queue.empty():
+        try:
+            events_queue.get_nowait()
+        except:
+            break

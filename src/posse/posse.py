@@ -33,6 +33,7 @@ Example:
 from queue import Queue
 import threading
 import logging
+import re
 from logging.handlers import RotatingFileHandler
 from typing import List, TYPE_CHECKING
 
@@ -93,19 +94,41 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                     post_status = post.get("status", None)
                     logger.info(f"Post ID: {post_id}, Title: {post_title}, Status: {post_status}")
 
-            content = None
+            # Extract post content details
             if post:
-                excerpt = post.get("excerpt", None) 
-                published_at = post.get("published_at", None)
-                tags = post.get("tags", None)
-                revisions = [x for x in post.get("post_revisions", [])]
-                if revisions:
-                    # get most up to date revision
-                    content = revisions[-1]
-
-            if content:
-                # main part of the post is now in content["lexical"] encoded as a JSON which can be decoded with json.loads(content["lexical"])
-                pass
+                # Extract excerpt (using correct field name)
+                excerpt = post.get("custom_excerpt", None)
+                
+                # Extract tags with name and slug
+                tags_raw = post.get("tags", [])
+                tags = [{"name": tag.get("name"), "slug": tag.get("slug")} 
+                       for tag in tags_raw if isinstance(tag, dict)]
+                
+                # Extract all unique images from post
+                images = set()
+                
+                # Add feature_image if present
+                feature_image = post.get("feature_image")
+                if feature_image:
+                    images.add(feature_image)
+                
+                # Extract images from HTML content
+                html_content = post.get("html", "")
+                if html_content:
+                    # Find all img src URLs in the HTML
+                    img_pattern = r'<img[^>]+src="([^"]+)"'
+                    img_matches = re.findall(img_pattern, html_content)
+                    images.update(img_matches)
+                
+                # Convert to sorted list for consistent ordering
+                images = sorted(list(images))
+                
+                # Log extracted content
+                logger.info(f"Extracted excerpt: {excerpt[:100] if excerpt else 'None'}...")
+                logger.info(f"Extracted {len(tags)} tags: {[tag['name'] for tag in tags]}")
+                logger.info(f"Extracted {len(images)} unique images")
+                for img in images:
+                    logger.debug(f"  Image: {img}")
             
             # Syndicate to configured social media accounts
             # For now, we'll just log that we have the clients registered
