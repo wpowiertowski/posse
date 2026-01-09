@@ -77,15 +77,19 @@ def process_events():
                     post_status = post.get("status", None)
                     logger.info(f"Post ID: {post_id}, Title: {post_title}, Status: {post_status}")
 
+            content = None
             if post:
-               excerpt = post.get("excerpt", None) 
-               published_at = post.get("published_at", None)
-               tags = post.get("tags", None)
-               revisions = [x for x in post.get("post_revisions", [])]
-               content = None
-               if revisions:
+                excerpt = post.get("excerpt", None) 
+                published_at = post.get("published_at", None)
+                tags = post.get("tags", None)
+                revisions = [x for x in post.get("post_revisions", [])]
+                if revisions:
                     # get most up to date revision
                     content = revisions[-1]
+
+            if content:
+                # main part of the post is now in content["lexical"] encoded as a JSON which can be decoded with json.loads(content["lexical"])
+                pass
             
             # Mark task as done
             events_queue.task_done()
