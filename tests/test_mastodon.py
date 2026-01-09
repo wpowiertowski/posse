@@ -27,20 +27,20 @@ from mastodon_client.mastodon_client import MastodonClient
 class TestMastodonClient(unittest.TestCase):
     """Test suite for MastodonClient class."""
     
-    @patch('config.read_secret_file')
-    @patch('mastodon_client.mastodon_client.Mastodon')
+    @patch("config.read_secret_file")
+    @patch("mastodon_client.mastodon_client.Mastodon")
     def test_login_with_provided_secrets(self, mock_mastodon, mock_read_secret):
         """Test login with credentials loaded from secrets."""
         # Mock secret file reading to simulate Docker secrets
         mock_read_secret.return_value = "test_access_token"
         
         config = {
-            'mastodon': {
-                'accounts': [
+            "mastodon": {
+                "accounts": [
                     {
-                        'name': 'test',
-                        'instance_url': 'https://mastodon.social',
-                        'access_token_file': '/run/secrets/mastodon_access_token'
+                        "name": "test",
+                        "instance_url": "https://mastodon.social",
+                        "access_token_file": "/run/secrets/mastodon_access_token"
                     }
                 ]
             }
@@ -56,31 +56,31 @@ class TestMastodonClient(unittest.TestCase):
         self.assertEqual(client.access_token, "test_access_token")
         self.assertIsNotNone(client.api)
     
-    @patch('mastodon_client.mastodon_client.Mastodon')
+    @patch("mastodon_client.mastodon_client.Mastodon")
     def test_post_without_media(self, mock_mastodon):
         """Test posting status without media attachments."""
         # Setup mock API
         mock_api = MagicMock()
         mock_mastodon.return_value = mock_api
         mock_api.status_post.return_value = {
-            'id': '123',
-            'url': 'https://mastodon.social/@user/123',
-            'content': 'Test post'
+            "id": "123",
+            "url": "https://mastodon.social/@user/123",
+            "content": "Test post"
         }
         
         # Create client
         client = MastodonClient(
-            instance_url='https://mastodon.social',
-            access_token='test_token'
+            instance_url="https://mastodon.social",
+            access_token="test_token"
         )
         
         # Post without media
-        result = client.post('Test post')
+        result = client.post("Test post")
         
         # Verify status_post was called without media_ids
         mock_api.status_post.assert_called_once_with(
-            status='Test post',
-            visibility='public',
+            status="Test post",
+            visibility="public",
             sensitive=False,
             spoiler_text=None,
             media_ids=None
@@ -88,105 +88,105 @@ class TestMastodonClient(unittest.TestCase):
         
         # Verify result
         self.assertIsNotNone(result)
-        self.assertEqual(result['url'], 'https://mastodon.social/@user/123')
+        self.assertEqual(result["url"], "https://mastodon.social/@user/123")
     
-    @patch('mastodon_client.mastodon_client.requests.get')
-    @patch('mastodon_client.mastodon_client.Mastodon')
+    @patch("mastodon_client.mastodon_client.requests.get")
+    @patch("mastodon_client.mastodon_client.Mastodon")
     def test_post_with_single_image(self, mock_mastodon, mock_requests_get):
         """Test posting status with a single image attachment."""
         # Setup mock API
         mock_api = MagicMock()
         mock_mastodon.return_value = mock_api
-        mock_api.media_post.return_value = {'id': 'media123'}
+        mock_api.media_post.return_value = {"id": "media123"}
         mock_api.status_post.return_value = {
-            'id': '456',
-            'url': 'https://mastodon.social/@user/456',
-            'media_attachments': [{'id': 'media123'}]
+            "id": "456",
+            "url": "https://mastodon.social/@user/456",
+            "media_attachments": [{"id": "media123"}]
         }
         
         # Mock image download
         mock_response = MagicMock()
-        mock_response.content = b'fake_image_data'
+        mock_response.content = b"fake_image_data"
         mock_response.raise_for_status = MagicMock()
         mock_requests_get.return_value = mock_response
         
         # Create client
         client = MastodonClient(
-            instance_url='https://mastodon.social',
-            access_token='test_token'
+            instance_url="https://mastodon.social",
+            access_token="test_token"
         )
         
         # Post with single image
         result = client.post(
-            'Check out this photo!',
-            media_urls=['https://example.com/image.jpg'],
-            media_descriptions=['A beautiful sunset']
+            "Check out this photo!",
+            media_urls=["https://example.com/image.jpg"],
+            media_descriptions=["A beautiful sunset"]
         )
         
         # Verify image was downloaded
         mock_requests_get.assert_called_once_with(
-            'https://example.com/image.jpg',
+            "https://example.com/image.jpg",
             timeout=30
         )
         
         # Verify media was uploaded with description
         self.assertEqual(mock_api.media_post.call_count, 1)
         upload_args = mock_api.media_post.call_args
-        self.assertEqual(upload_args[1]['description'], 'A beautiful sunset')
+        self.assertEqual(upload_args[1]["description"], "A beautiful sunset")
         
         # Verify status was posted with media_ids
         mock_api.status_post.assert_called_once()
         status_args = mock_api.status_post.call_args[1]
-        self.assertEqual(status_args['status'], 'Check out this photo!')
-        self.assertEqual(status_args['media_ids'], ['media123'])
+        self.assertEqual(status_args["status"], "Check out this photo!")
+        self.assertEqual(status_args["media_ids"], ["media123"])
         
         # Verify result
         self.assertIsNotNone(result)
-        self.assertEqual(result['url'], 'https://mastodon.social/@user/456')
+        self.assertEqual(result["url"], "https://mastodon.social/@user/456")
     
-    @patch('mastodon_client.mastodon_client.requests.get')
-    @patch('mastodon_client.mastodon_client.Mastodon')
+    @patch("mastodon_client.mastodon_client.requests.get")
+    @patch("mastodon_client.mastodon_client.Mastodon")
     def test_post_with_multiple_images(self, mock_mastodon, mock_requests_get):
         """Test posting status with multiple image attachments."""
         # Setup mock API
         mock_api = MagicMock()
         mock_mastodon.return_value = mock_api
         mock_api.media_post.side_effect = [
-            {'id': 'media1'},
-            {'id': 'media2'},
-            {'id': 'media3'}
+            {"id": "media1"},
+            {"id": "media2"},
+            {"id": "media3"}
         ]
         mock_api.status_post.return_value = {
-            'id': '789',
-            'url': 'https://mastodon.social/@user/789',
-            'media_attachments': [
-                {'id': 'media1'},
-                {'id': 'media2'},
-                {'id': 'media3'}
+            "id": "789",
+            "url": "https://mastodon.social/@user/789",
+            "media_attachments": [
+                {"id": "media1"},
+                {"id": "media2"},
+                {"id": "media3"}
             ]
         }
         
         # Mock image downloads
         mock_response = MagicMock()
-        mock_response.content = b'fake_image_data'
+        mock_response.content = b"fake_image_data"
         mock_response.raise_for_status = MagicMock()
         mock_requests_get.return_value = mock_response
         
         # Create client
         client = MastodonClient(
-            instance_url='https://mastodon.social',
-            access_token='test_token'
+            instance_url="https://mastodon.social",
+            access_token="test_token"
         )
         
         # Post with multiple images
         result = client.post(
-            'Gallery post!',
+            "Gallery post!",
             media_urls=[
-                'https://example.com/image1.jpg',
-                'https://example.com/image2.jpg',
-                'https://example.com/image3.jpg'
+                "https://example.com/image1.jpg",
+                "https://example.com/image2.jpg",
+                "https://example.com/image3.jpg"
             ],
-            media_descriptions=['First image', 'Second image', 'Third image']
+            media_descriptions=["First image", "Second image", "Third image"]
         )
         
         # Verify all images were downloaded
@@ -198,21 +198,21 @@ class TestMastodonClient(unittest.TestCase):
         # Verify status was posted with all media_ids
         mock_api.status_post.assert_called_once()
         status_args = mock_api.status_post.call_args[1]
-        self.assertEqual(status_args['media_ids'], ['media1', 'media2', 'media3'])
+        self.assertEqual(status_args["media_ids"], ["media1", "media2", "media3"])
         
         # Verify result
         self.assertIsNotNone(result)
     
-    @patch('mastodon_client.mastodon_client.requests.get')
-    @patch('mastodon_client.mastodon_client.Mastodon')
+    @patch("mastodon_client.mastodon_client.requests.get")
+    @patch("mastodon_client.mastodon_client.Mastodon")
     def test_post_with_failed_image_download(self, mock_mastodon, mock_requests_get):
         """Test posting when image download fails - should still post without media."""
         # Setup mock API
         mock_api = MagicMock()
         mock_mastodon.return_value = mock_api
         mock_api.status_post.return_value = {
-            'id': '999',
-            'url': 'https://mastodon.social/@user/999'
+            "id": "999",
+            "url": "https://mastodon.social/@user/999"
         }
         
         # Mock failed image download
@@ -220,14 +220,14 @@ class TestMastodonClient(unittest.TestCase):
         
         # Create client
         client = MastodonClient(
-            instance_url='https://mastodon.social',
-            access_token='test_token'
+            instance_url="https://mastodon.social",
+            access_token="test_token"
         )
         
         # Post with image URL that will fail to download
         result = client.post(
-            'Text post',
-            media_urls=['https://example.com/broken.jpg']
+            "Text post",
+            media_urls=["https://example.com/broken.jpg"]
         )
         
         # Verify download was attempted
@@ -239,22 +239,22 @@ class TestMastodonClient(unittest.TestCase):
         # Verify status was still posted without media
         mock_api.status_post.assert_called_once()
         status_args = mock_api.status_post.call_args[1]
-        self.assertEqual(status_args['media_ids'], None)
+        self.assertEqual(status_args["media_ids"], None)
         
         # Verify result
         self.assertIsNotNone(result)
     
-    @patch('mastodon_client.mastodon_client.Mastodon')
+    @patch("mastodon_client.mastodon_client.Mastodon")
     def test_post_disabled_client(self, mock_mastodon):
         """Test posting with disabled client returns None."""
         # Create disabled client (no access token)
         client = MastodonClient(
-            instance_url='https://mastodon.social',
+            instance_url="https://mastodon.social",
             access_token=None
         )
         
         # Attempt to post
-        result = client.post('Test post')
+        result = client.post("Test post")
         
         # Verify no API calls were made
         mock_mastodon.return_value.status_post.assert_not_called()

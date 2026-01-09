@@ -25,8 +25,8 @@ from social.bluesky_client import BlueskyClient
 class TestBlueskyClient(unittest.TestCase):
     """Test suite for BlueskyClient class."""
     
-    @patch('config.read_secret_file')
-    @patch('social.bluesky_client.Client')
+    @patch("config.read_secret_file")
+    @patch("social.bluesky_client.Client")
     def test_login_with_provided_secrets(self, mock_client_class, mock_read_secret):
         """Test login with credentials loaded from secrets."""
         # Mock secret file reading to simulate Docker secrets
@@ -37,13 +37,13 @@ class TestBlueskyClient(unittest.TestCase):
         mock_client_class.return_value = mock_client
         
         config = {
-            'bluesky': {
-                'accounts': [
+            "bluesky": {
+                "accounts": [
                     {
-                        'name': 'test',
-                        'instance_url': 'https://bsky.social',
-                        'handle': 'user.bsky.social',
-                        'app_password_file': '/run/secrets/bluesky_app_password'
+                        "name": "test",
+                        "instance_url": "https://bsky.social",
+                        "handle": "user.bsky.social",
+                        "app_password_file": "/run/secrets/bluesky_app_password"
                     }
                 ]
             }
@@ -62,12 +62,12 @@ class TestBlueskyClient(unittest.TestCase):
         
         # Verify login was called with correct credentials
         mock_client.login.assert_called_once_with(
-            login='user.bsky.social',
-            password='test_app_password'
+            login="user.bsky.social",
+            password="test_app_password"
         )
     
-    @patch('config.read_secret_file')
-    @patch('social.bluesky_client.Client')
+    @patch("config.read_secret_file")
+    @patch("social.bluesky_client.Client")
     def test_login_with_access_token_file_fallback(self, mock_client_class, mock_read_secret):
         """Test that access_token_file works as fallback for app_password_file."""
         # Mock secret file reading
@@ -78,13 +78,13 @@ class TestBlueskyClient(unittest.TestCase):
         mock_client_class.return_value = mock_client
         
         config = {
-            'bluesky': {
-                'accounts': [
+            "bluesky": {
+                "accounts": [
                     {
-                        'name': 'test',
-                        'instance_url': 'https://bsky.social',
-                        'handle': 'user.bsky.social',
-                        'access_token_file': '/run/secrets/bluesky_access_token'
+                        "name": "test",
+                        "instance_url": "https://bsky.social",
+                        "handle": "user.bsky.social",
+                        "access_token_file": "/run/secrets/bluesky_access_token"
                     }
                 ]
             }
@@ -98,7 +98,7 @@ class TestBlueskyClient(unittest.TestCase):
         self.assertTrue(client.enabled)
         self.assertEqual(client.app_password, "test_app_password")
     
-    @patch('social.bluesky_client.Client')
+    @patch("social.bluesky_client.Client")
     def test_post_success(self, mock_client_class):
         """Test posting status to Bluesky successfully."""
         # Setup mock API
@@ -107,45 +107,45 @@ class TestBlueskyClient(unittest.TestCase):
         
         # Mock send_post result
         mock_result = MagicMock()
-        mock_result.uri = 'at://did:plc:abc123/app.bsky.feed.post/xyz789'
-        mock_result.cid = 'bafyreiabc123'
+        mock_result.uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789"
+        mock_result.cid = "bafyreiabc123"
         mock_client.send_post.return_value = mock_result
         
         # Create client
         client = BlueskyClient(
-            instance_url='https://bsky.social',
-            handle='user.bsky.social',
-            app_password='test_password'
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
         )
         
         # Post content
-        result = client.post('Hello Bluesky!')
+        result = client.post("Hello Bluesky!")
         
         # Verify send_post was called
         mock_client.send_post.assert_called_once()
         
         # Verify result
         self.assertIsNotNone(result)
-        self.assertEqual(result['uri'], 'at://did:plc:abc123/app.bsky.feed.post/xyz789')
-        self.assertEqual(result['cid'], 'bafyreiabc123')
+        self.assertEqual(result["uri"], "at://did:plc:abc123/app.bsky.feed.post/xyz789")
+        self.assertEqual(result["cid"], "bafyreiabc123")
     
-    @patch('social.bluesky_client.Client')
+    @patch("social.bluesky_client.Client")
     def test_post_disabled_client(self, mock_client_class):
         """Test posting with disabled client returns None."""
         # Create disabled client (no handle)
         client = BlueskyClient(
-            instance_url='https://bsky.social',
+            instance_url="https://bsky.social",
             handle=None,
-            app_password='test_password'
+            app_password="test_password"
         )
         
         # Attempt to post
-        result = client.post('Test post')
+        result = client.post("Test post")
         
         # Verify result is None
         self.assertIsNone(result)
     
-    @patch('social.bluesky_client.Client')
+    @patch("social.bluesky_client.Client")
     def test_post_failure(self, mock_client_class):
         """Test posting when API call fails."""
         # Setup mock API
@@ -157,18 +157,18 @@ class TestBlueskyClient(unittest.TestCase):
         
         # Create client
         client = BlueskyClient(
-            instance_url='https://bsky.social',
-            handle='user.bsky.social',
-            app_password='test_password'
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
         )
         
         # Attempt to post
-        result = client.post('Test post')
+        result = client.post("Test post")
         
         # Verify result is None
         self.assertIsNone(result)
     
-    @patch('social.bluesky_client.Client')
+    @patch("social.bluesky_client.Client")
     def test_verify_credentials_success(self, mock_client_class):
         """Test verifying credentials successfully."""
         # Setup mock API
@@ -177,34 +177,34 @@ class TestBlueskyClient(unittest.TestCase):
         
         # Mock session and profile
         mock_client.me = MagicMock()
-        mock_client.me.did = 'did:plc:abc123'
+        mock_client.me.did = "did:plc:abc123"
         
         mock_profile = MagicMock()
-        mock_profile.handle = 'user.bsky.social'
-        mock_profile.did = 'did:plc:abc123'
-        mock_profile.display_name = 'Test User'
+        mock_profile.handle = "user.bsky.social"
+        mock_profile.did = "did:plc:abc123"
+        mock_profile.display_name = "Test User"
         mock_client.get_profile.return_value = mock_profile
         
         # Create client
         client = BlueskyClient(
-            instance_url='https://bsky.social',
-            handle='user.bsky.social',
-            app_password='test_password'
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
         )
         
         # Verify credentials
         result = client.verify_credentials()
         
         # Verify get_profile was called
-        mock_client.get_profile.assert_called_once_with(actor='did:plc:abc123')
+        mock_client.get_profile.assert_called_once_with(actor="did:plc:abc123")
         
         # Verify result
         self.assertIsNotNone(result)
-        self.assertEqual(result['handle'], 'user.bsky.social')
-        self.assertEqual(result['did'], 'did:plc:abc123')
-        self.assertEqual(result['display_name'], 'Test User')
+        self.assertEqual(result["handle"], "user.bsky.social")
+        self.assertEqual(result["did"], "did:plc:abc123")
+        self.assertEqual(result["display_name"], "Test User")
     
-    @patch('social.bluesky_client.Client')
+    @patch("social.bluesky_client.Client")
     def test_verify_credentials_no_session(self, mock_client_class):
         """Test verifying credentials when no session exists."""
         # Setup mock API
@@ -216,9 +216,9 @@ class TestBlueskyClient(unittest.TestCase):
         
         # Create client
         client = BlueskyClient(
-            instance_url='https://bsky.social',
-            handle='user.bsky.social',
-            app_password='test_password'
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
         )
         
         # Verify credentials
@@ -227,14 +227,14 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify result is None
         self.assertIsNone(result)
     
-    @patch('social.bluesky_client.Client')
+    @patch("social.bluesky_client.Client")
     def test_verify_credentials_disabled_client(self, mock_client_class):
         """Test verifying credentials with disabled client."""
         # Create disabled client
         client = BlueskyClient(
-            instance_url='https://bsky.social',
+            instance_url="https://bsky.social",
             handle=None,
-            app_password='test_password'
+            app_password="test_password"
         )
         
         # Verify credentials
@@ -243,7 +243,7 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify result is None
         self.assertIsNone(result)
     
-    @patch('social.bluesky_client.Client')
+    @patch("social.bluesky_client.Client")
     def test_verify_credentials_failure(self, mock_client_class):
         """Test verifying credentials when API call fails."""
         # Setup mock API
@@ -252,16 +252,16 @@ class TestBlueskyClient(unittest.TestCase):
         
         # Mock session
         mock_client.me = MagicMock()
-        mock_client.me.did = 'did:plc:abc123'
+        mock_client.me.did = "did:plc:abc123"
         
         # Mock get_profile to raise exception
         mock_client.get_profile.side_effect = Exception("API Error")
         
         # Create client
         client = BlueskyClient(
-            instance_url='https://bsky.social',
-            handle='user.bsky.social',
-            app_password='test_password'
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
         )
         
         # Verify credentials
@@ -270,8 +270,8 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify result is None
         self.assertIsNone(result)
     
-    @patch('config.read_secret_file')
-    @patch('social.bluesky_client.Client')
+    @patch("config.read_secret_file")
+    @patch("social.bluesky_client.Client")
     def test_multiple_accounts_from_config(self, mock_client_class, mock_read_secret):
         """Test creating multiple Bluesky clients from config."""
         # Mock secret file reading with different values
@@ -282,19 +282,19 @@ class TestBlueskyClient(unittest.TestCase):
         mock_client_class.return_value = mock_client
         
         config = {
-            'bluesky': {
-                'accounts': [
+            "bluesky": {
+                "accounts": [
                     {
-                        'name': 'personal',
-                        'instance_url': 'https://bsky.social',
-                        'handle': 'user1.bsky.social',
-                        'app_password_file': '/run/secrets/bluesky_personal'
+                        "name": "personal",
+                        "instance_url": "https://bsky.social",
+                        "handle": "user1.bsky.social",
+                        "app_password_file": "/run/secrets/bluesky_personal"
                     },
                     {
-                        'name': 'work',
-                        'instance_url': 'https://bsky.social',
-                        'handle': 'user2.bsky.social',
-                        'app_password_file': '/run/secrets/bluesky_work'
+                        "name": "work",
+                        "instance_url": "https://bsky.social",
+                        "handle": "user2.bsky.social",
+                        "app_password_file": "/run/secrets/bluesky_work"
                     }
                 ]
             }
@@ -306,28 +306,28 @@ class TestBlueskyClient(unittest.TestCase):
         self.assertEqual(len(clients), 2)
         
         # Verify first client
-        self.assertEqual(clients[0].account_name, 'personal')
-        self.assertEqual(clients[0].handle, 'user1.bsky.social')
-        self.assertEqual(clients[0].app_password, 'password1')
+        self.assertEqual(clients[0].account_name, "personal")
+        self.assertEqual(clients[0].handle, "user1.bsky.social")
+        self.assertEqual(clients[0].app_password, "password1")
         
         # Verify second client
-        self.assertEqual(clients[1].account_name, 'work')
-        self.assertEqual(clients[1].handle, 'user2.bsky.social')
-        self.assertEqual(clients[1].app_password, 'password2')
+        self.assertEqual(clients[1].account_name, "work")
+        self.assertEqual(clients[1].handle, "user2.bsky.social")
+        self.assertEqual(clients[1].app_password, "password2")
     
-    @patch('config.read_secret_file')
-    @patch('social.bluesky_client.Client')
+    @patch("config.read_secret_file")
+    @patch("social.bluesky_client.Client")
     def test_disabled_account_missing_handle(self, mock_client_class, mock_read_secret):
         """Test that account is disabled when handle is missing."""
         mock_read_secret.return_value = "password"
         
         config = {
-            'bluesky': {
-                'accounts': [
+            "bluesky": {
+                "accounts": [
                     {
-                        'name': 'test',
-                        'instance_url': 'https://bsky.social',
-                        'app_password_file': '/run/secrets/bluesky'
+                        "name": "test",
+                        "instance_url": "https://bsky.social",
+                        "app_password_file": "/run/secrets/bluesky"
                     }
                 ]
             }
@@ -339,20 +339,20 @@ class TestBlueskyClient(unittest.TestCase):
         self.assertEqual(len(clients), 1)
         self.assertFalse(clients[0].enabled)
     
-    @patch('config.read_secret_file')
-    @patch('social.bluesky_client.Client')
+    @patch("config.read_secret_file")
+    @patch("social.bluesky_client.Client")
     def test_disabled_account_missing_password(self, mock_client_class, mock_read_secret):
         """Test that account is disabled when password is missing."""
         mock_read_secret.return_value = None
         
         config = {
-            'bluesky': {
-                'accounts': [
+            "bluesky": {
+                "accounts": [
                     {
-                        'name': 'test',
-                        'instance_url': 'https://bsky.social',
-                        'handle': 'user.bsky.social',
-                        'app_password_file': '/run/secrets/bluesky'
+                        "name": "test",
+                        "instance_url": "https://bsky.social",
+                        "handle": "user.bsky.social",
+                        "app_password_file": "/run/secrets/bluesky"
                     }
                 ]
             }
@@ -365,5 +365,5 @@ class TestBlueskyClient(unittest.TestCase):
         self.assertFalse(clients[0].enabled)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -49,15 +49,15 @@ class TestPushoverIntegration:
             tuple: (app_token, user_key, enabled) or (None, None, False)
         """
         config = load_config()
-        pushover_config = config.get('pushover', {})
-        enabled = pushover_config.get('enabled', False)
+        pushover_config = config.get("pushover", {})
+        enabled = pushover_config.get("enabled", False)
         
         if not enabled:
             return None, None, False
         
         # Try to read from Docker secrets paths first (production behavior)
-        app_token_file = pushover_config.get('app_token_file', '/run/secrets/pushover_app_token')
-        user_key_file = pushover_config.get('user_key_file', '/run/secrets/pushover_user_key')
+        app_token_file = pushover_config.get("app_token_file", "/run/secrets/pushover_app_token")
+        user_key_file = pushover_config.get("user_key_file", "/run/secrets/pushover_user_key")
         
         app_token = read_secret_file(app_token_file)
         user_key = read_secret_file(user_key_file)
@@ -66,20 +66,20 @@ class TestPushoverIntegration:
         
         # Fallback to local secrets/ directory for development/testing
         if not app_token:
-            local_app_token_file = Path('secrets/pushover_app_token.txt')
+            local_app_token_file = Path("secrets/pushover_app_token.txt")
             if local_app_token_file.exists():
                 app_token = read_secret_file(str(local_app_token_file))
         
         if not user_key:
-            local_user_key_file = Path('secrets/pushover_user_key.txt')
+            local_user_key_file = Path("secrets/pushover_user_key.txt")
             if local_user_key_file.exists():
                 user_key = read_secret_file(str(local_user_key_file))
         
         # Final fallback to environment variables for backwards compatibility
         if not app_token:
-            app_token = os.environ.get('PUSHOVER_APP_TOKEN')
+            app_token = os.environ.get("PUSHOVER_APP_TOKEN")
         if not user_key:
-            user_key = os.environ.get('PUSHOVER_USER_KEY')
+            user_key = os.environ.get("PUSHOVER_USER_KEY")
         
         return app_token, user_key, enabled
     
@@ -89,28 +89,28 @@ class TestPushoverIntegration:
         Returns:
             bool: True if secrets directory has required files
         """
-        secrets_dir = Path('secrets')
+        secrets_dir = Path("secrets")
         if not secrets_dir.exists():
             return False
         
-        app_token_file = secrets_dir / 'pushover_app_token.txt'
-        user_key_file = secrets_dir / 'pushover_user_key.txt'
+        app_token_file = secrets_dir / "pushover_app_token.txt"
+        user_key_file = secrets_dir / "pushover_user_key.txt"
         
         return app_token_file.exists() and user_key_file.exists()
     
     def test_config_has_notifications_enabled(self):
         """Test that config.yml has pushover.enabled set to true."""
         config = load_config()
-        pushover_config = config.get('pushover', {})
+        pushover_config = config.get("pushover", {})
         
         # Verify notifications are enabled in config.yml
-        assert pushover_config.get('enabled') is True, \
+        assert pushover_config.get("enabled") is True, \
             "Pushover notifications should be enabled in config.yml"
         
         # Verify secret file paths are configured
-        assert 'app_token_file' in pushover_config, \
+        assert "app_token_file" in pushover_config, \
             "app_token_file should be configured in config.yml"
-        assert 'user_key_file' in pushover_config, \
+        assert "user_key_file" in pushover_config, \
             "user_key_file should be configured in config.yml"
     
     def test_secrets_accessibility(self):
@@ -132,14 +132,14 @@ class TestPushoverIntegration:
         
         # Check if Docker secrets exist (for Docker Compose)
         has_docker_secrets = (
-            Path('/run/secrets/pushover_app_token').exists() and
-            Path('/run/secrets/pushover_user_key').exists()
+            Path("/run/secrets/pushover_app_token").exists() and
+            Path("/run/secrets/pushover_user_key").exists()
         )
         
         # Check if environment variables are set (for legacy support)
         has_env_vars = (
-            os.environ.get('PUSHOVER_APP_TOKEN') is not None and
-            os.environ.get('PUSHOVER_USER_KEY') is not None
+            os.environ.get("PUSHOVER_APP_TOKEN") is not None and
+            os.environ.get("PUSHOVER_USER_KEY") is not None
         )
         
         # At least one method should provide secrets
@@ -220,8 +220,8 @@ class TestPushoverIntegration:
         notifier = PushoverNotifier.from_config(config)
         
         # Check if notifier is enabled based on config
-        pushover_config = config.get('pushover', {})
-        config_enabled = pushover_config.get('enabled', False)
+        pushover_config = config.get("pushover", {})
+        config_enabled = pushover_config.get("enabled", False)
         
         if not config_enabled:
             assert notifier.enabled is False, \
@@ -230,8 +230,8 @@ class TestPushoverIntegration:
         
         # Check if secrets are available from production paths only
         # (the paths specified in config.yml, not fallback paths)
-        app_token_file = pushover_config.get('app_token_file', '/run/secrets/pushover_app_token')
-        user_key_file = pushover_config.get('user_key_file', '/run/secrets/pushover_user_key')
+        app_token_file = pushover_config.get("app_token_file", "/run/secrets/pushover_app_token")
+        user_key_file = pushover_config.get("user_key_file", "/run/secrets/pushover_user_key")
         
         app_token = read_secret_file(app_token_file)
         user_key = read_secret_file(user_key_file)

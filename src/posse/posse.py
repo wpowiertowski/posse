@@ -31,19 +31,79 @@ Example:
 """
 
 from queue import Queue
+import threading
+import logging
+from logging.handlers import RotatingFileHandler
 
 # Create a thread-safe events queue for validated Ghost posts
 # This queue will receive posts from the Ghost webhook receiver (ghost.py)
 # and will be consumed by Mastodon and Bluesky agents (to be implemented)
 events_queue: Queue = Queue()
 
+# Configure logging
+logger = logging.getLogger(__name__)
 
-def main() -> None:
+
+def process_events():
+    """Process events from the events queue.
+    
+    This function runs in a separate daemon thread and continuously monitors
+    the events_queue for new posts. When a post is added to the queue, it:
+    1. Pops the event from the queue (blocking until available)
+    2. Logs the event details
+    3. Will eventually syndicate to social platforms
+    
+    The thread runs as a daemon so it will automatically terminate when
+    the main program exits.
+    """
+    logger.info("Event processor thread started")
+    
+    while True:
+        try:
+            # Block until an event is available in the queue
+            event = events_queue.get(block=True)
+            
+            # Log the popped event
+            logger.info(f"Popped event from queue: {event}")
+            
+            # Extract post details if available with safe defaults
+            post = None 
+            if isinstance(event, dict) and "post" in event:
+                post = event.get("post", None)
+                if isinstance(post, dict) and "current" in post:
+                    post = post.get("current", {})
+                    post_id = post.get("id", None)
+                    post_title = post.get("title", None)
+                    post_status = post.get("status", None)
+                    logger.info(f"Post ID: {post_id}, Title: {post_title}, Status: {post_status}")
+
+            if post:
+               excerpt = post.get("excerpt", None) 
+               published_at = post.get("published_at", None)
+               tags = post.get("tags", None)
+               revisions = [x for x in post.get("post_revisions", [])]
+               content = None
+               if revisions:
+                    # get most up to date revision
+                    content = revisions[-1]
+            
+            # Mark task as done
+            events_queue.task_done()
+            
+        except Exception as e:
+            logger.error(f"Error processing event: {e}", exc_info=True)
+
+
+def main(debug: bool = False) -> None:
     """Main entry point for the POSSE console command.
     
     This function is called when running 'poetry run posse' from
     the command line. It embeds and starts Gunicorn with the Ghost
     webhook receiver Flask app.
+    
+    Args:
+        debug: Enable debug mode with infinite timeout for breakpoint debugging.
+               Can be set via --debug flag or POSSE_DEBUG environment variable.
     
     Architecture:
         Docker → poetry run posse → posse.py main() → Gunicorn → Flask app
@@ -113,11 +173,51 @@ def main() -> None:
     import sys
     import os
     
+    # Parse debug flag from environment or command line args
+    if not debug:
+        debug = os.environ.get("POSSE_DEBUG", "").lower() in ("true", "1", "yes")
+        if len(sys.argv) > 1 and "--debug" in sys.argv:
+            debug = True
+    
+    # Configure global logging with 10MB limit
+    # Set logging level based on debug flag
+    log_level = logging.DEBUG if debug else logging.INFO
+    
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    
+    # Create rotating file handler with 10MB limit and 3 backup files
+    log_handler = RotatingFileHandler(
+        "posse.log",
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=3
+    )
+    log_handler.setLevel(log_level)
+    
+    # Create formatter and add to handler
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    log_handler.setFormatter(formatter)
+    
+    # Add handler to root logger
+    root_logger.addHandler(log_handler)
+    
+    # Also add console handler for stdout
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+    
+    if debug:
+        logger.info("Debug mode enabled: verbose logging and worker timeout disabled for breakpoint debugging")
+    
+    
     # Create Flask app with events_queue passed as dependency
     app = create_app(events_queue)
     
     # Load Gunicorn configuration from ghost package
-    config_path = os.path.join(os.path.dirname(__file__), '..', 'ghost', 'gunicorn_config.py')
+    config_path = os.path.join(os.path.dirname(__file__), "..", "ghost", "gunicorn_config.py")
     
     class StandaloneApplication(BaseApplication):
         """Custom Gunicorn application for embedding within posse entry point."""
@@ -129,24 +229,39 @@ def main() -> None:
         
         def load_config(self):
             # Load configuration from file
-            config_file = self.options.get('config')
+            config_file = self.options.get("config")
             if config_file:
                 self.cfg.set("config", config_file)
                 # Execute the config file to load settings
-                with open(config_file, 'r') as f:
+                with open(config_file, "r") as f:
                     config_code = f.read()
                 config_namespace = {}
                 exec(config_code, config_namespace)
                 for key, value in config_namespace.items():
                     if key in self.cfg.settings and value is not None:
                         self.cfg.set(key.lower(), value)
+                
+                # Add post_worker_init hook to start event processor in each worker
+                def post_worker_init_hook(worker):
+                    """Start event processor thread after worker initialization."""
+                    worker.log.info(f"Starting event processor thread in worker {worker.pid}")
+                    event_thread = threading.Thread(target=process_events, daemon=True)
+                    event_thread.start()
+                    worker.log.info(f"Event processor thread started in worker {worker.pid}")
+                
+                self.cfg.set("post_worker_init", post_worker_init_hook)
+                
+                # Set timeout based on debug flag
+                if self.options.get("debug"):
+                    self.cfg.set("timeout", 0)
         
         def load(self):
             return self.application
     
     # Start Gunicorn with the Flask app
     options = {
-        'config': config_path
+        "config": config_path,
+        "debug": debug
     }
     StandaloneApplication(app, options).run()
 

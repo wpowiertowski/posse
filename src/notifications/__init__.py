@@ -2,4 +2,4 @@
 
 from notifications.pushover import PushoverNotifier
 
-__all__ = ['PushoverNotifier']
+__all__ = ["PushoverNotifier"]

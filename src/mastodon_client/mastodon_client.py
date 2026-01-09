@@ -16,13 +16,13 @@ Usage:
     >>> client = MastodonClient.from_config(config)
     >>> if client.enabled:
     ...     result = client.post("Hello from POSSE!")
-    ...     print(f"Posted: {result['url']}")
+    ...     print(f"Posted: {result["url"]}")
 
 Authentication:
     You need an access token from your Mastodon instance. You can obtain one by:
     1. Going to your Mastodon instance settings
     2. Navigate to Development -> New Application
-    3. Create a new application with 'write:statuses' scope
+    3. Create a new application with "write:statuses" scope
     4. Copy the access token
 
 API Reference:
@@ -70,7 +70,7 @@ class MastodonClient(SocialMediaClient):
     
     # Configuration constants
     IMAGE_DOWNLOAD_TIMEOUT = 30  # seconds
-    DEFAULT_IMAGE_EXTENSION = '.jpg'  # fallback for images without file extension
+    DEFAULT_IMAGE_EXTENSION = ".jpg"  # fallback for images without file extension
     
     def _initialize_api(self) -> None:
         """Initialize the Mastodon API client.
@@ -86,7 +86,7 @@ class MastodonClient(SocialMediaClient):
         )
     
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> list['MastodonClient']:
+    def from_config(cls, config: Dict[str, Any]) -> list["MastodonClient"]:
         """Create MastodonClient instances from configuration dictionary.
         
         This factory method reads configuration from config.yml and loads
@@ -106,7 +106,7 @@ class MastodonClient(SocialMediaClient):
             ...     if client.enabled:
             ...         client.post("Hello!")
         """
-        return super(MastodonClient, cls).from_config(config, 'mastodon')
+        return super(MastodonClient, cls).from_config(config, "mastodon")
     
     def _download_image(self, url: str) -> Optional[str]:
         """Download an image from a URL to a temporary file.
@@ -140,7 +140,7 @@ class MastodonClient(SocialMediaClient):
     def post(
         self,
         content: str,
-        visibility: str = 'public',
+        visibility: str = "public",
         sensitive: bool = False,
         spoiler_text: Optional[str] = None,
         media_urls: Optional[List[str]] = None,
@@ -151,7 +151,7 @@ class MastodonClient(SocialMediaClient):
         
         Args:
             content: Text content of the status (max 500 characters for most instances)
-            visibility: Post visibility ('public', 'unlisted', 'private', 'direct')
+            visibility: Post visibility ("public", "unlisted", "private", "direct")
             sensitive: Whether to mark the post as sensitive content
             spoiler_text: Content warning text (if provided, post will be hidden behind CW)
             media_urls: Optional list of image URLs to attach to the post
@@ -164,7 +164,7 @@ class MastodonClient(SocialMediaClient):
         Example:
             >>> result = client.post("Hello from POSSE!")
             >>> if result:
-            ...     print(f"Posted: {result['url']}")
+            ...     print(f"Posted: {result["url"]}")
             
             >>> # Post with an image
             >>> result = client.post(
@@ -200,7 +200,7 @@ class MastodonClient(SocialMediaClient):
                     # Upload to Mastodon
                     try:
                         media = self.api.media_post(temp_path, description=description)
-                        media_ids.append(media['id'])
+                        media_ids.append(media["id"])
                         logger.debug(f"Uploaded media {url} with ID {media['id']}")
                     except MastodonError as e:
                         logger.error(f"Failed to upload media {url}: {e}")
@@ -240,7 +240,7 @@ class MastodonClient(SocialMediaClient):
         Example:
             >>> account = client.verify_credentials()
             >>> if account:
-            ...     print(f"Authenticated as: @{account['username']}")
+            ...     print(f"Authenticated as: @{account["username"]}")
         """
         if not self.enabled or not self.api:
             logger.warning("Cannot verify credentials: client not enabled")

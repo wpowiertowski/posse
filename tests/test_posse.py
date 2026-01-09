@@ -51,7 +51,7 @@ def test_module_imports():
     This ensures the module structure is correct and dependencies
     are properly configured in pyproject.toml.
     
-    Note: This test doesn't execute main() because it's a blocking
+    Note: This test doesn"t execute main() because it"s a blocking
           call that starts a Gunicorn server. The actual webhook
           functionality is tested via:
           - test_ghost.py (tests for webhook receiver)
@@ -117,8 +117,8 @@ def test_events_queue_is_thread_safe():
         "events_queue must be a Queue for thread-safety"
     
     # Verify it has Queue's thread-safe methods
-    assert hasattr(events_queue, 'put'), "Queue should have put method"
-    assert hasattr(events_queue, 'get'), "Queue should have get method"
-    assert hasattr(events_queue, 'empty'), "Queue should have empty method"
-    assert hasattr(events_queue, 'qsize'), "Queue should have qsize method"
+    assert hasattr(events_queue, "put"), "Queue should have put method"
+    assert hasattr(events_queue, "get"), "Queue should have get method"
+    assert hasattr(events_queue, "empty"), "Queue should have empty method"
+    assert hasattr(events_queue, "qsize"), "Queue should have qsize method"
 

@@ -34,7 +34,7 @@ Validation:
     processing.
 
 Logging:
-    The receiver logs all webhook activity to 'ghost_posts.log' with:
+    The receiver logs all webhook activity to "ghost_posts.log" with:
     - INFO: Post reception events with timestamps
     - DEBUG: Full payload details
     - ERROR: Validation failures and exceptions

@@ -7,7 +7,7 @@ Configuration is loaded from config.yml and supports Docker secrets.
 Usage:
     >>> from config import load_config
     >>> config = load_config()
-    >>> if config.get('pushover', {}).get('enabled'):
+    >>> if config.get("pushover", {}).get("enabled"):
     ...     # Use Pushover notifications
 """
 import os
@@ -36,13 +36,13 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         
     Example:
         >>> config = load_config()
-        >>> pushover_enabled = config.get('pushover', {}).get('enabled', False)
+        >>> pushover_enabled = config.get("pushover", {}).get("enabled", False)
     """
     if config_path is None:
         # Try to find config.yml in current directory or parent directories
         current = Path.cwd()
         for parent in [current] + list(current.parents):
-            candidate = parent / 'config.yml'
+            candidate = parent / "config.yml"
             if candidate.exists():
                 config_path = str(candidate)
                 break
@@ -50,7 +50,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         # If still not found, check the project root (where this file is located)
         if config_path is None:
             project_root = Path(__file__).parent.parent.parent
-            candidate = project_root / 'config.yml'
+            candidate = project_root / "config.yml"
             if candidate.exists():
                 config_path = str(candidate)
     
@@ -59,7 +59,7 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         return get_default_config()
     
     try:
-        with open(config_path, 'r') as f:
+        with open(config_path, "r") as f:
             config = yaml.safe_load(f)
             logger.info(f"Loaded configuration from {config_path}")
             return config or {}
@@ -78,10 +78,10 @@ def get_default_config() -> Dict[str, Any]:
         Dictionary with default configuration values
     """
     return {
-        'pushover': {
-            'enabled': False,
-            'app_token_file': '/run/secrets/pushover_app_token',
-            'user_key_file': '/run/secrets/pushover_user_key'
+        "pushover": {
+            "enabled": False,
+            "app_token_file": "/run/secrets/pushover_app_token",
+            "user_key_file": "/run/secrets/pushover_user_key"
         }
     }
 
@@ -99,10 +99,10 @@ def read_secret_file(filepath: str) -> Optional[str]:
         Content of the secret file (stripped of whitespace), or None if file doesn't exist
         
     Example:
-        >>> token = read_secret_file('/run/secrets/pushover_app_token')
+        >>> token = read_secret_file("/run/secrets/pushover_app_token")
     """
     try:
-        with open(filepath, 'r') as f:
+        with open(filepath, "r") as f:
             return f.read().strip()
     except FileNotFoundError:
         logger.debug(f"Secret file not found: {filepath}")

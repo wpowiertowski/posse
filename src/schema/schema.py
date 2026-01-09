@@ -72,7 +72,7 @@ def _load_schema(schema_filename: str) -> Dict[str, Any]:
     Example:
         >>> schema = _load_schema("ghost_post_schema.json")
         >>> schema["$schema"]
-        'http://json-schema.org/draft-07/schema#'
+        "http://json-schema.org/draft-07/schema#"
         
         >>> _load_schema("missing.json")
         FileNotFoundError: Schema file not found: /app/src/schema/missing.json
@@ -90,7 +90,7 @@ def _load_schema(schema_filename: str) -> Dict[str, Any]:
     
     # Load and parse JSON file
     try:
-        with open(schema_path, 'r') as f:
+        with open(schema_path, "r") as f:
             return json.load(f)
     except json.JSONDecodeError as e:
         # Re-raise with more context about which file failed
@@ -142,10 +142,10 @@ def get_ghost_post_schema() -> Dict[str, Any]:
     Example:
         >>> schema = get_ghost_post_schema()
         >>> schema["title"]
-        'Ghost Post'
+        "Ghost Post"
         >>> "id" in schema["required"]
         True
         >>> schema["properties"]["title"]["type"]
-        'string'
+        "string"
     """
     return GHOST_POST_SCHEMA

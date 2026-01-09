@@ -18,4 +18,4 @@ Usage:
 
 from .mastodon_client import MastodonClient
 
-__all__ = ['MastodonClient']
+__all__ = ["MastodonClient"]

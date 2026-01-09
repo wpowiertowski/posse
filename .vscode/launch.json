@@ -9,7 +9,7 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "module": "posse.posse",
-            "args": []
+            "args": ["--debug"]
         }
     ]
 }

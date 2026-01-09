@@ -63,7 +63,7 @@ def client():
         
     Example:
         def test_something(client):
-            response = client.get('/health')
+            response = client.get("/health")
             assert response.status_code == 200
     """
     # Create a test queue and app
@@ -71,7 +71,7 @@ def client():
     app = create_app(test_queue)
     
     # Enable testing mode for better error messages
-    app.config['TESTING'] = True
+    app.config["TESTING"] = True
     
     # Create and yield test client
     # Using 'with' ensures proper cleanup after test
@@ -94,7 +94,7 @@ def client_with_queue():
     app = create_app(test_queue)
     
     # Enable testing mode for better error messages
-    app.config['TESTING'] = True
+    app.config["TESTING"] = True
     
     # Create and yield test client with queue
     with app.test_client() as client:
@@ -125,7 +125,7 @@ def valid_post_payload():
     fixture_path = Path(__file__).parent / "fixtures" / "valid_ghost_post.json"
     
     # Load and parse JSON fixture
-    with open(fixture_path, 'r') as f:
+    with open(fixture_path, "r") as f:
         return json.load(f)
 
 
@@ -143,7 +143,7 @@ def test_health_check(client):
         - Status value is "healthy"
     """
     # Make GET request to health endpoint
-    response = client.get('/health')
+    response = client.get("/health")
     
     # Verify successful response
     assert response.status_code == 200, "Health check should return 200 OK"
@@ -151,7 +151,7 @@ def test_health_check(client):
     # Parse and validate JSON response
     data = response.get_json()
     assert data is not None, "Health check should return JSON"
-    assert data['status'] == 'healthy', "Health check status should be 'healthy'"
+    assert data["status"] == "healthy", "Health check status should be 'healthy'"
 
 
 def test_receive_valid_post(client, valid_post_payload):
@@ -170,9 +170,9 @@ def test_receive_valid_post(client, valid_post_payload):
     """
     # Send POST request with valid Ghost post data
     response = client.post(
-        '/webhook/ghost',  # Endpoint URL
+        "/webhook/ghost",  # Endpoint URL
         json=valid_post_payload,  # Automatically serializes to JSON
-        content_type='application/json'  # Required Content-Type header
+        content_type="application/json"  # Required Content-Type header
     )
     
     # Verify successful response status
@@ -182,9 +182,9 @@ def test_receive_valid_post(client, valid_post_payload):
     data = response.get_json()
     
     # Verify response structure and content
-    assert data['status'] == 'success', "Response status should be 'success'"
-    assert data['message'] == 'Post received and validated', "Response should confirm receipt"
-    assert data['post_id'] == valid_post_payload['post']['current']['id'], "Response should include post ID"
+    assert data["status"] == "success", "Response status should be 'success'"
+    assert data["message"] == "Post received and validated", "Response should confirm receipt"
+    assert data["post_id"] == valid_post_payload["post"]["current"]["id"], "Response should include post ID"
 
 
 def test_receive_non_json_payload(client):
@@ -201,9 +201,9 @@ def test_receive_non_json_payload(client):
     """
     # Send POST request with plain text instead of JSON
     response = client.post(
-        '/webhook/ghost',
-        data='not json',  # Plain text data
-        content_type='text/plain'  # Wrong content type
+        "/webhook/ghost",
+        data="not json",  # Plain text data
+        content_type="text/plain"  # Wrong content type
     )
     
     # Verify rejection with 400 Bad Request
@@ -213,7 +213,7 @@ def test_receive_non_json_payload(client):
     data = response.get_json()
     
     # Verify error message explains the issue
-    assert data['error'] == 'Content-Type must be application/json', \
+    assert data["error"] == "Content-Type must be application/json", \
         "Error should explain Content-Type requirement"
 
 
@@ -241,9 +241,9 @@ def test_receive_invalid_schema(client):
     
     # Send POST request with invalid payload
     response = client.post(
-        '/webhook/ghost',
+        "/webhook/ghost",
         json=invalid_payload,
-        content_type='application/json'
+        content_type="application/json"
     )
     
     # Verify rejection with 400 Bad Request
@@ -253,10 +253,10 @@ def test_receive_invalid_schema(client):
     data = response.get_json()
     
     # Verify error response structure
-    assert data['status'] == 'error', "Status should be 'error'"
-    assert data['message'] == 'Invalid Ghost post payload', \
+    assert data["status"] == "error", "Status should be 'error'"
+    assert data["message"] == "Invalid Ghost post payload", \
         "Message should indicate invalid payload"
-    assert 'details' in data, "Response should include validation details"
+    assert "details" in data, "Response should include validation details"
 
 
 def test_receive_empty_json(client):
@@ -268,9 +268,9 @@ def test_receive_empty_json(client):
     """
     # Send POST request with empty JSON object
     response = client.post(
-        '/webhook/ghost',
+        "/webhook/ghost",
         json={},  # Empty object
-        content_type='application/json'
+        content_type="application/json"
     )
     
     # Verify rejection with 400 Bad Request
@@ -280,7 +280,7 @@ def test_receive_empty_json(client):
     data = response.get_json()
     
     # Verify it's treated as a validation error
-    assert data['status'] == 'error', "Empty JSON should be validation error"
+    assert data["status"] == "error", "Empty JSON should be validation error"
 
 
 def test_validate_ghost_post_success(valid_post_payload):
@@ -363,9 +363,9 @@ def test_post_with_optional_fields(client):
     
     # Send POST request with minimal valid payload
     response = client.post(
-        '/webhook/ghost',
+        "/webhook/ghost",
         json=minimal_payload,
-        content_type='application/json'
+        content_type="application/json"
     )
     
     # Verify successful response
@@ -376,7 +376,7 @@ def test_post_with_optional_fields(client):
     data = response.get_json()
     
     # Verify response includes the post ID
-    assert data['post_id'] == 'minimal123', \
+    assert data["post_id"] == "minimal123", \
         "Response should include correct post ID from nested structure"
 
 
@@ -399,9 +399,9 @@ def test_valid_post_pushed_to_queue(client_with_queue, valid_post_payload):
     
     # Send valid post to webhook
     response = client.post(
-        '/webhook/ghost',
+        "/webhook/ghost",
         json=valid_post_payload,
-        content_type='application/json'
+        content_type="application/json"
     )
     
     # Verify request succeeded
@@ -442,9 +442,9 @@ def test_invalid_post_not_queued(client_with_queue):
     }
     
     response = client.post(
-        '/webhook/ghost',
+        "/webhook/ghost",
         json=invalid_payload,
-        content_type='application/json'
+        content_type="application/json"
     )
     
     # Verify request was rejected
@@ -465,7 +465,7 @@ def test_pushover_notifications_integration(client, valid_post_payload):
     """
     from unittest.mock import patch, MagicMock
     
-    with patch('notifications.pushover.requests.post') as mock_post:
+    with patch("notifications.pushover.requests.post") as mock_post:
         # Mock successful API response
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -473,9 +473,9 @@ def test_pushover_notifications_integration(client, valid_post_payload):
         
         # Send valid post to webhook
         response = client.post(
-            '/webhook/ghost',
+            "/webhook/ghost",
             json=valid_post_payload,
-            content_type='application/json'
+            content_type="application/json"
         )
         
         # Verify request succeeded
@@ -498,7 +498,7 @@ def test_pushover_notification_on_validation_error(client):
     """
     from unittest.mock import patch, MagicMock
     
-    with patch('notifications.pushover.requests.post') as mock_post:
+    with patch("notifications.pushover.requests.post") as mock_post:
         # Mock successful API response
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -516,9 +516,9 @@ def test_pushover_notification_on_validation_error(client):
         }
         
         response = client.post(
-            '/webhook/ghost',
+            "/webhook/ghost",
             json=invalid_payload,
-            content_type='application/json'
+            content_type="application/json"
         )
         
         # Verify request was rejected

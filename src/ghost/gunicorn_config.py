@@ -16,7 +16,7 @@ bind = "0.0.0.0:5000"
 workers = 1
 worker_class = "sync"  # Use sync workers for I/O bound Flask app
 worker_connections = 1000
-timeout = 30
+timeout = 30  # Worker timeout (overridden to 0 in debug mode)
 keepalive = 2
 
 # Logging configuration - extensive for debugging
@@ -94,50 +94,53 @@ limit_request_fields = 100  # Max number of HTTP headers
 limit_request_field_size = 8190  # Max size of HTTP header field
 
 # Configure Python logger to match Gunicorn's level
+# Note: gunicorn.error is the logger name for all server operational logs (not just errors)
+# gunicorn.access is for HTTP request/response logs
 logconfig_dict = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'root': {
-        'level': 'DEBUG',
-        'handlers': ['console']
+    "version": 1,
+    "disable_existing_loggers": False,
+    "root": {
+        "level": "DEBUG",
+        "handlers": ["console"]
     },
-    'loggers': {
-        'gunicorn.error': {
-            'level': 'DEBUG',
-            'handlers': ['error_console'],
-            'propagate': False,
-            'qualname': 'gunicorn.error'
+    "loggers": {
+        "gunicorn.error": {
+            "level": "ERROR",
+            "handlers": ["console"],
+            "propagate": False,
+            "qualname": "gunicorn.error"
         },
-        'gunicorn.access': {
-            'level': 'DEBUG',
-            'handlers': ['console'],
-            'propagate': False,
-            'qualname': 'gunicorn.access'
+        "gunicorn.info": {
+            "level": "DEBUG",
+            "handlers": ["console"],
+            "propagate": False,
+            "qualname": "gunicorn.info"
         },
-        'ghost.ghost': {
-            'level': 'DEBUG',
-            'handlers': ['console'],
-            'propagate': True,
-            'qualname': 'ghost.ghost'
+        "gunicorn.access": {
+            "level": "DEBUG",
+            "handlers": ["console"],
+            "propagate": False,
+            "qualname": "gunicorn.access"
         },
-    },
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'generic',
-            'stream': sys.stdout
-        },
-        'error_console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'generic',
-            'stream': sys.stderr
+        "ghost.ghost": {
+            "level": "DEBUG",
+            "handlers": ["console"],
+            "propagate": True,
+            "qualname": "ghost.ghost"
         },
     },
-    'formatters': {
-        'generic': {
-            'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            'datefmt': '%Y-%m-%d %H:%M:%S',
-            'class': 'logging.Formatter'
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "generic",
+            "stream": sys.stdout
+        },
+    },
+    "formatters": {
+        "generic": {
+            "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+            "class": "logging.Formatter"
         }
     }
 }

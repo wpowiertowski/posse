@@ -63,13 +63,13 @@ class TestPushoverNotifier:
     def test_init_from_environment(self):
         """Test initialization from environment variables."""
         with patch.dict(os.environ, {
-            'PUSHOVER_APP_TOKEN': 'env_app_token',
-            'PUSHOVER_USER_KEY': 'env_user_key'
+            "PUSHOVER_APP_TOKEN": "env_app_token",
+            "PUSHOVER_USER_KEY": "env_user_key"
         }):
             notifier = PushoverNotifier()
             
-            assert notifier.app_token == 'env_app_token'
-            assert notifier.user_key == 'env_user_key'
+            assert notifier.app_token == "env_app_token"
+            assert notifier.user_key == "env_user_key"
             assert notifier.enabled is True
     
     def test_init_partial_credentials_disables_notifications(self):
@@ -82,7 +82,7 @@ class TestPushoverNotifier:
         notifier2 = PushoverNotifier(app_token=None, user_key="key")
         assert notifier2.enabled is False
     
-    @patch('notifications.pushover.requests.post')
+    @patch("notifications.pushover.requests.post")
     def test_send_notification_success(self, mock_post):
         """Test successful notification sending."""
         # Mock successful API response
@@ -106,12 +106,12 @@ class TestPushoverNotifier:
         # Verify API call parameters
         call_args = mock_post.call_args
         assert call_args[0][0] == PushoverNotifier.PUSHOVER_API_URL
-        assert call_args[1]['data']['token'] == "test_app_token"
-        assert call_args[1]['data']['user'] == "test_user_key"
-        assert call_args[1]['data']['title'] == "Test Title"
-        assert call_args[1]['data']['message'] == "Test message"
+        assert call_args[1]["data"]["token"] == "test_app_token"
+        assert call_args[1]["data"]["user"] == "test_user_key"
+        assert call_args[1]["data"]["title"] == "Test Title"
+        assert call_args[1]["data"]["message"] == "Test message"
     
-    @patch('notifications.pushover.requests.post')
+    @patch("notifications.pushover.requests.post")
     def test_send_notification_with_url(self, mock_post):
         """Test notification with URL and URL title."""
         mock_response = MagicMock()
@@ -131,11 +131,11 @@ class TestPushoverNotifier:
         )
         
         assert result is True
-        call_data = mock_post.call_args[1]['data']
-        assert call_data['url'] == "https://example.com/post"
-        assert call_data['url_title'] == "View Post"
+        call_data = mock_post.call_args[1]["data"]
+        assert call_data["url"] == "https://example.com/post"
+        assert call_data["url_title"] == "View Post"
     
-    @patch('notifications.pushover.requests.post')
+    @patch("notifications.pushover.requests.post")
     def test_send_notification_api_error(self, mock_post):
         """Test notification sending when API returns error."""
         # Mock API error response
@@ -164,7 +164,7 @@ class TestPushoverNotifier:
         
         assert result is False
     
-    @patch('notifications.pushover.requests.post')
+    @patch("notifications.pushover.requests.post")
     def test_notify_post_received(self, mock_post):
         """Test post received notification."""
         mock_response = MagicMock()
@@ -182,12 +182,12 @@ class TestPushoverNotifier:
         )
         
         assert result is True
-        call_data = mock_post.call_args[1]['data']
-        assert "📝 Post Received" in call_data['title']
-        assert "Welcome to Ghost" in call_data['message']
-        assert call_data['priority'] == 0  # Normal priority
+        call_data = mock_post.call_args[1]["data"]
+        assert "📝 Post Received" in call_data["title"]
+        assert "Welcome to Ghost" in call_data["message"]
+        assert call_data["priority"] == 0  # Normal priority
     
-    @patch('notifications.pushover.requests.post')
+    @patch("notifications.pushover.requests.post")
     def test_notify_post_queued(self, mock_post):
         """Test post queued notification."""
         mock_response = MagicMock()
@@ -205,14 +205,14 @@ class TestPushoverNotifier:
         )
         
         assert result is True
-        call_data = mock_post.call_args[1]['data']
-        assert "✅ Post Queued" in call_data['title']
-        assert "Welcome to Ghost" in call_data['message']
-        assert call_data['url'] == "https://blog.example.com/welcome"
-        assert call_data['url_title'] == "View Post"
-        assert call_data['priority'] == 0  # Normal priority
+        call_data = mock_post.call_args[1]["data"]
+        assert "✅ Post Queued" in call_data["title"]
+        assert "Welcome to Ghost" in call_data["message"]
+        assert call_data["url"] == "https://blog.example.com/welcome"
+        assert call_data["url_title"] == "View Post"
+        assert call_data["priority"] == 0  # Normal priority
     
-    @patch('notifications.pushover.requests.post')
+    @patch("notifications.pushover.requests.post")
     def test_notify_validation_error(self, mock_post):
         """Test validation error notification."""
         mock_response = MagicMock()
@@ -229,12 +229,12 @@ class TestPushoverNotifier:
         )
         
         assert result is True
-        call_data = mock_post.call_args[1]['data']
-        assert "⚠️ Validation Error" in call_data['title']
-        assert "Missing required field: title" in call_data['message']
-        assert call_data['priority'] == 1  # High priority for errors
+        call_data = mock_post.call_args[1]["data"]
+        assert "⚠️ Validation Error" in call_data["title"]
+        assert "Missing required field: title" in call_data["message"]
+        assert call_data["priority"] == 1  # High priority for errors
     
-    @patch('notifications.pushover.requests.post')
+    @patch("notifications.pushover.requests.post")
     def test_message_length_limits(self, mock_post):
         """Test that message length limits are enforced."""
         mock_response = MagicMock()
@@ -260,15 +260,15 @@ class TestPushoverNotifier:
         )
         
         assert result is True
-        call_data = mock_post.call_args[1]['data']
+        call_data = mock_post.call_args[1]["data"]
         
         # Verify truncation using constants
-        assert len(call_data['title']) <= PushoverNotifier.MAX_TITLE_LENGTH
-        assert len(call_data['message']) <= PushoverNotifier.MAX_MESSAGE_LENGTH
-        assert len(call_data['url']) <= PushoverNotifier.MAX_URL_LENGTH
-        assert len(call_data['url_title']) <= PushoverNotifier.MAX_URL_TITLE_LENGTH
+        assert len(call_data["title"]) <= PushoverNotifier.MAX_TITLE_LENGTH
+        assert len(call_data["message"]) <= PushoverNotifier.MAX_MESSAGE_LENGTH
+        assert len(call_data["url"]) <= PushoverNotifier.MAX_URL_LENGTH
+        assert len(call_data["url_title"]) <= PushoverNotifier.MAX_URL_TITLE_LENGTH
     
-    @patch('notifications.pushover.requests.post')
+    @patch("notifications.pushover.requests.post")
     def test_notification_timeout(self, mock_post):
         """Test that API calls have timeout configured."""
         mock_response = MagicMock()
@@ -283,52 +283,52 @@ class TestPushoverNotifier:
         notifier._send_notification(title="Test", message="Message")
         
         # Verify timeout is set
-        assert mock_post.call_args[1]['timeout'] == 10
+        assert mock_post.call_args[1]["timeout"] == 10
 
     def test_from_config_disabled(self):
         """Test creating notifier from config when disabled."""
         config = {
-            'pushover': {
-                'enabled': False
+            "pushover": {
+                "enabled": False
             }
         }
         
         notifier = PushoverNotifier.from_config(config)
         assert notifier.enabled is False
     
-    @patch('config.read_secret_file')
+    @patch("config.read_secret_file")
     def test_from_config_enabled_with_secrets(self, mock_read_secret):
         """Test creating notifier from config with Docker secrets."""
         # Mock reading secret files
         mock_read_secret.side_effect = lambda path: {
-            '/run/secrets/pushover_app_token': 'test_token',
-            '/run/secrets/pushover_user_key': 'test_key'
+            "/run/secrets/pushover_app_token": "test_token",
+            "/run/secrets/pushover_user_key": "test_key"
         }.get(path)
         
         config = {
-            'pushover': {
-                'enabled': True,
-                'app_token_file': '/run/secrets/pushover_app_token',
-                'user_key_file': '/run/secrets/pushover_user_key'
+            "pushover": {
+                "enabled": True,
+                "app_token_file": "/run/secrets/pushover_app_token",
+                "user_key_file": "/run/secrets/pushover_user_key"
             }
         }
         
         notifier = PushoverNotifier.from_config(config)
         assert notifier.enabled is True
-        assert notifier.app_token == 'test_token'
-        assert notifier.user_key == 'test_key'
+        assert notifier.app_token == "test_token"
+        assert notifier.user_key == "test_key"
     
-    @patch('config.read_secret_file')
+    @patch("config.read_secret_file")
     def test_from_config_enabled_but_secrets_missing(self, mock_read_secret):
         """Test creating notifier from config when secrets are missing."""
         # Mock secret files not found
         mock_read_secret.return_value = None
         
         config = {
-            'pushover': {
-                'enabled': True,
-                'app_token_file': '/run/secrets/pushover_app_token',
-                'user_key_file': '/run/secrets/pushover_user_key'
+            "pushover": {
+                "enabled": True,
+                "app_token_file": "/run/secrets/pushover_app_token",
+                "user_key_file": "/run/secrets/pushover_user_key"
             }
         }
         

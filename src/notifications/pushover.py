@@ -79,8 +79,8 @@ class PushoverNotifier:
             - config_enabled is False
             - Either credential is missing
         """
-        self.app_token = app_token or os.environ.get('PUSHOVER_APP_TOKEN')
-        self.user_key = user_key or os.environ.get('PUSHOVER_USER_KEY')
+        self.app_token = app_token or os.environ.get("PUSHOVER_APP_TOKEN")
+        self.user_key = user_key or os.environ.get("PUSHOVER_USER_KEY")
         self.enabled = (config_enabled and 
                        self.app_token is not None and 
                        self.user_key is not None)
@@ -95,7 +95,7 @@ class PushoverNotifier:
             logger.info("Pushover notifications enabled")
     
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> 'PushoverNotifier':
+    def from_config(cls, config: Dict[str, Any]) -> "PushoverNotifier":
         """Create PushoverNotifier from configuration dictionary.
         
         This factory method reads configuration from config.yml and Docker secrets
@@ -114,15 +114,15 @@ class PushoverNotifier:
         """
         from config import read_secret_file
         
-        pushover_config = config.get('pushover', {})
-        enabled = pushover_config.get('enabled', False)
+        pushover_config = config.get("pushover", {})
+        enabled = pushover_config.get("enabled", False)
         
         if not enabled:
             return cls(config_enabled=False)
         
         # Read credentials from Docker secrets
-        app_token_file = pushover_config.get('app_token_file', '/run/secrets/pushover_app_token')
-        user_key_file = pushover_config.get('user_key_file', '/run/secrets/pushover_user_key')
+        app_token_file = pushover_config.get("app_token_file", "/run/secrets/pushover_app_token")
+        user_key_file = pushover_config.get("user_key_file", "/run/secrets/pushover_user_key")
         
         app_token = read_secret_file(app_token_file)
         user_key = read_secret_file(user_key_file)

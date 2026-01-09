@@ -95,9 +95,9 @@ from config import load_config
 # This ensures webhook activity is both saved to disk and visible in real-time
 logging.basicConfig(
     level=logging.DEBUG,  # Capture all levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Include timestamp
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Include timestamp
     handlers=[
-        logging.FileHandler('ghost_posts.log'),  # Persist logs to file
+        logging.FileHandler("ghost_posts.log"),  # Persist logs to file
         logging.StreamHandler()  # Also print to console for monitoring
     ]
 )
@@ -131,15 +131,15 @@ def create_app(events_queue: Queue) -> Flask:
     app = Flask(__name__)
     
     # Store events_queue in app config for access in route handlers
-    app.config['EVENTS_QUEUE'] = events_queue
+    app.config["EVENTS_QUEUE"] = events_queue
     
     # Load configuration and initialize Pushover notifier
     # Reads from config.yml and Docker secrets
     config = load_config()
     notifier = PushoverNotifier.from_config(config)
-    app.config['PUSHOVER_NOTIFIER'] = notifier
+    app.config["PUSHOVER_NOTIFIER"] = notifier
     
-    @app.route('/webhook/ghost', methods=['POST'])
+    @app.route("/webhook/ghost", methods=["POST"])
     def receive_ghost_post():
         """Webhook endpoint to receive Ghost post notifications.
         
@@ -209,12 +209,12 @@ def create_app(events_queue: Queue) -> Flask:
         Example:
             $ curl -X POST http://localhost:5000/webhook/ghost \\
                    -H "Content-Type: application/json" \\
-                   -d '{"id":"123","title":"Test",...}'
+                   -d "{"id":"123","title":"Test",...}"
         """
         # Get notifier and events queue from app config at function start
         # This ensures they're accessible in exception handlers
-        notifier = current_app.config['PUSHOVER_NOTIFIER']
-        events_queue = current_app.config['EVENTS_QUEUE']
+        notifier = current_app.config["PUSHOVER_NOTIFIER"]
+        events_queue = current_app.config["EVENTS_QUEUE"]
         
         try:
             # Step 1: Validate Content-Type header
@@ -233,10 +233,10 @@ def create_app(events_queue: Queue) -> Flask:
             
             # Step 4: Extract key fields for logging and notifications
             # Navigate nested structure: payload.post.current contains the post data
-            post_data = payload.get('post', {}).get('current', {})
-            post_id = post_data.get('id', 'unknown')
-            post_title = post_data.get('title', 'untitled')
-            post_url = post_data.get('url', '')
+            post_data = payload.get("post", {}).get("current", {})
+            post_id = post_data.get("id", "unknown")
+            post_title = post_data.get("title", "untitled")
+            post_url = post_data.get("url", "")
             
             # Step 5: Log successful reception at INFO level
             # This provides a concise audit trail of received posts
@@ -288,7 +288,7 @@ def create_app(events_queue: Queue) -> Flask:
                 "message": "Internal server error"
             }), 500
     
-    @app.route('/health', methods=['GET'])
+    @app.route("/health", methods=["GET"])
     def health_check():
         """Health check endpoint for monitoring and load balancers.
         
@@ -327,7 +327,7 @@ class GhostPostValidationError(Exception):
         
     Example:
         >>> validate_ghost_post({"id": "123"})
-        GhostPostValidationError: Schema validation failed: 'title' is required at path: 
+        GhostPostValidationError: Schema validation failed: "title" is required at path: 
     """
     pass
 
@@ -359,7 +359,7 @@ def validate_ghost_post(payload: Dict[str, Any]) -> None:
         >>> 
         >>> invalid = {"id": "123"}  # Missing required fields
         >>> validate_ghost_post(invalid)
-        GhostPostValidationError: Schema validation failed: 'title' is required...
+        GhostPostValidationError: Schema validation failed: "title" is required...
     """
     try:
         # Validate against the schema (raises ValidationError on failure)
@@ -368,6 +368,6 @@ def validate_ghost_post(payload: Dict[str, Any]) -> None:
         # Construct a more informative error message
         # e.path provides the JSON path to the failing field
         # e.message describes what constraint was violated
-        error_msg = f"Schema validation failed: {e.message} at path: {'.'.join(str(p) for p in e.path)}"
+        error_msg = f"Schema validation failed: {e.message} at path: {".".join(str(p) for p in e.path)}"
         raise GhostPostValidationError(error_msg) from e
 

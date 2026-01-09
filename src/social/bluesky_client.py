@@ -20,7 +20,7 @@ Usage:
     >>> for client in clients:
     ...     if client.enabled:
     ...         result = client.post("Hello from POSSE!")
-    ...         print(f"Posted: {result['uri']}")
+    ...         print(f"Posted: {result["uri"]}")
 
 Authentication:
     You need an app password from Bluesky. You can obtain one by:
@@ -120,7 +120,7 @@ class BlueskyClient(SocialMediaClient):
         self.api.login(login=self.handle, password=self.app_password)
     
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> list['BlueskyClient']:
+    def from_config(cls, config: Dict[str, Any]) -> list["BlueskyClient"]:
         """Create BlueskyClient instances from configuration dictionary.
         
         This factory method reads configuration from config.yml and loads
@@ -156,15 +156,15 @@ class BlueskyClient(SocialMediaClient):
         """
         from config import read_secret_file
         
-        bluesky_config = config.get('bluesky', {})
-        accounts_config = bluesky_config.get('accounts', [])
+        bluesky_config = config.get("bluesky", {})
+        accounts_config = bluesky_config.get("accounts", [])
         
         clients = []
         for account_config in accounts_config:
-            account_name = account_config.get('name', 'unnamed')
-            instance_url = account_config.get('instance_url', '')
-            handle = account_config.get('handle', '')
-            app_password_file = account_config.get('app_password_file') or account_config.get('access_token_file')
+            account_name = account_config.get("name", "unnamed")
+            instance_url = account_config.get("instance_url", "")
+            handle = account_config.get("handle", "")
+            app_password_file = account_config.get("app_password_file") or account_config.get("access_token_file")
             app_password = read_secret_file(app_password_file) if app_password_file else None
             
             # Account is enabled if it has required fields
@@ -198,7 +198,7 @@ class BlueskyClient(SocialMediaClient):
         Example:
             >>> result = client.post("Hello from POSSE!")
             >>> if result:
-            ...     print(f"Posted: {result['uri']}")
+            ...     print(f"Posted: {result["uri"]}")
         """
         if not self.enabled or not self.api:
             logger.warning(f"Cannot post to Bluesky '{self.account_name}': client not enabled")
@@ -214,8 +214,8 @@ class BlueskyClient(SocialMediaClient):
             
             logger.info(f"Successfully posted to Bluesky '{self.account_name}': {result.uri}")
             return {
-                'uri': result.uri,
-                'cid': result.cid
+                "uri": result.uri,
+                "cid": result.cid
             }
         except Exception as e:
             logger.error(f"Failed to post to Bluesky '{self.account_name}': {e}")
@@ -230,7 +230,7 @@ class BlueskyClient(SocialMediaClient):
         Example:
             >>> account = client.verify_credentials()
             >>> if account:
-            ...     print(f"Authenticated as: @{account['handle']}")
+            ...     print(f"Authenticated as: @{account["handle"]}")
         """
         if not self.enabled or not self.api:
             logger.warning(f"Cannot verify credentials for Bluesky '{self.account_name}': client not enabled")
@@ -247,9 +247,9 @@ class BlueskyClient(SocialMediaClient):
             
             logger.info(f"Verified credentials for Bluesky '{self.account_name}': @{profile.handle}")
             return {
-                'handle': profile.handle,
-                'did': profile.did,
-                'display_name': profile.display_name
+                "handle": profile.handle,
+                "did": profile.did,
+                "display_name": profile.display_name
             }
         except Exception as e:
             logger.error(f"Failed to verify credentials for Bluesky '{self.account_name}': {e}")

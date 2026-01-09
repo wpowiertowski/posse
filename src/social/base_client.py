@@ -101,7 +101,7 @@ class SocialMediaClient(ABC):
         pass
     
     @classmethod
-    def from_config(cls, config: Dict[str, Any], platform_key: str) -> list['SocialMediaClient']:
+    def from_config(cls, config: Dict[str, Any], platform_key: str) -> list["SocialMediaClient"]:
         """Create social media clients from configuration dictionary.
         
         This factory method reads configuration from config.yml and loads
@@ -119,7 +119,7 @@ class SocialMediaClient(ABC):
         
         Args:
             config: Configuration dictionary from load_config()
-            platform_key: Key in config dict for this platform (e.g., 'mastodon', 'bluesky')
+            platform_key: Key in config dict for this platform (e.g., "mastodon", "bluesky")
             
         Returns:
             List of SocialMediaClient instances configured from config.yml and secrets.
@@ -128,7 +128,7 @@ class SocialMediaClient(ABC):
         Example:
             >>> from config import load_config
             >>> config = load_config()
-            >>> clients = MastodonClient.from_config(config, 'mastodon')
+            >>> clients = MastodonClient.from_config(config, "mastodon")
             >>> for client in clients:
             ...     if client.enabled:
             ...         client.post("Hello!")
@@ -136,13 +136,13 @@ class SocialMediaClient(ABC):
         from config import read_secret_file
         
         platform_config = config.get(platform_key, {})
-        accounts_config = platform_config.get('accounts', [])
+        accounts_config = platform_config.get("accounts", [])
         
         clients = []
         for account_config in accounts_config:
-            account_name = account_config.get('name', 'unnamed')
-            instance_url = account_config.get('instance_url', '')
-            access_token_file = account_config.get('access_token_file')
+            account_name = account_config.get("name", "unnamed")
+            instance_url = account_config.get("instance_url", "")
+            access_token_file = account_config.get("access_token_file")
             access_token = read_secret_file(access_token_file) if access_token_file else None
             
             # Account is enabled if it has required fields
@@ -179,7 +179,7 @@ class SocialMediaClient(ABC):
         Example:
             >>> result = client.post("Hello from POSSE!")
             >>> if result:
-            ...     print(f"Posted: {result['url']}")
+            ...     print(f"Posted: {result["url"]}")
         """
         pass
     
@@ -196,6 +196,6 @@ class SocialMediaClient(ABC):
         Example:
             >>> account = client.verify_credentials()
             >>> if account:
-            ...     print(f"Authenticated as: {account['username']}")
+            ...     print(f"Authenticated as: {account["username"]}")
         """
         pass
