@@ -33,6 +33,7 @@ Example:
 from queue import Queue
 import threading
 import logging
+import re
 from logging.handlers import RotatingFileHandler
 from typing import List, TYPE_CHECKING
 
@@ -95,8 +96,6 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
 
             # Extract post content details
             if post:
-                import re
-                
                 # Extract excerpt (using correct field name)
                 excerpt = post.get("custom_excerpt", None)
                 

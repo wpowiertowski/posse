@@ -205,7 +205,7 @@ def test_extract_content_without_optional_fields(caplog):
     time.sleep(0.5)
     
     # Verify extraction handled missing fields gracefully
-    assert any("Extracted excerpt: None" in record.message 
+    assert any("Extracted excerpt: None..." in record.message 
               for record in caplog.records), \
         "Should handle missing excerpt gracefully"
     
