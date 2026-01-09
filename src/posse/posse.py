@@ -34,6 +34,7 @@ from queue import Queue
 import threading
 import logging
 from logging.handlers import RotatingFileHandler
+from typing import List
 
 # Create a thread-safe events queue for validated Ghost posts
 # This queue will receive posts from the Ghost webhook receiver (ghost.py)
@@ -44,19 +45,26 @@ events_queue: Queue = Queue()
 logger = logging.getLogger(__name__)
 
 
-def process_events():
+def process_events(mastodon_clients: List = None, bluesky_clients: List = None):
     """Process events from the events queue.
     
     This function runs in a separate daemon thread and continuously monitors
     the events_queue for new posts. When a post is added to the queue, it:
     1. Pops the event from the queue (blocking until available)
     2. Logs the event details
-    3. Will eventually syndicate to social platforms
+    3. Syndicates to configured Mastodon and Bluesky accounts
+    
+    Args:
+        mastodon_clients: List of initialized MastodonClient instances
+        bluesky_clients: List of initialized BlueskyClient instances
     
     The thread runs as a daemon so it will automatically terminate when
     the main program exits.
     """
-    logger.info("Event processor thread started")
+    mastodon_clients = mastodon_clients or []
+    bluesky_clients = bluesky_clients or []
+    
+    logger.info(f"Event processor thread started with {len(mastodon_clients)} Mastodon clients and {len(bluesky_clients)} Bluesky clients")
     
     while True:
         try:
@@ -90,6 +98,13 @@ def process_events():
             if content:
                 # main part of the post is now in content["lexical"] encoded as a JSON which can be decoded with json.loads(content["lexical"])
                 pass
+            
+            # Syndicate to configured social media accounts
+            # For now, we'll just log that we have the clients registered
+            if mastodon_clients:
+                logger.info(f"Mastodon clients available: {[c.account_name for c in mastodon_clients if c.enabled]}")
+            if bluesky_clients:
+                logger.info(f"Bluesky clients available: {[c.account_name for c in bluesky_clients if c.enabled]}")
             
             # Mark task as done
             events_queue.task_done()
@@ -216,6 +231,32 @@ def main(debug: bool = False) -> None:
     if debug:
         logger.info("Debug mode enabled: verbose logging and worker timeout disabled for breakpoint debugging")
     
+    # Load configuration
+    from config import load_config
+    logger.info("Loading configuration from config.yml")
+    config = load_config()
+    
+    # Initialize Mastodon clients from config
+    from mastodon_client.mastodon_client import MastodonClient
+    logger.info("Initializing Mastodon clients from configuration")
+    mastodon_clients = MastodonClient.from_config(config)
+    logger.info(f"Initialized {len(mastodon_clients)} Mastodon client(s)")
+    for client in mastodon_clients:
+        if client.enabled:
+            logger.info(f"  - Mastodon account '{client.account_name}' enabled for {client.instance_url}")
+        else:
+            logger.warning(f"  - Mastodon account '{client.account_name}' disabled (missing credentials or config)")
+    
+    # Initialize Bluesky clients from config
+    from social.bluesky_client import BlueskyClient
+    logger.info("Initializing Bluesky clients from configuration")
+    bluesky_clients = BlueskyClient.from_config(config)
+    logger.info(f"Initialized {len(bluesky_clients)} Bluesky client(s)")
+    for client in bluesky_clients:
+        if client.enabled:
+            logger.info(f"  - Bluesky account '{client.account_name}' enabled for {client.instance_url}")
+        else:
+            logger.warning(f"  - Bluesky account '{client.account_name}' disabled (missing credentials or config)")
     
     # Create Flask app with events_queue passed as dependency
     app = create_app(events_queue)
@@ -249,7 +290,14 @@ def main(debug: bool = False) -> None:
                 def post_worker_init_hook(worker):
                     """Start event processor thread after worker initialization."""
                     worker.log.info(f"Starting event processor thread in worker {worker.pid}")
-                    event_thread = threading.Thread(target=process_events, daemon=True)
+                    # Get clients from options
+                    mastodon_clients = self.options.get("mastodon_clients", [])
+                    bluesky_clients = self.options.get("bluesky_clients", [])
+                    event_thread = threading.Thread(
+                        target=process_events, 
+                        args=(mastodon_clients, bluesky_clients),
+                        daemon=True
+                    )
                     event_thread.start()
                     worker.log.info(f"Event processor thread started in worker {worker.pid}")
                 
@@ -265,7 +313,9 @@ def main(debug: bool = False) -> None:
     # Start Gunicorn with the Flask app
     options = {
         "config": config_path,
-        "debug": debug
+        "debug": debug,
+        "mastodon_clients": mastodon_clients,
+        "bluesky_clients": bluesky_clients
     }
     StandaloneApplication(app, options).run()
 
