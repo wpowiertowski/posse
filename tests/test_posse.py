@@ -122,3 +122,25 @@ def test_events_queue_is_thread_safe():
     assert hasattr(events_queue, "empty"), "Queue should have empty method"
     assert hasattr(events_queue, "qsize"), "Queue should have qsize method"
 
+
+def test_process_events_with_clients():
+    """Test that process_events accepts client parameters.
+    
+    This verifies that the process_events function signature has been updated
+    to accept mastodon_clients and bluesky_clients parameters, which is
+    required for the event processor to syndicate posts to social platforms.
+    """
+    from posse.posse import process_events
+    import inspect
+    
+    # Verify process_events signature includes client parameters
+    sig = inspect.signature(process_events)
+    params = list(sig.parameters.keys())
+    
+    assert "mastodon_clients" in params, "process_events should accept mastodon_clients parameter"
+    assert "bluesky_clients" in params, "process_events should accept bluesky_clients parameter"
+    
+    # Verify function is still callable
+    assert callable(process_events), "process_events should be callable"
+
+
