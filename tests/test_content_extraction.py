@@ -20,6 +20,7 @@ Running Tests:
 """
 
 import json
+import logging
 import pytest
 import threading
 import time
@@ -71,7 +72,6 @@ def test_extract_custom_excerpt(valid_post_payload, caplog):
     2. The extracted excerpt matches the expected content
     3. Excerpt is logged at INFO level
     """
-    import logging
     from posse.posse import events_queue
     
     # Set up logging capture
@@ -98,7 +98,6 @@ def test_extract_tags(valid_post_payload, caplog):
     2. Each tag includes 'name' and 'slug' fields
     3. Tag extraction is logged at INFO level
     """
-    import logging
     from posse.posse import events_queue
     
     # Set up logging capture
@@ -134,7 +133,6 @@ def test_extract_images(valid_post_payload, caplog):
     - 1 feature image (antelope5.jpg)
     - Total: 5 unique images
     """
-    import logging
     from posse.posse import events_queue
     
     # Set up logging capture at DEBUG level to see image URLs
@@ -175,7 +173,6 @@ def test_extract_content_without_optional_fields(caplog):
     3. Missing HTML and feature_image doesn't cause errors
     4. Extraction logs show appropriate None/empty values
     """
-    import logging
     from posse.posse import events_queue
     
     # Create minimal post without optional fields
@@ -226,7 +223,6 @@ def test_image_deduplication():
     2. If feature_image matches an image in HTML, it's only counted once
     3. Images are sorted for consistent ordering
     """
-    import logging
     from posse.posse import events_queue
     
     # Create post with duplicate images
