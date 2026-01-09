@@ -5,9 +5,7 @@ This test module validates that posse.py properly loads configuration
 and initializes Mastodon and Bluesky clients as specified in the config.
 """
 import unittest
-from unittest.mock import patch, MagicMock, mock_open
-import tempfile
-import os
+from unittest.mock import patch, MagicMock
 
 
 class TestPosseConfigIntegration(unittest.TestCase):

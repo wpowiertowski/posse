@@ -34,7 +34,11 @@ from queue import Queue
 import threading
 import logging
 from logging.handlers import RotatingFileHandler
-from typing import List
+from typing import List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mastodon_client.mastodon_client import MastodonClient
+    from social.bluesky_client import BlueskyClient
 
 # Create a thread-safe events queue for validated Ghost posts
 # This queue will receive posts from the Ghost webhook receiver (ghost.py)
@@ -45,7 +49,7 @@ events_queue: Queue = Queue()
 logger = logging.getLogger(__name__)
 
 
-def process_events(mastodon_clients: List = None, bluesky_clients: List = None):
+def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clients: List["BlueskyClient"] = None):
     """Process events from the events queue.
     
     This function runs in a separate daemon thread and continuously monitors
@@ -185,10 +189,12 @@ def main(debug: bool = False) -> None:
         Starting Gunicorn with extensive logging for debugging
         Gunicorn server is ready to accept connections
     """
-    # Import Gunicorn application for production deployment
-    # This replaces the Flask development server with a production-ready WSGI server
+    # Import dependencies
     from gunicorn.app.base import BaseApplication
     from ghost.ghost import create_app
+    from config import load_config
+    from mastodon_client.mastodon_client import MastodonClient
+    from social.bluesky_client import BlueskyClient
     import sys
     import os
     
@@ -232,12 +238,10 @@ def main(debug: bool = False) -> None:
         logger.info("Debug mode enabled: verbose logging and worker timeout disabled for breakpoint debugging")
     
     # Load configuration
-    from config import load_config
     logger.info("Loading configuration from config.yml")
     config = load_config()
     
     # Initialize Mastodon clients from config
-    from mastodon_client.mastodon_client import MastodonClient
     logger.info("Initializing Mastodon clients from configuration")
     mastodon_clients = MastodonClient.from_config(config)
     logger.info(f"Initialized {len(mastodon_clients)} Mastodon client(s)")
@@ -248,7 +252,6 @@ def main(debug: bool = False) -> None:
             logger.warning(f"  - Mastodon account '{client.account_name}' disabled (missing credentials or config)")
     
     # Initialize Bluesky clients from config
-    from social.bluesky_client import BlueskyClient
     logger.info("Initializing Bluesky clients from configuration")
     bluesky_clients = BlueskyClient.from_config(config)
     logger.info(f"Initialized {len(bluesky_clients)} Bluesky client(s)")
