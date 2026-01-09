@@ -59,14 +59,18 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
     3. Syndicates to configured Mastodon and Bluesky accounts
     
     Args:
-        mastodon_clients: List of initialized MastodonClient instances
-        bluesky_clients: List of initialized BlueskyClient instances
+        mastodon_clients: List of initialized MastodonClient instances (default: None)
+        bluesky_clients: List of initialized BlueskyClient instances (default: None)
+    
+    Note:
+        Uses None as default and converts to empty list to avoid mutable default argument pitfall.
     
     The thread runs as a daemon so it will automatically terminate when
     the main program exits.
     """
-    mastodon_clients = mastodon_clients or []
-    bluesky_clients = bluesky_clients or []
+    # Convert None to empty list (avoids mutable default argument anti-pattern)
+    mastodon_clients = mastodon_clients if mastodon_clients is not None else []
+    bluesky_clients = bluesky_clients if bluesky_clients is not None else []
     
     logger.info(f"Event processor thread started with {len(mastodon_clients)} Mastodon clients and {len(bluesky_clients)} Bluesky clients")
     
