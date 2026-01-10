@@ -230,7 +230,10 @@ class BlueskyClient(SocialMediaClient):
         Args:
             content: Text content to post (max 300 characters)
             media_urls: Optional list of image URLs to attach to the post
-            media_descriptions: Optional list of alt text descriptions for images (should match media_urls length)
+            media_descriptions: Optional list of alt text descriptions for images.
+                               If provided, should ideally match media_urls length.
+                               If shorter, remaining images will have empty alt text.
+                               If longer, extra descriptions are ignored.
             **kwargs: Bluesky-specific options (reply_to, etc.)
             
         Returns:
