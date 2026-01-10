@@ -90,10 +90,16 @@ class TestMastodonClient(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["url"], "https://mastodon.social/@user/123")
     
-    @patch("social.mastodon_client.requests.get")
+    @patch("social.base_client.os.path.exists")
+    @patch("social.base_client.os.makedirs")
+    @patch("builtins.open", create=True)
+    @patch("social.base_client.requests.get")
     @patch("social.mastodon_client.Mastodon")
-    def test_post_with_single_image(self, mock_mastodon, mock_requests_get):
+    def test_post_with_single_image(self, mock_mastodon, mock_requests_get, mock_open, mock_makedirs, mock_exists):
         """Test posting status with a single image attachment."""
+        # Mock that file doesn't exist (not cached)
+        mock_exists.return_value = False
+        
         # Setup mock API
         mock_api = MagicMock()
         mock_mastodon.return_value = mock_api
@@ -144,10 +150,16 @@ class TestMastodonClient(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["url"], "https://mastodon.social/@user/456")
     
-    @patch("social.mastodon_client.requests.get")
+    @patch("social.base_client.os.path.exists")
+    @patch("social.base_client.os.makedirs")
+    @patch("builtins.open", create=True)
+    @patch("social.base_client.requests.get")
     @patch("social.mastodon_client.Mastodon")
-    def test_post_with_multiple_images(self, mock_mastodon, mock_requests_get):
+    def test_post_with_multiple_images(self, mock_mastodon, mock_requests_get, mock_open, mock_makedirs, mock_exists):
         """Test posting status with multiple image attachments."""
+        # Mock that files don't exist (not cached)
+        mock_exists.return_value = False
+        
         # Setup mock API
         mock_api = MagicMock()
         mock_mastodon.return_value = mock_api
@@ -203,10 +215,14 @@ class TestMastodonClient(unittest.TestCase):
         # Verify result
         self.assertIsNotNone(result)
     
-    @patch("social.mastodon_client.requests.get")
+    @patch("social.base_client.os.path.exists")
+    @patch("social.base_client.requests.get")
     @patch("social.mastodon_client.Mastodon")
-    def test_post_with_failed_image_download(self, mock_mastodon, mock_requests_get):
+    def test_post_with_failed_image_download(self, mock_mastodon, mock_requests_get, mock_exists):
         """Test posting when image download fails - should still post without media."""
+        # Mock that file doesn't exist
+        mock_exists.return_value = False
+        
         # Setup mock API
         mock_api = MagicMock()
         mock_mastodon.return_value = mock_api
