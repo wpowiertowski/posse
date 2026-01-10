@@ -599,12 +599,19 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify result
         self.assertIsNotNone(result)
     
+    @patch("builtins.open", create=True)
     @patch("social.bluesky_client.Client")
-    def test_post_with_upload_blob_failure(self, mock_client_class):
+    def test_post_with_upload_blob_failure(self, mock_client_class, mock_open):
         """Test posting when blob upload fails - should still post without that image."""
         # Setup mock API
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
+        
+        # Mock file open
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"fake_image_data"
+        mock_file.__enter__.return_value = mock_file
+        mock_open.return_value = mock_file
         
         # Mock upload_blob to raise exception
         mock_client.upload_blob.side_effect = Exception("Upload failed")
