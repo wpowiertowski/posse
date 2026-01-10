@@ -363,6 +363,293 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify client is disabled
         self.assertEqual(len(clients), 1)
         self.assertFalse(clients[0].enabled)
+    
+    @patch("social.bluesky_client.requests.get")
+    @patch("social.bluesky_client.Client")
+    def test_post_with_single_image(self, mock_client_class, mock_requests_get):
+        """Test posting status with a single image attachment."""
+        # Setup mock API
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        
+        # Mock image download
+        mock_response = MagicMock()
+        mock_response.content = b"fake_image_data"
+        mock_response.raise_for_status = MagicMock()
+        mock_requests_get.return_value = mock_response
+        
+        # Mock upload_blob result
+        mock_blob_result = MagicMock()
+        mock_blob_result.blob = MagicMock()
+        mock_client.upload_blob.return_value = mock_blob_result
+        
+        # Mock get_embed_images
+        mock_embed = MagicMock()
+        mock_client.get_embed_images.return_value = mock_embed
+        
+        # Mock send_post result
+        mock_result = MagicMock()
+        mock_result.uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789"
+        mock_result.cid = "bafyreiabc123"
+        mock_client.send_post.return_value = mock_result
+        
+        # Create client
+        client = BlueskyClient(
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
+        )
+        
+        # Post with single image
+        result = client.post(
+            "Check out this photo!",
+            media_urls=["https://example.com/image.jpg"],
+            media_descriptions=["A beautiful sunset"]
+        )
+        
+        # Verify image was downloaded
+        mock_requests_get.assert_called_once_with(
+            "https://example.com/image.jpg",
+            timeout=30
+        )
+        
+        # Verify blob was uploaded
+        self.assertEqual(mock_client.upload_blob.call_count, 1)
+        
+        # Verify get_embed_images was called with correct structure
+        mock_client.get_embed_images.assert_called_once()
+        embed_args = mock_client.get_embed_images.call_args[0][0]
+        self.assertEqual(len(embed_args), 1)
+        self.assertEqual(embed_args[0]['alt'], "A beautiful sunset")
+        self.assertEqual(embed_args[0]['blob'], mock_blob_result.blob)
+        
+        # Verify send_post was called with embed
+        mock_client.send_post.assert_called_once()
+        send_post_call = mock_client.send_post.call_args
+        self.assertEqual(send_post_call[1]['embed'], mock_embed)
+        
+        # Verify result
+        self.assertIsNotNone(result)
+        self.assertEqual(result["uri"], "at://did:plc:abc123/app.bsky.feed.post/xyz789")
+        self.assertEqual(result["cid"], "bafyreiabc123")
+    
+    @patch("social.bluesky_client.requests.get")
+    @patch("social.bluesky_client.Client")
+    def test_post_with_multiple_images(self, mock_client_class, mock_requests_get):
+        """Test posting status with multiple image attachments."""
+        # Setup mock API
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        
+        # Mock image downloads
+        mock_response = MagicMock()
+        mock_response.content = b"fake_image_data"
+        mock_response.raise_for_status = MagicMock()
+        mock_requests_get.return_value = mock_response
+        
+        # Mock upload_blob results
+        mock_blob1 = MagicMock()
+        mock_blob1.blob = MagicMock()
+        mock_blob2 = MagicMock()
+        mock_blob2.blob = MagicMock()
+        mock_blob3 = MagicMock()
+        mock_blob3.blob = MagicMock()
+        mock_client.upload_blob.side_effect = [mock_blob1, mock_blob2, mock_blob3]
+        
+        # Mock get_embed_images
+        mock_embed = MagicMock()
+        mock_client.get_embed_images.return_value = mock_embed
+        
+        # Mock send_post result
+        mock_result = MagicMock()
+        mock_result.uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789"
+        mock_result.cid = "bafyreiabc123"
+        mock_client.send_post.return_value = mock_result
+        
+        # Create client
+        client = BlueskyClient(
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
+        )
+        
+        # Post with multiple images
+        result = client.post(
+            "Gallery post!",
+            media_urls=[
+                "https://example.com/image1.jpg",
+                "https://example.com/image2.jpg",
+                "https://example.com/image3.jpg"
+            ],
+            media_descriptions=["First image", "Second image", "Third image"]
+        )
+        
+        # Verify all images were downloaded
+        self.assertEqual(mock_requests_get.call_count, 3)
+        
+        # Verify all blobs were uploaded
+        self.assertEqual(mock_client.upload_blob.call_count, 3)
+        
+        # Verify get_embed_images was called with correct structure
+        mock_client.get_embed_images.assert_called_once()
+        embed_args = mock_client.get_embed_images.call_args[0][0]
+        self.assertEqual(len(embed_args), 3)
+        self.assertEqual(embed_args[0]['alt'], "First image")
+        self.assertEqual(embed_args[1]['alt'], "Second image")
+        self.assertEqual(embed_args[2]['alt'], "Third image")
+        
+        # Verify result
+        self.assertIsNotNone(result)
+    
+    @patch("social.bluesky_client.requests.get")
+    @patch("social.bluesky_client.Client")
+    def test_post_with_failed_image_download(self, mock_client_class, mock_requests_get):
+        """Test posting when image download fails - should still post without media."""
+        # Setup mock API
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        
+        # Mock failed image download
+        mock_requests_get.side_effect = Exception("Network error")
+        
+        # Mock send_post result
+        mock_result = MagicMock()
+        mock_result.uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789"
+        mock_result.cid = "bafyreiabc123"
+        mock_client.send_post.return_value = mock_result
+        
+        # Create client
+        client = BlueskyClient(
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
+        )
+        
+        # Post with image URL that will fail to download
+        result = client.post(
+            "Text post",
+            media_urls=["https://example.com/broken.jpg"]
+        )
+        
+        # Verify download was attempted
+        mock_requests_get.assert_called_once()
+        
+        # Verify upload_blob was NOT called (no successful download)
+        mock_client.upload_blob.assert_not_called()
+        
+        # Verify get_embed_images was NOT called (no images)
+        mock_client.get_embed_images.assert_not_called()
+        
+        # Verify send_post was still called without embed
+        mock_client.send_post.assert_called_once()
+        send_post_call = mock_client.send_post.call_args
+        self.assertEqual(send_post_call[1]['embed'], None)
+        
+        # Verify result
+        self.assertIsNotNone(result)
+    
+    @patch("social.bluesky_client.requests.get")
+    @patch("social.bluesky_client.Client")
+    def test_post_without_image_descriptions(self, mock_client_class, mock_requests_get):
+        """Test posting with images but no alt text descriptions."""
+        # Setup mock API
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        
+        # Mock image download
+        mock_response = MagicMock()
+        mock_response.content = b"fake_image_data"
+        mock_response.raise_for_status = MagicMock()
+        mock_requests_get.return_value = mock_response
+        
+        # Mock upload_blob result
+        mock_blob_result = MagicMock()
+        mock_blob_result.blob = MagicMock()
+        mock_client.upload_blob.return_value = mock_blob_result
+        
+        # Mock get_embed_images
+        mock_embed = MagicMock()
+        mock_client.get_embed_images.return_value = mock_embed
+        
+        # Mock send_post result
+        mock_result = MagicMock()
+        mock_result.uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789"
+        mock_result.cid = "bafyreiabc123"
+        mock_client.send_post.return_value = mock_result
+        
+        # Create client
+        client = BlueskyClient(
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
+        )
+        
+        # Post with image but no descriptions
+        result = client.post(
+            "Photo post",
+            media_urls=["https://example.com/image.jpg"]
+        )
+        
+        # Verify get_embed_images was called with empty alt text
+        mock_client.get_embed_images.assert_called_once()
+        embed_args = mock_client.get_embed_images.call_args[0][0]
+        self.assertEqual(len(embed_args), 1)
+        self.assertEqual(embed_args[0]['alt'], "")
+        
+        # Verify result
+        self.assertIsNotNone(result)
+    
+    @patch("builtins.open", create=True)
+    @patch("social.bluesky_client.Client")
+    def test_post_with_upload_blob_failure(self, mock_client_class, mock_open):
+        """Test posting when blob upload fails - should still post without that image."""
+        # Setup mock API
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        
+        # Mock file open
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"fake_image_data"
+        mock_file.__enter__.return_value = mock_file
+        mock_open.return_value = mock_file
+        
+        # Mock upload_blob to raise exception
+        mock_client.upload_blob.side_effect = Exception("Upload failed")
+        
+        # Mock send_post result
+        mock_result = MagicMock()
+        mock_result.uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789"
+        mock_result.cid = "bafyreiabc123"
+        mock_client.send_post.return_value = mock_result
+        
+        # Create client
+        client = BlueskyClient(
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
+        )
+        
+        # Mock _download_image to return a valid path
+        with patch.object(client, '_download_image', return_value='/tmp/test.jpg'):
+            # Post with image
+            result = client.post(
+                "Text post",
+                media_urls=["https://example.com/image.jpg"]
+            )
+        
+        # Verify upload_blob was called
+        mock_client.upload_blob.assert_called_once()
+        
+        # Verify get_embed_images was NOT called (no successful uploads)
+        mock_client.get_embed_images.assert_not_called()
+        
+        # Verify send_post was still called without embed
+        mock_client.send_post.assert_called_once()
+        send_post_call = mock_client.send_post.call_args
+        self.assertEqual(send_post_call[1]['embed'], None)
+        
+        # Verify result
+        self.assertIsNotNone(result)
 
 
 if __name__ == "__main__":
