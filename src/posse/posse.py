@@ -42,6 +42,8 @@ if TYPE_CHECKING:
     from social.mastodon_client import MastodonClient
     from social.bluesky_client import BlueskyClient
 
+from notifications.pushover import PushoverNotifier
+
 # Create a thread-safe events queue for validated Ghost posts
 # This queue will receive posts from the Ghost webhook receiver (ghost.py)
 # and will be consumed by Mastodon and Bluesky agents (to be implemented)
@@ -160,10 +162,39 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                 
                 # Prepare content for posting
                 # Use excerpt if available, otherwise use title with URL
+                tags = " ".join([f"#{x['name'].lower()}" for x in tags if not x['name'].isdigit()])
+                tags += " #posse"
+                
+                # Calculate space needed for tags and URL (with newlines)
+                fixed_content = f"\n{tags}\n{post_url}"
+                max_text_length = 300 - len(fixed_content)
+                
+                # Trim excerpt or title to fit within character limit
+                def trim_to_words(text: str, max_length: int) -> str:
+                    """Trim text to max_length, cutting at word boundaries and adding ellipsis."""
+                    if len(text) <= max_length:
+                        return text
+                    
+                    # Reserve 3 characters for ellipsis
+                    max_length -= 3
+                    
+                    # Find the last space before max_length
+                    trimmed = text[:max_length]
+                    last_space = trimmed.rfind(' ')
+                    
+                    if last_space > 0:
+                        # Trim at the last space
+                        return trimmed[:last_space] + "..."
+                    else:
+                        # No space found, just trim and add ellipsis
+                        return trimmed + "..."
+                
                 if excerpt:
-                    post_content = f"{excerpt}\n\n{post_url}"
+                    text_content = trim_to_words(excerpt, max_text_length)
+                    post_content = f"{text_content}{fixed_content}"
                 else:
-                    post_content = f"{post_title}\n\n{post_url}"
+                    text_content = trim_to_words(post_title, max_text_length)
+                    post_content = f"{text_content}{fixed_content}"
                 
                 # Collect all enabled clients
                 all_clients = []
@@ -348,6 +379,9 @@ def main(debug: bool = False) -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
     
+    # Clear any existing handlers to avoid duplicates (e.g., from gunicorn)
+    root_logger.handlers.clear()
+    
     # Create rotating file handler with 10MB limit and 3 backup files
     log_handler = RotatingFileHandler(
         "posse.log",
@@ -378,9 +412,12 @@ def main(debug: bool = False) -> None:
     logger.info("Loading configuration from config.yml")
     config = load_config()
     
+    # Initialize Pushover notifier
+    notifier = PushoverNotifier.from_config(config)
+    
     # Initialize Mastodon clients from config
     logger.info("Initializing Mastodon clients from configuration")
-    mastodon_clients = MastodonClient.from_config(config)
+    mastodon_clients = MastodonClient.from_config(config, notifier)
     logger.info(f"Initialized {len(mastodon_clients)} Mastodon client(s)")
     for client in mastodon_clients:
         if client.enabled:
@@ -390,7 +427,7 @@ def main(debug: bool = False) -> None:
     
     # Initialize Bluesky clients from config
     logger.info("Initializing Bluesky clients from configuration")
-    bluesky_clients = BlueskyClient.from_config(config)
+    bluesky_clients = BlueskyClient.from_config(config, notifier)
     logger.info(f"Initialized {len(bluesky_clients)} Bluesky client(s)")
     for client in bluesky_clients:
         if client.enabled:

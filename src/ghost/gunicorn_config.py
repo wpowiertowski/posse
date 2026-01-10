@@ -125,7 +125,7 @@ logconfig_dict = {
         "ghost.ghost": {
             "level": "DEBUG",
             "handlers": ["console"],
-            "propagate": True,
+            "propagate": False,
             "qualname": "ghost.ghost"
         },
     },

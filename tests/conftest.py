@@ -34,8 +34,8 @@ def start_event_processor():
     )
     processor_thread.start()
     
-    # Give thread time to start
-    time.sleep(0.1)
+    # Give thread minimal time to start
+    time.sleep(0.01)
     
     yield
     
@@ -64,8 +64,11 @@ def clear_events_queue():
     
     yield
     
-    # Clear queue after test and wait for processor to complete any pending items
-    time.sleep(0.6)  # Wait slightly longer than test sleep time to ensure processing completes
+    # Clear queue after test
+    # Only wait if queue has items that need processing
+    if not events_queue.empty():
+        time.sleep(0.05)  # Minimal wait for queue processing
+    
     while not events_queue.empty():
         try:
             events_queue.get_nowait()

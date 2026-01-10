@@ -9,6 +9,11 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "module": "posse.posse",
+            "python": "/root/.cache/pypoetry/virtualenvs/posse--Hrvdqg5-py3.14/bin/python", // poetry run which python
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src"
+            },
             "args": ["--debug"]
         }
     ]

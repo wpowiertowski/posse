@@ -39,12 +39,14 @@ Security:
     - App password should be kept secret
 """
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
 from atproto import Client, client_utils
 
 from social.base_client import SocialMediaClient
 
+if TYPE_CHECKING:
+    from notifications.pushover import PushoverNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +81,8 @@ class BlueskyClient(SocialMediaClient):
         app_password: Optional[str] = None,
         access_token: Optional[str] = None,  # For compatibility with base class
         config_enabled: bool = True,
-        account_name: Optional[str] = None
+        account_name: Optional[str] = None,
+        notifier: Optional["PushoverNotifier"] = None
     ):
         """Initialize Bluesky client with credentials.
         
@@ -90,6 +93,7 @@ class BlueskyClient(SocialMediaClient):
             access_token: Alias for app_password (for base class compatibility)
             config_enabled: Whether posting is enabled in config.yml (default: True)
             account_name: Optional name for this account (for logging)
+            notifier: PushoverNotifier instance for error notifications
         """
         # For Bluesky, app_password is the access_token equivalent
         if app_password is None and access_token is not None:
@@ -97,6 +101,7 @@ class BlueskyClient(SocialMediaClient):
         
         self.handle = handle
         self.app_password = app_password
+        self.notifier = notifier
         
         # Call parent init with app_password as access_token
         super().__init__(
@@ -121,7 +126,7 @@ class BlueskyClient(SocialMediaClient):
         self.api.login(login=self.handle, password=self.app_password)
     
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> list["BlueskyClient"]:
+    def from_config(cls, config: Dict[str, Any], notifier: Optional["PushoverNotifier"] = None) -> list["BlueskyClient"]:
         """Create BlueskyClient instances from configuration dictionary.
         
         This factory method reads configuration from config.yml and loads
@@ -143,6 +148,7 @@ class BlueskyClient(SocialMediaClient):
         
         Args:
             config: Configuration dictionary from load_config()
+            notifier: PushoverNotifier instance for error notifications
             
         Returns:
             List of BlueskyClient instances
@@ -176,7 +182,8 @@ class BlueskyClient(SocialMediaClient):
                 handle=handle,
                 app_password=app_password,
                 config_enabled=enabled,
-                account_name=account_name
+                account_name=account_name,
+                notifier=notifier
             )
             clients.append(client)
         
@@ -235,7 +242,15 @@ class BlueskyClient(SocialMediaClient):
                     # Download image to cached file
                     temp_path = self._download_image(url)
                     if not temp_path:
+                        error_msg = f"Failed to download image: {url}"
                         logger.warning(f"Skipping media upload for {url} due to download failure")
+                        if self.notifier:
+                            self.notifier.notify_post_failure(
+                                "Media Download Failed",
+                                self.account_name,
+                                "Bluesky",
+                                error_msg
+                            )
                         continue
                     
                     # Get description for this image if available
@@ -255,7 +270,15 @@ class BlueskyClient(SocialMediaClient):
                         })
                         logger.debug(f"Uploaded media {url} to Bluesky")
                     except Exception as e:
-                        logger.error(f"Failed to upload media {url}: {e}")
+                        error_msg = f"Failed to upload media {url}: {e}"
+                        logger.error(error_msg)
+                        if self.notifier:
+                            self.notifier.notify_post_failure(
+                                "Media Upload Failed",
+                                self.account_name,
+                                "Bluesky",
+                                error_msg
+                            )
                 
                 # Create embed with images if any were successfully uploaded
                 if images:
@@ -270,7 +293,15 @@ class BlueskyClient(SocialMediaClient):
                 "cid": result.cid
             }
         except Exception as e:
-            logger.error(f"Failed to post to Bluesky '{self.account_name}': {e}")
+            error_msg = f"Failed to post to Bluesky '{self.account_name}': {e}"
+            logger.error(error_msg)
+            if self.notifier:
+                self.notifier.notify_post_failure(
+                    content[:100] + "..." if len(content) > 100 else content,
+                    self.account_name,
+                    "Bluesky",
+                    str(e)
+                )
             return None
     
     def verify_credentials(self) -> Optional[Dict[str, Any]]:
@@ -291,7 +322,15 @@ class BlueskyClient(SocialMediaClient):
         try:
             # Get the authenticated user's DID
             if not self.api.me:
-                logger.error(f"Failed to verify credentials for Bluesky '{self.account_name}': No session")
+                error_msg = "No session"
+                logger.error(f"Failed to verify credentials for Bluesky '{self.account_name}': {error_msg}")
+                if self.notifier:
+                    self.notifier.notify_post_failure(
+                        "Credential Verification Failed",
+                        self.account_name,
+                        "Bluesky",
+                        error_msg
+                    )
                 return None
             
             # Get profile information

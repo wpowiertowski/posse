@@ -35,11 +35,13 @@ Security:
     - Access token should be kept secret
 """
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from mastodon import Mastodon, MastodonError
 
 from social.base_client import SocialMediaClient
 
+if TYPE_CHECKING:
+    from notifications.pushover import PushoverNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,7 @@ class MastodonClient(SocialMediaClient):
         access_token: Access token for authenticated API calls
         enabled: Whether Mastodon posting is enabled
         api: Mastodon API client instance (None if not enabled)
+        notifier: PushoverNotifier instance for error notifications (optional)
         
     Example:
         >>> client = MastodonClient(
@@ -64,6 +67,16 @@ class MastodonClient(SocialMediaClient):
         >>> if client.enabled:
         ...     client.post("Hello Mastodon!")
     """
+    
+    def __init__(self, notifier: Optional["PushoverNotifier"] = None, **kwargs):
+        """Initialize MastodonClient with optional notifier.
+        
+        Args:
+            notifier: PushoverNotifier instance for error notifications
+            **kwargs: Arguments passed to SocialMediaClient parent class
+        """
+        self.notifier = notifier
+        super().__init__(**kwargs)
     
     def _initialize_api(self) -> None:
         """Initialize the Mastodon API client.
@@ -77,9 +90,25 @@ class MastodonClient(SocialMediaClient):
             access_token=self.access_token,
             api_base_url=self.instance_url
         )
+        
+        # Verify credentials immediately to catch authentication issues
+        try:
+            account = self.api.account_verify_credentials()
+            logger.info(f"MastodonClient '{self.account_name}' authenticated as @{account['username']}")
+        except MastodonError as e:
+            error_msg = f"Authentication failed for '{self.account_name}': {e}"
+            logger.error(error_msg)
+            if self.notifier:
+                self.notifier.notify_post_failure(
+                    "Authentication Failed",
+                    self.account_name,
+                    "Mastodon",
+                    "Invalid or expired access token. Please regenerate the token."
+                )
+            raise Exception(error_msg)
     
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> list["MastodonClient"]:
+    def from_config(cls, config: Dict[str, Any], notifier: Optional["PushoverNotifier"] = None) -> list["MastodonClient"]:
         """Create MastodonClient instances from configuration dictionary.
         
         This factory method reads configuration from config.yml and loads
@@ -87,6 +116,7 @@ class MastodonClient(SocialMediaClient):
         
         Args:
             config: Configuration dictionary from load_config()
+            notifier: PushoverNotifier instance for error notifications
             
         Returns:
             List of MastodonClient instances
@@ -99,7 +129,11 @@ class MastodonClient(SocialMediaClient):
             ...     if client.enabled:
             ...         client.post("Hello!")
         """
-        return super(MastodonClient, cls).from_config(config, "mastodon")
+        clients = super(MastodonClient, cls).from_config(config, "mastodon")
+        # Inject notifier into all clients
+        for client in clients:
+            client.notifier = notifier
+        return clients
     
     def post(
         self,
@@ -150,10 +184,21 @@ class MastodonClient(SocialMediaClient):
             # Upload media if provided
             if media_urls:
                 for i, url in enumerate(media_urls):
+                    if i > 3:
+                        # only up to 4 images allowed on many instances
+                        break
                     # Download image to cached file
                     temp_path = self._download_image(url)
                     if not temp_path:
+                        error_msg = f"Failed to download image: {url}"
                         logger.warning(f"Skipping media upload for {url} due to download failure")
+                        if self.notifier:
+                            self.notifier.notify_post_failure(
+                                "Media Download Failed",
+                                self.account_name,
+                                "Mastodon",
+                                error_msg
+                            )
                         continue
                     
                     # Get description for this image if available
@@ -167,7 +212,15 @@ class MastodonClient(SocialMediaClient):
                         media_ids.append(media["id"])
                         logger.debug(f"Uploaded media {url} with ID {media['id']}")
                     except MastodonError as e:
-                        logger.error(f"Failed to upload media {url}: {e}")
+                        error_msg = f"Failed to upload media {url}: {e}"
+                        logger.error(error_msg)
+                        if self.notifier:
+                            self.notifier.notify_post_failure(
+                                "Media Upload Failed",
+                                self.account_name,
+                                "Mastodon",
+                                error_msg
+                            )
             
             # Post status with media IDs
             result = self.api.status_post(
@@ -181,7 +234,15 @@ class MastodonClient(SocialMediaClient):
             return result
             
         except MastodonError as e:
-            logger.error(f"Failed to post status to Mastodon: {e}")
+            error_msg = f"Failed to post status to Mastodon: {e}"
+            logger.error(error_msg)
+            if self.notifier:
+                self.notifier.notify_post_failure(
+                    content[:100] + "..." if len(content) > 100 else content,
+                    self.account_name,
+                    "Mastodon",
+                    str(e)
+                )
             return None
     
     def verify_credentials(self) -> Optional[Dict[str, Any]]:
@@ -207,5 +268,13 @@ class MastodonClient(SocialMediaClient):
             logger.info(f"Verified credentials for @{account['username']}")
             return account
         except MastodonError as e:
-            logger.error(f"Failed to verify credentials: {e}")
+            error_msg = f"Failed to verify credentials: {e}"
+            logger.error(error_msg)
+            if self.notifier:
+                self.notifier.notify_post_failure(
+                    "Credential Verification Failed",
+                    self.account_name,
+                    "Mastodon",
+                    str(e)
+                )
             return None
