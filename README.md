@@ -211,10 +211,8 @@ make test-verbose
 - ✅ Multi-account support for Bluesky
 - ✅ Bluesky authentication and credential verification
 - ✅ Automated Docker Hub publishing
-
-**In Progress**:
-- 🚧 Mastodon posting integration
-- 🚧 Bluesky posting integration
+- ✅ Mastodon posting integration
+- ✅ Bluesky posting integration
 
 ## Examples
 
