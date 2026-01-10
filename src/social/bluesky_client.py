@@ -82,7 +82,8 @@ class BlueskyClient(SocialMediaClient):
         access_token: Optional[str] = None,  # For compatibility with base class
         config_enabled: bool = True,
         account_name: Optional[str] = None,
-        notifier: Optional["PushoverNotifier"] = None
+        notifier: Optional["PushoverNotifier"] = None,
+        tags: Optional[List[str]] = None
     ):
         """Initialize Bluesky client with credentials.
         
@@ -94,6 +95,7 @@ class BlueskyClient(SocialMediaClient):
             config_enabled: Whether posting is enabled in config.yml (default: True)
             account_name: Optional name for this account (for logging)
             notifier: PushoverNotifier instance for error notifications
+            tags: Optional list of tags to filter posts (empty or None means all posts)
         """
         # For Bluesky, app_password is the access_token equivalent
         if app_password is None and access_token is not None:
@@ -108,7 +110,8 @@ class BlueskyClient(SocialMediaClient):
             instance_url=instance_url,
             access_token=app_password,
             config_enabled=config_enabled,
-            account_name=account_name
+            account_name=account_name,
+            tags=tags
         )
     
     def _initialize_api(self) -> None:
@@ -173,6 +176,7 @@ class BlueskyClient(SocialMediaClient):
             handle = account_config.get("handle", "")
             app_password_file = account_config.get("app_password_file") or account_config.get("access_token_file")
             app_password = read_secret_file(app_password_file) if app_password_file else None
+            tags = account_config.get("tags", [])
             
             # Account is enabled if it has required fields
             enabled = bool(instance_url and handle and app_password)
@@ -183,7 +187,8 @@ class BlueskyClient(SocialMediaClient):
                 app_password=app_password,
                 config_enabled=enabled,
                 account_name=account_name,
-                notifier=notifier
+                notifier=notifier,
+                tags=tags
             )
             clients.append(client)
         
