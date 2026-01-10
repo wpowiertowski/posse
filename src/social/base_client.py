@@ -97,7 +97,7 @@ class SocialMediaClient(ABC):
     def _get_image_cache_path(self, url: str) -> str:
         """Generate a predictable cache path for an image URL.
         
-        Uses MD5 hash of the URL to create a consistent filename, allowing
+        Uses SHA-256 hash of the URL to create a consistent filename, allowing
         for caching and reuse of previously downloaded images.
         
         Args:
@@ -106,8 +106,8 @@ class SocialMediaClient(ABC):
         Returns:
             Full path to the cached image file
         """
-        # Generate MD5 hash of URL for consistent filename
-        url_hash = hashlib.md5(url.encode()).hexdigest()
+        # Generate SHA-256 hash of URL for consistent filename
+        url_hash = hashlib.sha256(url.encode()).hexdigest()
         
         # Extract file extension from URL, use default if not present
         suffix = os.path.splitext(url)[1] or self.DEFAULT_IMAGE_EXTENSION
@@ -144,16 +144,27 @@ class SocialMediaClient(ABC):
                 logger.debug(f"Using cached image for {url} at {cache_path}")
                 return cache_path
             
-            # Create cache directory if it doesn't exist
-            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            # Create cache directory if it doesn't exist with restrictive permissions
+            cache_dir = os.path.dirname(cache_path)
+            os.makedirs(cache_dir, mode=0o700, exist_ok=True)
             
             # Download the image
             response = requests.get(url, timeout=self.IMAGE_DOWNLOAD_TIMEOUT)
             response.raise_for_status()
             
-            # Write to cache file
-            with open(cache_path, 'wb') as f:
-                f.write(response.content)
+            # Write to cache file with restrictive permissions (600 = rw-------)
+            # Use os.open with O_EXCL to prevent race conditions, but handle case where file exists
+            try:
+                fd = os.open(cache_path, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
+            except FileExistsError:
+                # File was created between check and open (race condition), use existing file
+                logger.debug(f"Using cached image for {url} at {cache_path} (created concurrently)")
+                return cache_path
+            
+            try:
+                os.write(fd, response.content)
+            finally:
+                os.close(fd)
             
             logger.debug(f"Downloaded image from {url} to {cache_path}")
             return cache_path

@@ -61,7 +61,7 @@ class TestBaseClient(unittest.TestCase):
         path = self.client._get_image_cache_path(url)
         
         # Should contain the hash
-        url_hash = hashlib.md5(url.encode()).hexdigest()
+        url_hash = hashlib.sha256(url.encode()).hexdigest()
         self.assertIn(url_hash, path)
         
         # Should have .jpg extension
@@ -89,8 +89,10 @@ class TestBaseClient(unittest.TestCase):
     @patch("social.base_client.os.path.exists")
     @patch("social.base_client.requests.get")
     @patch("social.base_client.os.makedirs")
-    @patch("builtins.open", new_callable=mock_open)
-    def test_download_image_new(self, mock_file, mock_makedirs, mock_requests_get, mock_exists):
+    @patch("social.base_client.os.open")
+    @patch("social.base_client.os.write")
+    @patch("social.base_client.os.close")
+    def test_download_image_new(self, mock_close, mock_write, mock_open, mock_makedirs, mock_requests_get, mock_exists):
         """Test downloading a new image."""
         # Mock that file doesn't exist
         mock_exists.return_value = False
@@ -101,22 +103,32 @@ class TestBaseClient(unittest.TestCase):
         mock_response.raise_for_status = MagicMock()
         mock_requests_get.return_value = mock_response
         
+        # Mock file descriptor
+        mock_open.return_value = 3
+        
         url = "https://example.com/image.jpg"
         result = self.client._download_image(url)
         
         # Verify download was attempted
         mock_requests_get.assert_called_once_with(url, timeout=30)
         
-        # Verify cache directory was created
+        # Verify cache directory was created with restrictive permissions
         mock_makedirs.assert_called_once()
+        call_args = mock_makedirs.call_args
+        self.assertEqual(call_args[1]['mode'], 0o700)
+        
+        # Verify file was created with restrictive permissions
+        mock_open.assert_called_once()
         
         # Verify file was written
-        mock_file.assert_called_once()
-        mock_file().write.assert_called_once_with(b"fake_image_data")
+        mock_write.assert_called_once_with(3, b"fake_image_data")
+        
+        # Verify file was closed
+        mock_close.assert_called_once_with(3)
         
         # Verify result is the cache path
         self.assertIsNotNone(result)
-        self.assertIn(hashlib.md5(url.encode()).hexdigest(), result)
+        self.assertIn(hashlib.sha256(url.encode()).hexdigest(), result)
     
     @patch("social.base_client.os.path.exists")
     def test_download_image_cached(self, mock_exists):
@@ -134,7 +146,7 @@ class TestBaseClient(unittest.TestCase):
             
             # Verify result is the cache path
             self.assertIsNotNone(result)
-            self.assertIn(hashlib.md5(url.encode()).hexdigest(), result)
+            self.assertIn(hashlib.sha256(url.encode()).hexdigest(), result)
     
     @patch("social.base_client.requests.get")
     def test_download_image_failure(self, mock_requests_get):
@@ -161,7 +173,7 @@ class TestBaseClient(unittest.TestCase):
         # Verify file was deleted
         mock_unlink.assert_called_once()
         call_path = mock_unlink.call_args[0][0]
-        self.assertIn(hashlib.md5(url.encode()).hexdigest(), call_path)
+        self.assertIn(hashlib.sha256(url.encode()).hexdigest(), call_path)
     
     @patch("social.base_client.os.path.exists")
     @patch("social.base_client.os.unlink")
