@@ -10,7 +10,6 @@ packages = [
     { include = "schema", from = "src" },
     { include = "notifications", from = "src" },
     { include = "config", from = "src" },
-    { include = "mastodon_client", from = "src" },
     { include = "social", from = "src" }
 ]
 

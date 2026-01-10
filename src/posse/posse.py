@@ -38,7 +38,7 @@ from logging.handlers import RotatingFileHandler
 from typing import List, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mastodon_client.mastodon_client import MastodonClient
+    from social.mastodon_client import MastodonClient
     from social.bluesky_client import BlueskyClient
 
 # Create a thread-safe events queue for validated Ghost posts
@@ -220,7 +220,7 @@ def main(debug: bool = False) -> None:
     from gunicorn.app.base import BaseApplication
     from ghost.ghost import create_app
     from config import load_config
-    from mastodon_client.mastodon_client import MastodonClient
+    from social.mastodon_client import MastodonClient
     from social.bluesky_client import BlueskyClient
     import sys
     import os
