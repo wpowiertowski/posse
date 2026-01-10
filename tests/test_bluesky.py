@@ -364,10 +364,16 @@ class TestBlueskyClient(unittest.TestCase):
         self.assertEqual(len(clients), 1)
         self.assertFalse(clients[0].enabled)
     
-    @patch("social.bluesky_client.requests.get")
+    @patch("social.base_client.os.path.exists")
+    @patch("social.base_client.os.makedirs")
+    @patch("builtins.open", create=True)
+    @patch("social.base_client.requests.get")
     @patch("social.bluesky_client.Client")
-    def test_post_with_single_image(self, mock_client_class, mock_requests_get):
+    def test_post_with_single_image(self, mock_client_class, mock_requests_get, mock_open, mock_makedirs, mock_exists):
         """Test posting status with a single image attachment."""
+        # Mock that file doesn't exist (not cached)
+        mock_exists.return_value = False
+        
         # Setup mock API
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
@@ -433,10 +439,16 @@ class TestBlueskyClient(unittest.TestCase):
         self.assertEqual(result["uri"], "at://did:plc:abc123/app.bsky.feed.post/xyz789")
         self.assertEqual(result["cid"], "bafyreiabc123")
     
-    @patch("social.bluesky_client.requests.get")
+    @patch("social.base_client.os.path.exists")
+    @patch("social.base_client.os.makedirs")
+    @patch("builtins.open", create=True)
+    @patch("social.base_client.requests.get")
     @patch("social.bluesky_client.Client")
-    def test_post_with_multiple_images(self, mock_client_class, mock_requests_get):
+    def test_post_with_multiple_images(self, mock_client_class, mock_requests_get, mock_open, mock_makedirs, mock_exists):
         """Test posting status with multiple image attachments."""
+        # Mock that files don't exist (not cached)
+        mock_exists.return_value = False
+        
         # Setup mock API
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
@@ -501,10 +513,14 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify result
         self.assertIsNotNone(result)
     
-    @patch("social.bluesky_client.requests.get")
+    @patch("social.base_client.os.path.exists")
+    @patch("social.base_client.requests.get")
     @patch("social.bluesky_client.Client")
-    def test_post_with_failed_image_download(self, mock_client_class, mock_requests_get):
+    def test_post_with_failed_image_download(self, mock_client_class, mock_requests_get, mock_exists):
         """Test posting when image download fails - should still post without media."""
+        # Mock that file doesn't exist
+        mock_exists.return_value = False
+        
         # Setup mock API
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
@@ -548,10 +564,16 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify result
         self.assertIsNotNone(result)
     
-    @patch("social.bluesky_client.requests.get")
+    @patch("social.base_client.os.path.exists")
+    @patch("social.base_client.os.makedirs")
+    @patch("builtins.open", create=True)
+    @patch("social.base_client.requests.get")
     @patch("social.bluesky_client.Client")
-    def test_post_without_image_descriptions(self, mock_client_class, mock_requests_get):
+    def test_post_without_image_descriptions(self, mock_client_class, mock_requests_get, mock_open, mock_makedirs, mock_exists):
         """Test posting with images but no alt text descriptions."""
+        # Mock that file doesn't exist (not cached)
+        mock_exists.return_value = False
+        
         # Setup mock API
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client

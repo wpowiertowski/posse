@@ -6,8 +6,12 @@ authentication and posting functionality that can be inherited by
 platform-specific implementations (Mastodon, Bluesky, etc.).
 """
 import logging
-from typing import Optional, Dict, Any
+import os
+import hashlib
+import tempfile
+from typing import Optional, Dict, Any, List
 from abc import ABC, abstractmethod
+import requests
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +40,10 @@ class SocialMediaClient(ABC):
         ...         # Platform-specific posting
         ...         pass
     """
+    
+    # Configuration constants for image handling
+    IMAGE_DOWNLOAD_TIMEOUT = 30  # seconds
+    DEFAULT_IMAGE_EXTENSION = ".jpg"  # fallback for images without file extension
     
     def __init__(
         self,
@@ -85,6 +93,116 @@ class SocialMediaClient(ABC):
                 logger.error(f"Failed to initialize {self.__class__.__name__} '{self.account_name}': {e}")
                 self.enabled = False
                 self.api = None
+    
+    def _get_image_cache_path(self, url: str) -> str:
+        """Generate a predictable cache path for an image URL.
+        
+        Uses SHA-256 hash of the URL to create a consistent filename, allowing
+        for caching and reuse of previously downloaded images.
+        
+        Args:
+            url: URL of the image
+            
+        Returns:
+            Full path to the cached image file
+        """
+        # Generate SHA-256 hash of URL for consistent filename
+        url_hash = hashlib.sha256(url.encode()).hexdigest()
+        
+        # Extract file extension from URL, use default if not present
+        suffix = os.path.splitext(url)[1] or self.DEFAULT_IMAGE_EXTENSION
+        
+        # Create filename with hash and extension
+        filename = f"{url_hash}{suffix}"
+        
+        # Use system temp directory for cache
+        cache_path = os.path.join(tempfile.gettempdir(), "posse_image_cache", filename)
+        
+        return cache_path
+    
+    def _download_image(self, url: str) -> Optional[str]:
+        """Download an image from a URL to a predictable cached location.
+        
+        If the image has already been downloaded (based on URL hash), returns
+        the existing cached path without re-downloading.
+        
+        Args:
+            url: URL of the image to download
+            
+        Returns:
+            Path to the cached file containing the image, or None if download fails
+            
+        Note:
+            Caller should use _remove_images() to clean up cached files when done.
+            
+            This method has inherent TOCTOU (time-of-check-time-of-use) race conditions
+            in concurrent environments:
+            - The file could be deleted between the existence check and use
+            - The file could be partially written by another process
+            
+            These are acceptable trade-offs for this use case since:
+            - Failed uploads will be logged but won't crash the posting process
+            - Social media APIs will reject invalid/corrupted images with clear errors
+            - The cache is temporary and will be cleaned up by the caller
+        """
+        try:
+            # Get predictable cache path for this URL
+            cache_path = self._get_image_cache_path(url)
+            
+            # Check if already downloaded
+            # Note: There's a TOCTOU race here - file could be deleted or incomplete
+            # This is acceptable since upload failures are handled gracefully
+            if os.path.exists(cache_path):
+                logger.debug(f"Using cached image for {url} at {cache_path}")
+                return cache_path
+            
+            # Create cache directory if it doesn't exist with restrictive permissions
+            cache_dir = os.path.dirname(cache_path)
+            os.makedirs(cache_dir, mode=0o700, exist_ok=True)
+            
+            # Download the image
+            response = requests.get(url, timeout=self.IMAGE_DOWNLOAD_TIMEOUT)
+            response.raise_for_status()
+            
+            # Write to cache file with restrictive permissions (600 = rw-------)
+            # Use os.open with O_EXCL to prevent race conditions, but handle case where file exists
+            try:
+                fd = os.open(cache_path, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
+            except FileExistsError:
+                # File was created between check and open (race condition)
+                # Use existing file - if it's incomplete, the upload will fail gracefully
+                logger.debug(f"Using cached image for {url} at {cache_path} (created concurrently)")
+                return cache_path
+            
+            try:
+                os.write(fd, response.content)
+            finally:
+                os.close(fd)
+            
+            logger.debug(f"Downloaded image from {url} to {cache_path}")
+            return cache_path
+        except Exception as e:
+            logger.error(f"Failed to download image from {url}: {e}")
+            return None
+    
+    def _remove_images(self, media_urls: List[str]) -> None:
+        """Remove cached images for the given URLs.
+        
+        This method looks up the cached files for the provided URLs and
+        removes them from the file system. It's safe to call even if some
+        images were not successfully downloaded.
+        
+        Args:
+            media_urls: List of image URLs to remove from cache
+        """
+        for url in media_urls:
+            try:
+                cache_path = self._get_image_cache_path(url)
+                if os.path.exists(cache_path):
+                    os.unlink(cache_path)
+                    logger.debug(f"Removed cached image {cache_path}")
+            except Exception as e:
+                logger.warning(f"Failed to remove cached image for {url}: {e}")
     
     @abstractmethod
     def _initialize_api(self) -> None:
