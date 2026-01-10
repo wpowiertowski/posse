@@ -76,10 +76,12 @@ mastodon:
     - name: "personal"
       instance_url: "https://mastodon.social"
       access_token_file: "/run/secrets/mastodon_personal_access_token"
+      # tags: []  # Optional: Empty or omitted means all posts
     # Add more accounts as needed
     - name: "professional"
       instance_url: "https://fosstodon.org"
       access_token_file: "/run/secrets/mastodon_professional_access_token"
+      tags: ["tech", "programming"]  # Only posts with these tags
 
 # Configure Bluesky accounts
 bluesky:
@@ -88,6 +90,25 @@ bluesky:
       instance_url: "https://bsky.social"
       handle: "user.bsky.social"
       app_password_file: "/run/secrets/bluesky_main_app_password"
+      tags: ["personal", "blog"]  # Filter by tags
+```
+
+### Tag-Based Filtering
+
+Each account can optionally specify a list of tags to filter which posts are syndicated to that account:
+
+- **No tags field or empty list**: Account receives ALL posts
+- **With tags**: Account only receives posts that have at least one matching tag
+
+The matching is case-insensitive and based on Ghost post tag slugs. For example:
+- Post tagged with "Technology" (slug: "technology") will match account tag "technology"
+- Post tagged with "Python" (slug: "python") will match account tag "python"
+
+**Example use cases**:
+- **Archive account**: No tags filter - receives everything
+- **Personal account**: Tags ["personal", "blog", "life"] - only personal posts
+- **Tech account**: Tags ["technology", "programming", "coding"] - only tech posts
+- **Work account**: Tags ["business", "work"] - only professional content
 ```
 
 ### Setting Up Mastodon

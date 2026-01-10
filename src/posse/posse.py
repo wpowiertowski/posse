@@ -205,7 +205,29 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                     if client.enabled:
                         all_clients.append(("Bluesky", client))
                 
-                logger.info(f"Posting to {len(all_clients)} enabled accounts")
+                # Filter clients by tags
+                # Extract post tag slugs for matching
+                post_tag_slugs = [tag.get("slug", "").lower() for tag in tags]
+                
+                # Filter clients to only those matching post tags
+                filtered_clients = []
+                for platform, client in all_clients:
+                    # If client has no tags configured, it receives all posts
+                    if not client.tags:
+                        filtered_clients.append((platform, client))
+                        logger.debug(f"{platform} account '{client.account_name}' has no tag filter - will receive post")
+                    else:
+                        # Check if any client tag matches any post tag (case-insensitive)
+                        client_tags_lower = [t.lower() for t in client.tags]
+                        matching_tags = [tag for tag in post_tag_slugs if tag in client_tags_lower]
+                        
+                        if matching_tags:
+                            filtered_clients.append((platform, client))
+                            logger.info(f"{platform} account '{client.account_name}' matches tags {matching_tags} - will receive post")
+                        else:
+                            logger.info(f"{platform} account '{client.account_name}' with tags {client.tags} does not match post tags {post_tag_slugs} - skipping")
+                
+                logger.info(f"Posting to {len(filtered_clients)} of {len(all_clients)} enabled accounts after tag filtering")
                 
                 # Post to all accounts in parallel using thread pool
                 def post_to_account(platform: str, client, content: str, media_urls: List[str], media_descriptions: List[str]) -> Dict[str, any]:
@@ -244,7 +266,7 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                 with ThreadPoolExecutor(max_workers=10) as executor:
                     # Submit all posting tasks
                     futures = []
-                    for platform, client in all_clients:
+                    for platform, client in filtered_clients:
                         future = executor.submit(
                             post_to_account,
                             platform,

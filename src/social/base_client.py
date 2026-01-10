@@ -50,7 +50,8 @@ class SocialMediaClient(ABC):
         instance_url: str,
         access_token: Optional[str] = None,
         config_enabled: bool = True,
-        account_name: Optional[str] = None
+        account_name: Optional[str] = None,
+        tags: Optional[List[str]] = None
     ):
         """Initialize social media client with credentials.
         
@@ -59,6 +60,7 @@ class SocialMediaClient(ABC):
             access_token: Access token for API authentication
             config_enabled: Whether posting is enabled in config.yml (default: True)
             account_name: Optional name for this account (for logging)
+            tags: Optional list of tags to filter posts (empty or None means all posts)
             
         Note:
             Posting will be disabled if:
@@ -70,6 +72,7 @@ class SocialMediaClient(ABC):
         self.access_token = access_token
         self.api: Optional[Any] = None
         self.account_name = account_name or "unnamed"
+        self.tags = tags if tags is not None else []
         
         # Determine if client is enabled
         self.enabled = bool(
@@ -231,9 +234,11 @@ class SocialMediaClient(ABC):
                 - name: "personal"
                   instance_url: "https://instance.com"
                   access_token_file: "/run/secrets/token"
+                  tags: ["tech", "python"]  # Optional: filter posts by tags
                 - name: "work"
                   instance_url: "https://work.instance.com"
                   access_token_file: "/run/secrets/work_token"
+                  tags: []  # Empty list means all posts
         
         Args:
             config: Configuration dictionary from load_config()
@@ -262,6 +267,7 @@ class SocialMediaClient(ABC):
             instance_url = account_config.get("instance_url", "")
             access_token_file = account_config.get("access_token_file")
             access_token = read_secret_file(access_token_file) if access_token_file else None
+            tags = account_config.get("tags", [])
             
             # Account is enabled if it has required fields
             enabled = bool(instance_url and access_token)
@@ -270,7 +276,8 @@ class SocialMediaClient(ABC):
                 instance_url=instance_url,
                 access_token=access_token,
                 config_enabled=enabled,
-                account_name=account_name
+                account_name=account_name,
+                tags=tags
             )
             clients.append(client)
         

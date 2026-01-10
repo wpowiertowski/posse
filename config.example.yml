@@ -12,39 +12,45 @@ pushover:
 # Configure multiple Mastodon accounts
 mastodon:
   accounts:
-    # Personal account
+    # Personal account - receives all posts (no tags filter)
     - name: "personal"
       instance_url: "https://mastodon.social"
       access_token_file: "/run/secrets/mastodon_personal_access_token"
+      # tags: []  # Empty or omitted means this account receives ALL posts
     
-    # Professional/Tech account
+    # Professional/Tech account - only receives tech-related posts
     - name: "tech"
       instance_url: "https://fosstodon.org"
       access_token_file: "/run/secrets/mastodon_tech_access_token"
+      tags: ["technology", "programming", "python"]  # Only posts with these tags
     
-    # Work account
+    # Work account - filtered by work-related tags
     - name: "work"
       instance_url: "https://mastodon.company.com"
       access_token_file: "/run/secrets/mastodon_work_access_token"
+      tags: ["work", "business", "enterprise"]
     
-    # Archive account - receives ALL posts
+    # Archive account - receives ALL posts (no tags filter)
     - name: "archive"
       instance_url: "https://mastodon.archive.org"
       access_token_file: "/run/secrets/mastodon_archive_access_token"
+      tags: []  # Empty list means this account receives ALL posts
 
 # Bluesky Multi-Account Configuration
 # Same structure as Mastodon - configure multiple accounts
 bluesky:
   accounts:
-    # Main Bluesky account
+    # Main Bluesky account - receives all posts
     - name: "main"
       instance_url: "https://bsky.social"
       handle: "user.bsky.social"  # Your Bluesky handle
       app_password_file: "/run/secrets/bluesky_main_app_password"
+      # No tags field means this account receives ALL posts
     
-    # Professional Bluesky account
+    # Professional Bluesky account - only technical posts
     - name: "professional"
       instance_url: "https://bsky.social"
       handle: "professional.bsky.social"  # Your Bluesky handle
       app_password_file: "/run/secrets/bluesky_professional_app_password"
+      tags: ["tech", "coding"]  # Only posts tagged with these
 
