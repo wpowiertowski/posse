@@ -35,7 +35,8 @@ import threading
 import logging
 import re
 from logging.handlers import RotatingFileHandler
-from typing import List, TYPE_CHECKING
+from typing import List, TYPE_CHECKING, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 if TYPE_CHECKING:
     from social.mastodon_client import MastodonClient
@@ -73,6 +74,19 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
     mastodon_clients = mastodon_clients if mastodon_clients is not None else []
     bluesky_clients = bluesky_clients if bluesky_clients is not None else []
     
+    # Import notifier here to avoid circular imports
+    from config import load_config
+    from notifications.pushover import PushoverNotifier
+    
+    # Load config and initialize notifier with error handling for test environments
+    try:
+        config = load_config()
+        notifier = PushoverNotifier.from_config(config)
+    except Exception as e:
+        logger.warning(f"Failed to initialize notifier (this is expected in test environments): {e}")
+        # Create a disabled notifier as fallback
+        notifier = PushoverNotifier(config_enabled=False)
+    
     logger.info(f"Event processor thread started with {len(mastodon_clients)} Mastodon clients and {len(bluesky_clients)} Bluesky clients")
     
     while True:
@@ -92,6 +106,7 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                     post_id = post.get("id", None)
                     post_title = post.get("title", None)
                     post_status = post.get("status", None)
+                    post_url = post.get("url", None)
                     logger.info(f"Post ID: {post_id}, Title: {post_title}, Status: {post_status}")
 
             # Extract post content details
@@ -104,38 +119,133 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                 tags = [{"name": tag.get("name"), "slug": tag.get("slug")} 
                        for tag in tags_raw if isinstance(tag, dict)]
                 
-                # Extract all unique images from post
+                # Extract all unique images from post and their alt text
                 images = set()
+                alt_text_map: Dict[str, str] = {}
                 
                 # Add feature_image if present
                 feature_image = post.get("feature_image")
                 if feature_image:
                     images.add(feature_image)
+                    # Feature images typically don't have alt text in Ghost
+                    alt_text_map[feature_image] = post.get("feature_image_alt", "")
                 
-                # Extract images from HTML content
+                # Extract images and alt text from HTML content
                 html_content = post.get("html", "")
                 if html_content:
-                    # Find all img src URLs in the HTML
-                    img_pattern = r'<img[^>]+src="([^"]+)"'
+                    # Find all img tags with src and optional alt attributes
+                    # Pattern matches: <img...src="url"...alt="text"...> or <img...src="url"...>
+                    img_pattern = r'<img[^>]+src="([^"]+)"[^>]*(?:alt="([^"]*)")?'
                     img_matches = re.findall(img_pattern, html_content)
-                    images.update(img_matches)
+                    
+                    for img_url, alt_text in img_matches:
+                        images.add(img_url)
+                        # Store alt text if provided
+                        if alt_text:
+                            alt_text_map[img_url] = alt_text
                 
                 # Convert to sorted list for consistent ordering
                 images = sorted(list(images))
+                
+                # Create media descriptions list matching images order
+                media_descriptions = [alt_text_map.get(img, "") for img in images]
                 
                 # Log extracted content
                 logger.info(f"Extracted excerpt: {excerpt[:100] if excerpt else 'None'}...")
                 logger.info(f"Extracted {len(tags)} tags: {[tag['name'] for tag in tags]}")
                 logger.info(f"Extracted {len(images)} unique images")
-                for img in images:
-                    logger.debug(f"  Image: {img}")
-            
-            # Syndicate to configured social media accounts
-            # For now, we'll just log that we have the clients registered
-            if mastodon_clients:
-                logger.info(f"Mastodon clients available: {[c.account_name for c in mastodon_clients if c.enabled]}")
-            if bluesky_clients:
-                logger.info(f"Bluesky clients available: {[c.account_name for c in bluesky_clients if c.enabled]}")
+                for i, img in enumerate(images):
+                    alt = media_descriptions[i]
+                    logger.debug(f"  Image: {img} (alt: '{alt}')")
+                
+                # Prepare content for posting
+                # Use excerpt if available, otherwise use title with URL
+                if excerpt:
+                    post_content = f"{excerpt}\n\n{post_url}"
+                else:
+                    post_content = f"{post_title}\n\n{post_url}"
+                
+                # Collect all enabled clients
+                all_clients = []
+                for client in mastodon_clients:
+                    if client.enabled:
+                        all_clients.append(("Mastodon", client))
+                for client in bluesky_clients:
+                    if client.enabled:
+                        all_clients.append(("Bluesky", client))
+                
+                logger.info(f"Posting to {len(all_clients)} enabled accounts")
+                
+                # Post to all accounts in parallel using thread pool
+                def post_to_account(platform: str, client, content: str, media_urls: List[str], media_descriptions: List[str]) -> Dict[str, any]:
+                    """Post to a single account and return result."""
+                    try:
+                        logger.info(f"Posting to {platform} account '{client.account_name}'...")
+                        result = client.post(
+                            content=content,
+                            media_urls=media_urls if media_urls else None,
+                            media_descriptions=media_descriptions if media_descriptions else None
+                        )
+                        
+                        if result:
+                            # Extract post URL from result
+                            result_url = None
+                            if isinstance(result, dict):
+                                result_url = result.get("url") or result.get("uri")
+                            
+                            logger.info(f"Successfully posted to {platform} account '{client.account_name}': {result_url}")
+                            notifier.notify_post_success(post_title, client.account_name, platform, result_url)
+                            return {"success": True, "platform": platform, "account": client.account_name, "url": result_url}
+                        else:
+                            error_msg = "Posting returned no result"
+                            logger.error(f"Failed to post to {platform} account '{client.account_name}': {error_msg}")
+                            notifier.notify_post_failure(post_title, client.account_name, platform, error_msg)
+                            return {"success": False, "platform": platform, "account": client.account_name, "error": error_msg}
+                    
+                    except Exception as e:
+                        error_msg = str(e)
+                        logger.error(f"Error posting to {platform} account '{client.account_name}': {error_msg}", exc_info=True)
+                        notifier.notify_post_failure(post_title, client.account_name, platform, error_msg)
+                        return {"success": False, "platform": platform, "account": client.account_name, "error": error_msg}
+                
+                # Use ThreadPoolExecutor to post to accounts in parallel
+                # Max 10 workers to prevent overwhelming the system
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    # Submit all posting tasks
+                    futures = []
+                    for platform, client in all_clients:
+                        future = executor.submit(
+                            post_to_account,
+                            platform,
+                            client,
+                            post_content,
+                            images,
+                            media_descriptions
+                        )
+                        futures.append(future)
+                    
+                    # Wait for all posts to complete (with timeout)
+                    results = []
+                    for future in as_completed(futures, timeout=60):
+                        try:
+                            result = future.result()
+                            results.append(result)
+                        except Exception as e:
+                            logger.error(f"Future execution failed: {e}", exc_info=True)
+                    
+                    # Log summary
+                    success_count = sum(1 for r in results if r.get("success"))
+                    failure_count = len(results) - success_count
+                    logger.info(f"Posting complete: {success_count} succeeded, {failure_count} failed")
+                
+                # Clean up cached images after all posting attempts
+                if images:
+                    logger.debug(f"Cleaning up {len(images)} cached images")
+                    # Use any client to clean up (they all share the same cache)
+                    if mastodon_clients:
+                        mastodon_clients[0]._remove_images(images)
+                    elif bluesky_clients:
+                        bluesky_clients[0]._remove_images(images)
             
             # Mark task as done
             events_queue.task_done()

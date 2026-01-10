@@ -353,3 +353,83 @@ class TestPushoverNotifier:
             config_enabled=True
         )
         assert notifier.enabled is True
+    
+    @patch("notifications.pushover.requests.post")
+    def test_notify_post_success(self, mock_post):
+        """Test post success notification."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+        
+        notifier = PushoverNotifier(
+            app_token="test_app_token",
+            user_key="test_user_key"
+        )
+        
+        result = notifier.notify_post_success(
+            post_title="Welcome to Ghost",
+            account_name="personal",
+            platform="Mastodon",
+            post_url="https://mastodon.social/@user/123"
+        )
+        
+        assert result is True
+        call_data = mock_post.call_args[1]["data"]
+        assert "✅ Posted to Mastodon" in call_data["title"]
+        assert "personal" in call_data["message"]
+        assert "Welcome to Ghost" in call_data["message"]
+        assert call_data["url"] == "https://mastodon.social/@user/123"
+        assert call_data["url_title"] == "View on Mastodon"
+        assert call_data["priority"] == 0  # Normal priority
+    
+    @patch("notifications.pushover.requests.post")
+    def test_notify_post_success_without_url(self, mock_post):
+        """Test post success notification without URL."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+        
+        notifier = PushoverNotifier(
+            app_token="test_app_token",
+            user_key="test_user_key"
+        )
+        
+        result = notifier.notify_post_success(
+            post_title="Welcome to Ghost",
+            account_name="personal",
+            platform="Bluesky",
+            post_url=None
+        )
+        
+        assert result is True
+        call_data = mock_post.call_args[1]["data"]
+        assert "✅ Posted to Bluesky" in call_data["title"]
+        assert "personal" in call_data["message"]
+        assert "url" not in call_data or call_data["url"] is None
+    
+    @patch("notifications.pushover.requests.post")
+    def test_notify_post_failure(self, mock_post):
+        """Test post failure notification."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+        
+        notifier = PushoverNotifier(
+            app_token="test_app_token",
+            user_key="test_user_key"
+        )
+        
+        result = notifier.notify_post_failure(
+            post_title="Welcome to Ghost",
+            account_name="personal",
+            platform="Mastodon",
+            error="Authentication failed"
+        )
+        
+        assert result is True
+        call_data = mock_post.call_args[1]["data"]
+        assert "❌ Failed to post to Mastodon" in call_data["title"]
+        assert "personal" in call_data["message"]
+        assert "Welcome to Ghost" in call_data["message"]
+        assert "Authentication failed" in call_data["message"]
+        assert call_data["priority"] == 1  # High priority for errors

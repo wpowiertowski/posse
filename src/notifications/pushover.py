@@ -258,3 +258,61 @@ class PushoverNotifier:
             message=message,
             priority=1  # High priority for errors
         )
+    
+    def notify_post_success(self, post_title: str, account_name: str, platform: str, post_url: Optional[str] = None) -> bool:
+        """Send notification when a post is successfully syndicated to an account.
+        
+        Args:
+            post_title: Title of the Ghost post
+            account_name: Name of the social media account
+            platform: Platform name ("Mastodon" or "Bluesky")
+            post_url: URL of the posted content (optional)
+            
+        Returns:
+            True if notification sent successfully, False otherwise
+            
+        Example:
+            >>> notifier.notify_post_success(
+            ...     "Welcome Post",
+            ...     "personal",
+            ...     "Mastodon",
+            ...     "https://mastodon.social/@user/123"
+            ... )
+        """
+        title = f"✅ Posted to {platform}"
+        message = f"Successfully posted to {account_name}:\n{post_title}"
+        return self._send_notification(
+            title=title,
+            message=message,
+            priority=0,  # Normal priority
+            url=post_url,
+            url_title=f"View on {platform}" if post_url else None
+        )
+    
+    def notify_post_failure(self, post_title: str, account_name: str, platform: str, error: str) -> bool:
+        """Send notification when posting to an account fails.
+        
+        Args:
+            post_title: Title of the Ghost post
+            account_name: Name of the social media account
+            platform: Platform name ("Mastodon" or "Bluesky")
+            error: Error message describing the failure
+            
+        Returns:
+            True if notification sent successfully, False otherwise
+            
+        Example:
+            >>> notifier.notify_post_failure(
+            ...     "Welcome Post",
+            ...     "personal",
+            ...     "Mastodon",
+            ...     "Authentication failed"
+            ... )
+        """
+        title = f"❌ Failed to post to {platform}"
+        message = f"Failed to post to {account_name}:\n{post_title}\n\nError: {error}"
+        return self._send_notification(
+            title=title,
+            message=message,
+            priority=1  # High priority for errors
+        )
