@@ -133,13 +133,25 @@ class SocialMediaClient(ABC):
             Path to the cached file containing the image, or None if download fails
             
         Note:
-            Caller should use _remove_images() to clean up cached files when done
+            Caller should use _remove_images() to clean up cached files when done.
+            
+            This method has inherent TOCTOU (time-of-check-time-of-use) race conditions
+            in concurrent environments:
+            - The file could be deleted between the existence check and use
+            - The file could be partially written by another process
+            
+            These are acceptable trade-offs for this use case since:
+            - Failed uploads will be logged but won't crash the posting process
+            - Social media APIs will reject invalid/corrupted images with clear errors
+            - The cache is temporary and will be cleaned up by the caller
         """
         try:
             # Get predictable cache path for this URL
             cache_path = self._get_image_cache_path(url)
             
             # Check if already downloaded
+            # Note: There's a TOCTOU race here - file could be deleted or incomplete
+            # This is acceptable since upload failures are handled gracefully
             if os.path.exists(cache_path):
                 logger.debug(f"Using cached image for {url} at {cache_path}")
                 return cache_path
@@ -157,7 +169,8 @@ class SocialMediaClient(ABC):
             try:
                 fd = os.open(cache_path, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
             except FileExistsError:
-                # File was created between check and open (race condition), use existing file
+                # File was created between check and open (race condition)
+                # Use existing file - if it's incomplete, the upload will fail gracefully
                 logger.debug(f"Using cached image for {url} at {cache_path} (created concurrently)")
                 return cache_path
             
