@@ -23,7 +23,7 @@ class TestPosseConfigIntegration(unittest.TestCase):
         # We can't actually call main() since it starts Gunicorn and blocks
         # But we can verify the imports and client factory methods exist
         from posse.posse import main
-        from mastodon_client.mastodon_client import MastodonClient
+        from social.mastodon_client import MastodonClient
         from social.bluesky_client import BlueskyClient
         from config import load_config
         
@@ -43,7 +43,7 @@ class TestPosseConfigIntegration(unittest.TestCase):
         This test creates a sample config and verifies that clients
         are properly initialized from it.
         """
-        from mastodon_client.mastodon_client import MastodonClient
+        from social.mastodon_client import MastodonClient
         from social.bluesky_client import BlueskyClient
         
         # Mock secret reading to return test credentials
@@ -85,7 +85,7 @@ class TestPosseConfigIntegration(unittest.TestCase):
         }
         
         # Mock the Mastodon API
-        with patch("mastodon_client.mastodon_client.Mastodon"):
+        with patch("social.mastodon_client.Mastodon"):
             # Initialize Mastodon clients
             mastodon_clients = MastodonClient.from_config(config)
             

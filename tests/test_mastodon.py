@@ -21,14 +21,14 @@ from unittest.mock import patch, MagicMock, call
 import tempfile
 import os
 
-from mastodon_client.mastodon_client import MastodonClient
+from social.mastodon_client import MastodonClient
 
 
 class TestMastodonClient(unittest.TestCase):
     """Test suite for MastodonClient class."""
     
     @patch("config.read_secret_file")
-    @patch("mastodon_client.mastodon_client.Mastodon")
+    @patch("social.mastodon_client.Mastodon")
     def test_login_with_provided_secrets(self, mock_mastodon, mock_read_secret):
         """Test login with credentials loaded from secrets."""
         # Mock secret file reading to simulate Docker secrets
@@ -56,7 +56,7 @@ class TestMastodonClient(unittest.TestCase):
         self.assertEqual(client.access_token, "test_access_token")
         self.assertIsNotNone(client.api)
     
-    @patch("mastodon_client.mastodon_client.Mastodon")
+    @patch("social.mastodon_client.Mastodon")
     def test_post_without_media(self, mock_mastodon):
         """Test posting status without media attachments."""
         # Setup mock API
@@ -90,8 +90,8 @@ class TestMastodonClient(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["url"], "https://mastodon.social/@user/123")
     
-    @patch("mastodon_client.mastodon_client.requests.get")
-    @patch("mastodon_client.mastodon_client.Mastodon")
+    @patch("social.mastodon_client.requests.get")
+    @patch("social.mastodon_client.Mastodon")
     def test_post_with_single_image(self, mock_mastodon, mock_requests_get):
         """Test posting status with a single image attachment."""
         # Setup mock API
@@ -144,8 +144,8 @@ class TestMastodonClient(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["url"], "https://mastodon.social/@user/456")
     
-    @patch("mastodon_client.mastodon_client.requests.get")
-    @patch("mastodon_client.mastodon_client.Mastodon")
+    @patch("social.mastodon_client.requests.get")
+    @patch("social.mastodon_client.Mastodon")
     def test_post_with_multiple_images(self, mock_mastodon, mock_requests_get):
         """Test posting status with multiple image attachments."""
         # Setup mock API
@@ -203,8 +203,8 @@ class TestMastodonClient(unittest.TestCase):
         # Verify result
         self.assertIsNotNone(result)
     
-    @patch("mastodon_client.mastodon_client.requests.get")
-    @patch("mastodon_client.mastodon_client.Mastodon")
+    @patch("social.mastodon_client.requests.get")
+    @patch("social.mastodon_client.Mastodon")
     def test_post_with_failed_image_download(self, mock_mastodon, mock_requests_get):
         """Test posting when image download fails - should still post without media."""
         # Setup mock API
@@ -244,7 +244,7 @@ class TestMastodonClient(unittest.TestCase):
         # Verify result
         self.assertIsNotNone(result)
     
-    @patch("mastodon_client.mastodon_client.Mastodon")
+    @patch("social.mastodon_client.Mastodon")
     def test_post_disabled_client(self, mock_mastodon):
         """Test posting with disabled client returns None."""
         # Create disabled client (no access token)

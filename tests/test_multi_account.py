@@ -6,14 +6,14 @@ This test suite validates multi-account configuration loading and initialization
 import unittest
 from unittest.mock import patch, MagicMock
 
-from mastodon_client.mastodon_client import MastodonClient
+from social.mastodon_client import MastodonClient
 
 
 class TestMultiAccountConfiguration(unittest.TestCase):
     """Test suite for multi-account configuration."""
     
     @patch("config.read_secret_file")
-    @patch("mastodon_client.mastodon_client.Mastodon")
+    @patch("social.mastodon_client.Mastodon")
     def test_multi_account_config(self, mock_mastodon, mock_read_secret):
         """Test loading multi-account configuration."""
         # Mock different tokens for different accounts
@@ -61,7 +61,7 @@ class TestMultiAccountConfiguration(unittest.TestCase):
         self.assertEqual(clients[1].access_token, "work_token")
     
     @patch("config.read_secret_file")
-    @patch("mastodon_client.mastodon_client.Mastodon")
+    @patch("social.mastodon_client.Mastodon")
     def test_multi_account_missing_token(self, mock_mastodon, mock_read_secret):
         """Test multi-account with missing access token."""
         mock_read_secret.return_value = None
@@ -86,7 +86,7 @@ class TestMultiAccountConfiguration(unittest.TestCase):
     
     
     @patch("config.read_secret_file")
-    @patch("mastodon_client.mastodon_client.Mastodon")
+    @patch("social.mastodon_client.Mastodon")
     def test_empty_accounts_list(self, mock_mastodon, mock_read_secret):
         """Test multi-account config with empty accounts list."""
         config = {
@@ -101,7 +101,7 @@ class TestMultiAccountConfiguration(unittest.TestCase):
         self.assertEqual(len(clients), 0)
     
     @patch("config.read_secret_file")
-    @patch("mastodon_client.mastodon_client.Mastodon")
+    @patch("social.mastodon_client.Mastodon")
     def test_single_account_config(self, mock_mastodon, mock_read_secret):
         """Test configuration with a single account."""
         mock_read_secret.return_value = "test_token"
