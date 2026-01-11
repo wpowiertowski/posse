@@ -74,6 +74,9 @@ class BlueskyClient(SocialMediaClient):
         ...     client.post("Hello Bluesky!")
     """
     
+    # Bluesky character limit (300 characters)
+    MAX_POST_LENGTH = 300
+    
     def __init__(
         self,
         instance_url: str,

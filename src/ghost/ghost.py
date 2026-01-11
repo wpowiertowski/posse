@@ -81,7 +81,7 @@ Classes:
 """
 import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from queue import Queue
 
 from flask import Flask, request, jsonify, current_app
@@ -91,17 +91,7 @@ from schema import GHOST_POST_SCHEMA
 from notifications.pushover import PushoverNotifier
 from config import load_config
 
-# Configure logging with both file and console output
-# This ensures webhook activity is both saved to disk and visible in real-time
-logging.basicConfig(
-    level=logging.DEBUG,  # Capture all levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Include timestamp
-    handlers=[
-        logging.FileHandler("ghost_posts.log"),  # Persist logs to file
-        logging.StreamHandler()  # Also print to console for monitoring
-    ]
-)
-
+# Logging is configured in posse.py main() - this module uses the configured logger
 logger = logging.getLogger(__name__)
 
 # Create validator for better error messages
@@ -110,14 +100,16 @@ logger = logging.getLogger(__name__)
 validator = Draft7Validator(GHOST_POST_SCHEMA)
 
 
-def create_app(events_queue: Queue) -> Flask:
+def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None, config: Optional[Dict[str, Any]] = None) -> Flask:
     """Factory function to create and configure the Flask application.
     
-    This factory pattern allows dependency injection of the events_queue,
-    avoiding circular imports and making the app easier to test.
+    This factory pattern allows dependency injection of the events_queue, notifier,
+    and config, avoiding circular imports and making the app easier to test.
     
     Args:
         events_queue: Thread-safe Queue instance for validated Ghost posts
+        notifier: Optional PushoverNotifier instance (if None, will be created from config)
+        config: Optional configuration dictionary (if None, will be loaded from config.yml)
         
     Returns:
         Configured Flask application instance with webhook and health endpoints
@@ -133,10 +125,12 @@ def create_app(events_queue: Queue) -> Flask:
     # Store events_queue in app config for access in route handlers
     app.config["EVENTS_QUEUE"] = events_queue
     
-    # Load configuration and initialize Pushover notifier
+    # Load configuration and initialize Pushover notifier if not provided
     # Reads from config.yml and Docker secrets
-    config = load_config()
-    notifier = PushoverNotifier.from_config(config)
+    if config is None:
+        config = load_config()
+    if notifier is None:
+        notifier = PushoverNotifier.from_config(config)
     app.config["PUSHOVER_NOTIFIER"] = notifier
     
     @app.route("/webhook/ghost", methods=["POST"])
@@ -310,10 +304,9 @@ def create_app(events_queue: Queue) -> Flask:
     return app
 
 
-# Create default app instance with a temporary queue
-# This instance is used for module-level imports and fallback scenarios.
-# In production, posse.py calls create_app(events_queue) with the real queue.
-app = create_app(Queue())
+# Note: Do not create a module-level app instance.
+# Always use create_app(events_queue) to create app instances with proper dependency injection.
+# The module-level app has been removed to prevent orphaned Queue issues.
 
 
 class GhostPostValidationError(Exception):

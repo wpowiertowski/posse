@@ -45,6 +45,9 @@ class SocialMediaClient(ABC):
     IMAGE_DOWNLOAD_TIMEOUT = 30  # seconds
     DEFAULT_IMAGE_EXTENSION = ".jpg"  # fallback for images without file extension
     
+    # Platform-specific character limit (default, override in subclasses)
+    MAX_POST_LENGTH = 300  # Conservative default
+    
     def __init__(
         self,
         instance_url: str,

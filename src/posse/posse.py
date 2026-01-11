@@ -34,6 +34,7 @@ from queue import Queue
 import threading
 import logging
 import re
+from html.parser import HTMLParser
 from logging.handlers import RotatingFileHandler
 from typing import List, TYPE_CHECKING, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -51,6 +52,55 @@ events_queue: Queue = Queue()
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+class ImageExtractor(HTMLParser):
+    """HTML parser to extract image URLs and alt text from HTML content.
+    
+    This parser extracts img tags with src attributes and optional alt attributes,
+    handling both single and double quotes, and various attribute orderings.
+    """
+    
+    def __init__(self):
+        super().__init__()
+        self.images = []  # List of (url, alt_text) tuples
+    
+    def handle_starttag(self, tag, attrs):
+        """Handle HTML start tags, extracting img src and alt attributes."""
+        if tag == 'img':
+            attrs_dict = dict(attrs)
+            src = attrs_dict.get('src')
+            if src:
+                alt = attrs_dict.get('alt', '')
+                self.images.append((src, alt))
+
+
+def trim_to_words(text: str, max_length: int) -> str:
+    """Trim text to max_length, cutting at word boundaries and adding ellipsis.
+    
+    Args:
+        text: Text to trim
+        max_length: Maximum length for the trimmed text
+        
+    Returns:
+        Trimmed text with ellipsis if needed
+    """
+    if len(text) <= max_length:
+        return text
+    
+    # Reserve 3 characters for ellipsis
+    max_length -= 3
+    
+    # Find the last space before max_length
+    trimmed = text[:max_length]
+    last_space = trimmed.rfind(' ')
+    
+    if last_space > 0:
+        # Trim at the last space
+        return trimmed[:last_space] + "..."
+    else:
+        # No space found, just trim and add ellipsis
+        return trimmed + "..."
 
 
 def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clients: List["BlueskyClient"] = None):
@@ -135,16 +185,17 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                 # Extract images and alt text from HTML content
                 html_content = post.get("html", "")
                 if html_content:
-                    # Find all img tags with src and optional alt attributes
-                    # Pattern matches: <img...src="url"...alt="text"...> or <img...src="url"...>
-                    img_pattern = r'<img[^>]+src="([^"]+)"[^>]*(?:alt="([^"]*)")?'
-                    img_matches = re.findall(img_pattern, html_content)
-                    
-                    for img_url, alt_text in img_matches:
-                        images.add(img_url)
-                        # Store alt text if provided
-                        if alt_text:
-                            alt_text_map[img_url] = alt_text
+                    # Use HTML parser for robust image extraction
+                    parser = ImageExtractor()
+                    try:
+                        parser.feed(html_content)
+                        for img_url, alt_text in parser.images:
+                            images.add(img_url)
+                            # Store alt text if provided
+                            if alt_text:
+                                alt_text_map[img_url] = alt_text
+                    except Exception as e:
+                        logger.warning(f"Failed to parse HTML for images: {e}")
                 
                 # Convert to sorted list for consistent ordering
                 images = sorted(list(images))
@@ -162,32 +213,13 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                 
                 # Prepare content for posting
                 # Use excerpt if available, otherwise use title with URL
-                tags = " ".join([f"#{x['name'].lower()}" for x in tags if not x['name'].isdigit()])
-                tags += " #posse"
+                # Create hashtags string (use different variable to preserve tags list)
+                hashtags = " ".join([f"#{x['name'].lower()}" for x in tags if not x['name'].isdigit()])
+                hashtags += " #posse"
                 
                 # Calculate space needed for tags and URL (with newlines)
-                fixed_content = f"\n{tags}\n{post_url}"
+                fixed_content = f"\n{hashtags}\n{post_url}"
                 max_text_length = 300 - len(fixed_content)
-                
-                # Trim excerpt or title to fit within character limit
-                def trim_to_words(text: str, max_length: int) -> str:
-                    """Trim text to max_length, cutting at word boundaries and adding ellipsis."""
-                    if len(text) <= max_length:
-                        return text
-                    
-                    # Reserve 3 characters for ellipsis
-                    max_length -= 3
-                    
-                    # Find the last space before max_length
-                    trimmed = text[:max_length]
-                    last_space = trimmed.rfind(' ')
-                    
-                    if last_space > 0:
-                        # Trim at the last space
-                        return trimmed[:last_space] + "..."
-                    else:
-                        # No space found, just trim and add ellipsis
-                        return trimmed + "..."
                 
                 if excerpt:
                     text_content = trim_to_words(excerpt, max_text_length)
