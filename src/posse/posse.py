@@ -122,15 +122,14 @@ def _extract_post(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return post.get("current", {})
 
 
-def _prepare_content(post: Dict[str, Any], max_length: int) -> tuple[str, List[str], List[str], List[Dict[str, str]]]:
-    """Prepare content for posting from Ghost post data.
+def _extract_post_data(post: Dict[str, Any]) -> tuple[str, str, str, List[str], List[str], List[Dict[str, str]]]:
+    """Extract raw content data from Ghost post.
     
     Args:
         post: Ghost post data dictionary
-        max_length: Maximum character length for the post content
         
     Returns:
-        Tuple of (post_content, images, media_descriptions, tags)
+        Tuple of (post_title, post_url, excerpt, images, media_descriptions, tags)
     """
     post_id = post.get("id", None)
     post_title = post.get("title", None)
@@ -184,7 +183,22 @@ def _prepare_content(post: Dict[str, Any], max_length: int) -> tuple[str, List[s
         alt = media_descriptions[i]
         logger.debug(f"  Image: {img} (alt: '{alt}')")
     
-    # Prepare content for posting
+    return post_title, post_url, excerpt, images, media_descriptions, tags
+
+
+def _format_post_content(post_title: str, post_url: str, excerpt: Optional[str], tags: List[Dict[str, str]], max_length: int) -> str:
+    """Format post content for a specific platform with character limit.
+    
+    Args:
+        post_title: Title of the post
+        post_url: URL of the post
+        excerpt: Optional excerpt text
+        tags: List of tag dictionaries with 'name' and 'slug' fields
+        max_length: Maximum character length for the post content
+        
+    Returns:
+        Formatted post content string
+    """
     # Create hashtags string (use different variable to preserve tags list)
     hashtags = " ".join([f"#{x['name'].lower()}" for x in tags if not x['name'].isdigit()])
     hashtags += " #posse"
@@ -199,6 +213,25 @@ def _prepare_content(post: Dict[str, Any], max_length: int) -> tuple[str, List[s
     else:
         text_content = trim_to_words(post_title, max_text_length)
         post_content = f"{text_content}{fixed_content}"
+    
+    return post_content
+
+
+def _prepare_content(post: Dict[str, Any], max_length: int) -> tuple[str, List[str], List[str], List[Dict[str, str]]]:
+    """Prepare content for posting from Ghost post data.
+    
+    Args:
+        post: Ghost post data dictionary
+        max_length: Maximum character length for the post content
+        
+    Returns:
+        Tuple of (post_content, images, media_descriptions, tags)
+    """
+    # Extract raw data
+    post_title, post_url, excerpt, images, media_descriptions, tags = _extract_post_data(post)
+    
+    # Format content with character limit
+    post_content = _format_post_content(post_title, post_url, excerpt, tags, max_length)
     
     return post_content, images, media_descriptions, tags
 
@@ -297,8 +330,8 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
             post_url = post.get("url", None)
             logger.info(f"Post ID: {post_id}, Title: {post_title}, Status: {post_status}")
             
-            # Prepare content for posting (use conservative 300 char limit for now)
-            post_content, images, media_descriptions, tags = _prepare_content(post, 300)
+            # Extract raw post data (without formatting)
+            title, url, excerpt, images, media_descriptions, tags = _extract_post_data(post)
             
             # Collect all enabled clients
             all_clients = []
@@ -314,9 +347,12 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
             logger.info(f"Posting to {len(filtered_clients)} of {len(all_clients)} enabled accounts after tag filtering")
             
             # Post to all accounts in parallel using thread pool
-            def post_to_account(platform: str, client, content: str, media_urls: List[str], media_descriptions: List[str]) -> Dict[str, any]:
+            def post_to_account(platform: str, client, title: str, url: str, excerpt: Optional[str], tags: List[Dict[str, str]], media_urls: List[str], media_descriptions: List[str]) -> Dict[str, any]:
                 """Post to a single account and return result."""
                 try:
+                    # Format content with platform-specific character limit
+                    content = _format_post_content(title, url, excerpt, tags, client.MAX_POST_LENGTH)
+                    
                     logger.info(f"Posting to {platform} account '{client.account_name}'...")
                     result = client.post(
                         content=content,
@@ -331,18 +367,18 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                             result_url = result.get("url") or result.get("uri")
                         
                         logger.info(f"Successfully posted to {platform} account '{client.account_name}': {result_url}")
-                        notifier.notify_post_success(post_title, client.account_name, platform, result_url)
+                        notifier.notify_post_success(title, client.account_name, platform, result_url)
                         return {"success": True, "platform": platform, "account": client.account_name, "url": result_url}
                     else:
                         error_msg = "Posting returned no result"
                         logger.error(f"Failed to post to {platform} account '{client.account_name}': {error_msg}")
-                        notifier.notify_post_failure(post_title, client.account_name, platform, error_msg)
+                        notifier.notify_post_failure(title, client.account_name, platform, error_msg)
                         return {"success": False, "platform": platform, "account": client.account_name, "error": error_msg}
                 
                 except Exception as e:
                     error_msg = str(e)
                     logger.error(f"Error posting to {platform} account '{client.account_name}': {error_msg}", exc_info=True)
-                    notifier.notify_post_failure(post_title, client.account_name, platform, error_msg)
+                    notifier.notify_post_failure(title, client.account_name, platform, error_msg)
                     return {"success": False, "platform": platform, "account": client.account_name, "error": error_msg}
             
             # Use ThreadPoolExecutor to post to accounts in parallel
@@ -355,7 +391,10 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                         post_to_account,
                         platform,
                         client,
-                        post_content,
+                        title,
+                        url,
+                        excerpt,
+                        tags,
                         images,
                         media_descriptions
                     )
