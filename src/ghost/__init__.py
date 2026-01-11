@@ -9,24 +9,21 @@ feature whenever a post is published, updated, or deleted, enabling
 real-time syndication to social media platforms.
 
 Key Components:
-    app: Flask application instance configured with webhook endpoints
-    main: Entry point function to start the Flask server
+    create_app: Factory function to create Flask application with dependency injection
 
 Endpoints:
     POST /webhook/ghost: Receives and validates Ghost post webhooks
     GET /health: Health check endpoint for monitoring
 
 Usage:
-    Start the webhook server:
-        $ poetry run ghost-webhook
+    Always use the create_app factory function with dependency injection:
+        >>> from queue import Queue
+        >>> from ghost.ghost import create_app
+        >>> events_queue = Queue()
+        >>> app = create_app(events_queue)
         
-    Or use Flask directly:
-        $ FLASK_APP=ghost.ghost flask run
-        
-    Test with curl:
-        $ curl -X POST http://localhost:5000/webhook/ghost \
-               -H "Content-Type: application/json" \
-               -d @tests/fixtures/valid_ghost_post.json
+    Or run via console script:
+        $ poetry run posse
 
 Validation:
     All incoming posts are validated against the Ghost post JSON schema
@@ -39,6 +36,6 @@ Logging:
     - DEBUG: Full payload details
     - ERROR: Validation failures and exceptions
 """
-from .ghost import app, create_app
+from .ghost import create_app
 
-__all__ = ["app", "create_app"]
+__all__ = ["create_app"]

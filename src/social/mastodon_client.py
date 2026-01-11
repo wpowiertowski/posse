@@ -68,6 +68,9 @@ class MastodonClient(SocialMediaClient):
         ...     client.post("Hello Mastodon!")
     """
     
+    # Mastodon character limit (500 for most instances)
+    MAX_POST_LENGTH = 500
+    
     def __init__(self, notifier: Optional["PushoverNotifier"] = None, **kwargs):
         """Initialize MastodonClient with optional notifier.
         

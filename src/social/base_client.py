@@ -45,13 +45,17 @@ class SocialMediaClient(ABC):
     IMAGE_DOWNLOAD_TIMEOUT = 30  # seconds
     DEFAULT_IMAGE_EXTENSION = ".jpg"  # fallback for images without file extension
     
+    # Platform-specific character limit (default, override in subclasses)
+    MAX_POST_LENGTH = 300  # Conservative default
+    
     def __init__(
         self,
         instance_url: str,
         access_token: Optional[str] = None,
         config_enabled: bool = True,
         account_name: Optional[str] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        max_post_length: Optional[int] = None
     ):
         """Initialize social media client with credentials.
         
@@ -61,6 +65,7 @@ class SocialMediaClient(ABC):
             config_enabled: Whether posting is enabled in config.yml (default: True)
             account_name: Optional name for this account (for logging)
             tags: Optional list of tags to filter posts (empty or None means all posts)
+            max_post_length: Optional maximum post length for this account (uses platform default if None)
             
         Note:
             Posting will be disabled if:
@@ -73,6 +78,12 @@ class SocialMediaClient(ABC):
         self.api: Optional[Any] = None
         self.account_name = account_name or "unnamed"
         self.tags = tags if tags is not None else []
+        
+        # Set max_post_length to instance-specific value or fall back to class constant
+        if max_post_length is not None:
+            self.max_post_length = max_post_length
+        else:
+            self.max_post_length = self.__class__.MAX_POST_LENGTH
         
         # Determine if client is enabled
         self.enabled = bool(
@@ -268,6 +279,7 @@ class SocialMediaClient(ABC):
             access_token_file = account_config.get("access_token_file")
             access_token = read_secret_file(access_token_file) if access_token_file else None
             tags = account_config.get("tags", [])
+            max_post_length = account_config.get("max_post_length")
             
             # Account is enabled if it has required fields
             enabled = bool(instance_url and access_token)
@@ -277,7 +289,8 @@ class SocialMediaClient(ABC):
                 access_token=access_token,
                 config_enabled=enabled,
                 account_name=account_name,
-                tags=tags
+                tags=tags,
+                max_post_length=max_post_length
             )
             clients.append(client)
         

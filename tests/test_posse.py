@@ -70,7 +70,7 @@ def test_module_imports():
     # Verify required dependencies can be imported (used by main())
     try:
         from gunicorn.app.base import BaseApplication
-        from ghost.ghost import app
+        from ghost.ghost import create_app
     except ImportError as e:
         pytest.fail(f"Required dependency not available: {e}")
 
