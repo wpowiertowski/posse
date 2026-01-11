@@ -17,12 +17,14 @@ mastodon:
       instance_url: "https://mastodon.social"
       access_token_file: "/run/secrets/mastodon_personal_access_token"
       # tags: []  # Empty or omitted means this account receives ALL posts
+      # max_post_length: 500  # Optional: Override default character limit (default: 500 for Mastodon)
     
     # Professional/Tech account - only receives tech-related posts
     - name: "tech"
       instance_url: "https://fosstodon.org"
       access_token_file: "/run/secrets/mastodon_tech_access_token"
       tags: ["technology", "programming", "python"]  # Only posts with these tags
+      max_post_length: 450  # Custom character limit for this account
     
     # Work account - filtered by work-related tags
     - name: "work"
@@ -46,6 +48,7 @@ bluesky:
       handle: "user.bsky.social"  # Your Bluesky handle
       app_password_file: "/run/secrets/bluesky_main_app_password"
       # No tags field means this account receives ALL posts
+      # max_post_length: 300  # Optional: Override default character limit (default: 300 for Bluesky)
     
     # Professional Bluesky account - only technical posts
     - name: "professional"
@@ -53,4 +56,5 @@ bluesky:
       handle: "professional.bsky.social"  # Your Bluesky handle
       app_password_file: "/run/secrets/bluesky_professional_app_password"
       tags: ["tech", "coding"]  # Only posts tagged with these
+      max_post_length: 280  # Custom character limit for this account
 

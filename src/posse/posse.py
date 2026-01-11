@@ -351,7 +351,7 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                 """Post to a single account and return result."""
                 try:
                     # Format content with platform-specific character limit
-                    content = _format_post_content(title, url, excerpt, tags, client.MAX_POST_LENGTH)
+                    content = _format_post_content(title, url, excerpt, tags, client.max_post_length)
                     
                     logger.info(f"Posting to {platform} account '{client.account_name}'...")
                     result = client.post(
