@@ -250,6 +250,17 @@ class BlueskyClient(SocialMediaClient):
             # Prepare embed for images if provided
             embed = None
             if media_urls:
+                # Bluesky has a limit of 4 images per post
+                MAX_IMAGES = 4
+                if len(media_urls) > MAX_IMAGES:
+                    logger.warning(
+                        f"Bluesky '{self.account_name}': Post has {len(media_urls)} images, "
+                        f"limiting to {MAX_IMAGES} (Bluesky maximum)"
+                    )
+                    media_urls = media_urls[:MAX_IMAGES]
+                    if media_descriptions:
+                        media_descriptions = media_descriptions[:MAX_IMAGES]
+                
                 images = []
                 for i, url in enumerate(media_urls):
                     # Download image to cached file
