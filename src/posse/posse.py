@@ -38,6 +38,7 @@ from html.parser import HTMLParser
 from logging.handlers import RotatingFileHandler
 from typing import List, TYPE_CHECKING, Dict, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from social.mastodon_client import MastodonClient
@@ -103,6 +104,50 @@ def trim_to_words(text: str, max_length: int) -> str:
         return trimmed + "..."
 
 
+def _get_domain_from_url(url: str) -> Optional[str]:
+    """Extract the domain from a URL.
+    
+    Args:
+        url: Full URL string
+        
+    Returns:
+        Domain string (e.g., 'example.com') or None if invalid URL
+    """
+    if not url:
+        return None
+    
+    try:
+        parsed = urlparse(url)
+        # Return netloc which includes domain and port
+        return parsed.netloc.lower() if parsed.netloc else None
+    except Exception as e:
+        logger.warning(f"Failed to parse URL {url}: {e}")
+        return None
+
+
+def _is_local_image(image_url: str, post_domain: Optional[str]) -> bool:
+    """Check if an image URL is local to the Ghost server.
+    
+    Args:
+        image_url: URL of the image
+        post_domain: Domain of the Ghost server (from post URL)
+        
+    Returns:
+        True if image is local to the Ghost server, False otherwise
+    """
+    if not post_domain:
+        # If we can't determine the post domain, include all images (backward compatible)
+        return True
+    
+    image_domain = _get_domain_from_url(image_url)
+    if not image_domain:
+        # If we can't parse the image URL, skip it
+        return False
+    
+    # Check if domains match
+    return image_domain == post_domain
+
+
 def _extract_post(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Extract post data from Ghost webhook event.
     
@@ -143,16 +188,23 @@ def _extract_post_data(post: Dict[str, Any]) -> tuple[str, str, str, List[str], 
     tags = [{"name": tag.get("name"), "slug": tag.get("slug")} 
            for tag in tags_raw if isinstance(tag, dict)]
     
+    # Extract domain from post URL to filter local images
+    post_domain = _get_domain_from_url(post_url)
+    logger.debug(f"Post domain: {post_domain}")
+    
     # Extract all unique images from post and their alt text
     images = set()
     alt_text_map: Dict[str, str] = {}
     
-    # Add feature_image if present
+    # Add feature_image if present and local
     feature_image = post.get("feature_image")
     if feature_image:
-        images.add(feature_image)
-        # Feature images typically don't have alt text in Ghost
-        alt_text_map[feature_image] = post.get("feature_image_alt", "")
+        if _is_local_image(feature_image, post_domain):
+            images.add(feature_image)
+            # Feature images typically don't have alt text in Ghost
+            alt_text_map[feature_image] = post.get("feature_image_alt", "")
+        else:
+            logger.info(f"Skipping external feature image: {feature_image}")
     
     # Extract images and alt text from HTML content
     html_content = post.get("html", "")
@@ -162,10 +214,13 @@ def _extract_post_data(post: Dict[str, Any]) -> tuple[str, str, str, List[str], 
         try:
             parser.feed(html_content)
             for img_url, alt_text in parser.images:
-                images.add(img_url)
-                # Store alt text if provided
-                if alt_text:
-                    alt_text_map[img_url] = alt_text
+                if _is_local_image(img_url, post_domain):
+                    images.add(img_url)
+                    # Store alt text if provided
+                    if alt_text:
+                        alt_text_map[img_url] = alt_text
+                else:
+                    logger.info(f"Skipping external image: {img_url}")
         except Exception as e:
             logger.warning(f"Failed to parse HTML for images: {e}")
     
