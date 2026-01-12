@@ -41,7 +41,7 @@ Security:
 import logging
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
-from atproto import Client, client_utils
+from atproto import Client, client_utils, models
 
 from social.base_client import SocialMediaClient
 
@@ -276,11 +276,13 @@ class BlueskyClient(SocialMediaClient):
                         with open(temp_path, 'rb') as f:
                             upload_result = self.api.upload_blob(f.read())
                         
-                        # Add image with blob reference and alt text
-                        images.append({
-                            'blob': upload_result.blob,
-                            'alt': description
-                        })
+                        # Create Image object with blob reference and alt text
+                        images.append(
+                            models.AppBskyEmbedImages.Image(
+                                alt=description,
+                                image=upload_result.blob
+                            )
+                        )
                         logger.debug(f"Uploaded media {url} to Bluesky")
                     except Exception as e:
                         error_msg = f"Failed to upload media {url}: {e}"
@@ -295,7 +297,7 @@ class BlueskyClient(SocialMediaClient):
                 
                 # Create embed with images if any were successfully uploaded
                 if images:
-                    embed = self.api.get_embed_images(images)
+                    embed = models.AppBskyEmbedImages.Main(images=images)
             
             # Send post using the ATProto client
             result = self.api.send_post(text_builder, embed=embed)
