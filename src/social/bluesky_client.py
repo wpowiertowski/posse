@@ -39,6 +39,7 @@ Security:
     - App password should be kept secret
 """
 import logging
+import re
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
 from atproto import Client, client_utils, models
@@ -133,6 +134,68 @@ class BlueskyClient(SocialMediaClient):
         
         self.api = Client(base_url=self.instance_url)
         self.api.login(login=self.handle, password=self.app_password)
+    
+    def _build_rich_text(self, content: str) -> client_utils.TextBuilder:
+        """Build rich text with proper formatting for links and hashtags.
+        
+        This method parses the content to detect URLs and hashtags, then uses
+        TextBuilder to properly format them as rich text facets. This ensures
+        that links are clickable and hashtags are searchable in Bluesky.
+        
+        Args:
+            content: Plain text content to parse and format
+            
+        Returns:
+            TextBuilder instance with properly formatted rich text
+            
+        Example:
+            >>> content = "Check out https://example.com #python #atproto"
+            >>> text_builder = self._build_rich_text(content)
+            >>> # text_builder now has clickable links and searchable hashtags
+        """
+        text_builder = client_utils.TextBuilder()
+        
+        # Regular expressions for detecting URLs and hashtags
+        # URL pattern matches http(s):// URLs
+        url_pattern = r'https?://[^\s]+'
+        # Hashtag pattern matches # followed by alphanumeric characters and underscores
+        hashtag_pattern = r'#\w+'
+        
+        # Find all URLs and hashtags with their positions
+        urls = [(m.group(), m.start(), m.end()) for m in re.finditer(url_pattern, content)]
+        hashtags = [(m.group(), m.start(), m.end()) for m in re.finditer(hashtag_pattern, content)]
+        
+        # Combine and sort all matches by position
+        all_matches = []
+        for url, start, end in urls:
+            all_matches.append(('url', url, start, end))
+        for hashtag, start, end in hashtags:
+            all_matches.append(('hashtag', hashtag, start, end))
+        all_matches.sort(key=lambda x: x[2])  # Sort by start position
+        
+        # Build the rich text by processing content in order
+        last_pos = 0
+        for match_type, match_text, start, end in all_matches:
+            # Add any plain text before this match
+            if start > last_pos:
+                text_builder.text(content[last_pos:start])
+            
+            # Add the formatted match
+            if match_type == 'url':
+                # For URLs, the display text is the URL itself
+                text_builder.link(match_text, match_text)
+            elif match_type == 'hashtag':
+                # For hashtags, remove the # for the tag value
+                tag_value = match_text[1:]  # Remove leading #
+                text_builder.tag(match_text, tag_value)
+            
+            last_pos = end
+        
+        # Add any remaining text after the last match
+        if last_pos < len(content):
+            text_builder.text(content[last_pos:])
+        
+        return text_builder
     
     @classmethod
     def from_config(cls, config: Dict[str, Any], notifier: Optional["PushoverNotifier"] = None) -> list["BlueskyClient"]:
@@ -243,9 +306,8 @@ class BlueskyClient(SocialMediaClient):
             return None
         
         try:
-            # Create text builder for rich text support
-            text_builder = client_utils.TextBuilder()
-            text_builder.text(content)
+            # Build rich text with proper formatting for links and hashtags
+            text_builder = self._build_rich_text(content)
             
             # Prepare embed for images if provided
             embed = None

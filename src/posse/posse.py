@@ -36,7 +36,7 @@ import logging
 import re
 from html.parser import HTMLParser
 from logging.handlers import RotatingFileHandler
-from typing import List, TYPE_CHECKING, Dict, Optional
+from typing import List, TYPE_CHECKING, Dict, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 if TYPE_CHECKING:
