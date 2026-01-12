@@ -22,6 +22,15 @@ Usage:
     ...         result = client.post("Hello from POSSE!")
     ...         print(f"Posted: {result["uri"]}")
 
+Rich Text Formatting:
+    The client automatically detects and formats:
+    - URLs: Converted to clickable links
+    - Hashtags: Made searchable (e.g., #python, #atproto)
+    
+    Example:
+    >>> client.post("Check out https://atproto.blue #python #sdk")
+    # Results in a post with a clickable link and searchable hashtags
+
 Authentication:
     You need an app password from Bluesky. You can obtain one by:
     1. Going to Bluesky Settings
