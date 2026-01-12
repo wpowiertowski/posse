@@ -165,18 +165,30 @@ class BlueskyClient(SocialMediaClient):
         text_builder = client_utils.TextBuilder()
         
         # Regular expressions for detecting URLs and hashtags
-        # URL pattern matches http(s):// URLs
+        # URL pattern matches http(s):// URLs, excluding common trailing punctuation
+        # This prevents URLs like "Visit https://example.com." from including the period
         url_pattern = r'https?://[^\s]+'
-        # Hashtag pattern matches # followed by alphanumeric characters and underscores
+        # Hashtag pattern matches # followed by word characters (letters, numbers, underscores)
+        # This follows standard social media conventions: #python, #python3, #my_tag
         hashtag_pattern = r'#\w+'
         
         # Find all URLs and hashtags with their positions
         urls = [(m.group(), m.start(), m.end()) for m in re.finditer(url_pattern, content)]
         hashtags = [(m.group(), m.start(), m.end()) for m in re.finditer(hashtag_pattern, content)]
         
+        # Post-process URLs to remove common trailing punctuation
+        processed_urls = []
+        for url, start, end in urls:
+            # Remove trailing punctuation that's likely not part of the URL
+            while url and url[-1] in '.,;!?)':
+                url = url[:-1]
+                end -= 1
+            if url:  # Only add if URL is not empty after stripping
+                processed_urls.append((url, start, end))
+        
         # Combine and sort all matches by position
         all_matches = []
-        for url, start, end in urls:
+        for url, start, end in processed_urls:
             all_matches.append(('url', url, start, end))
         for hashtag, start, end in hashtags:
             all_matches.append(('hashtag', hashtag, start, end))

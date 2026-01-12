@@ -779,6 +779,12 @@ class TestBlueskyClient(unittest.TestCase):
         facets = text_builder_arg.build_facets()
         self.assertEqual(len(facets), 3, "Expected three facets for three hashtags")
         
+        # Verify all facets are Tag type
+        for facet in facets:
+            self.assertEqual(len(facet.features), 1, "Each facet should have one feature")
+            self.assertIsInstance(facet.features[0], models.AppBskyRichtextFacet.Tag,
+                                "Facet should be a Tag type")
+        
         # Verify result
         self.assertIsNotNone(result)
     
@@ -818,6 +824,14 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify that facets were created (1 link + 2 hashtags = 3 facets)
         facets = text_builder_arg.build_facets()
         self.assertEqual(len(facets), 3, "Expected three facets (1 link, 2 hashtags)")
+        
+        # Verify facet types: first should be Link, rest should be Tags
+        self.assertIsInstance(facets[0].features[0], models.AppBskyRichtextFacet.Link,
+                            "First facet should be a Link")
+        self.assertIsInstance(facets[1].features[0], models.AppBskyRichtextFacet.Tag,
+                            "Second facet should be a Tag")
+        self.assertIsInstance(facets[2].features[0], models.AppBskyRichtextFacet.Tag,
+                            "Third facet should be a Tag")
         
         # Verify result
         self.assertIsNotNone(result)
@@ -898,6 +912,52 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify that no facets were created
         facets = text_builder_arg.build_facets()
         self.assertEqual(len(facets), 0, "Expected no facets for plain text")
+        
+        # Verify result
+        self.assertIsNotNone(result)
+    
+    @patch("social.bluesky_client.Client")
+    def test_post_with_url_ending_with_punctuation(self, mock_client_class):
+        """Test that URLs at the end of sentences don't include trailing punctuation."""
+        # Setup mock API
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        
+        # Mock send_post result
+        mock_result = MagicMock()
+        mock_result.uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789"
+        mock_result.cid = "bafyreiabc123"
+        mock_client.send_post.return_value = mock_result
+        
+        # Create client
+        client = BlueskyClient(
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
+        )
+        
+        # Post with URL ending with period
+        content = "Visit https://example.com."
+        result = client.post(content)
+        
+        # Verify send_post was called
+        mock_client.send_post.assert_called_once()
+        
+        # Get the TextBuilder argument
+        text_builder_arg = mock_client.send_post.call_args[0][0]
+        
+        # Verify the text is correct (should include the period after the URL)
+        self.assertEqual(text_builder_arg.build_text(), content)
+        
+        # Verify that facets were created
+        facets = text_builder_arg.build_facets()
+        self.assertEqual(len(facets), 1, "Expected one facet for the URL")
+        
+        # Verify the URL doesn't include the trailing period
+        self.assertIsInstance(facets[0].features[0], models.AppBskyRichtextFacet.Link)
+        # The link text should be the URL without the trailing period
+        link_text = content.encode('UTF-8')[facets[0].index.byte_start:facets[0].index.byte_end].decode('UTF-8')
+        self.assertEqual(link_text, "https://example.com", "URL should not include trailing period")
         
         # Verify result
         self.assertIsNotNone(result)
