@@ -199,8 +199,8 @@ def _format_post_content(post_title: str, post_url: str, excerpt: Optional[str],
     Returns:
         Formatted post content string
     """
-    # Create hashtags string (use different variable to preserve tags list)
-    hashtags = " ".join([f"#{x['name'].lower()}" for x in tags if not x['name'].isdigit()])
+    # Extract hashtags from post tags and append #posse
+    hashtags = " ".join([x['name'].lower() for x in tags if "#" in x["name"]])
     hashtags += " #posse"
     
     # Calculate space needed for tags and URL (with newlines)
