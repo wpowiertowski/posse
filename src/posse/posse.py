@@ -200,11 +200,13 @@ def _format_post_content(post_title: str, post_url: str, excerpt: Optional[str],
         Formatted post content string
     """
     # Extract hashtags from post tags and append #posse
-    hashtags = " ".join([x['name'].lower() for x in tags if "#" in x["name"]])
-    hashtags += " #posse"
+    hashtag_list = [x['name'].lower() for x in tags if "#" in x["name"]]
+    hashtag_list.append("#posse")
+    hashtags = " ".join(hashtag_list)
     
-    # Calculate space needed for tags and URL (with double newlines for spacing)
-    fixed_content = f"\n\n{hashtags}\n\n{post_url}"
+    # Calculate space needed for tags and URL (with newlines for spacing)
+    # Single newline after content, double newline before URL for visual separation
+    fixed_content = f"\n{hashtags}\n\n🔗 {post_url}"
     max_text_length = max_length - len(fixed_content)
     
     if excerpt:
