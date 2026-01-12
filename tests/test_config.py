@@ -23,12 +23,14 @@ def test_get_default_config():
 
 
 def test_load_config_from_project_root():
-    """Test loading config.yml from project root."""
+    """Test loading config when config.yml doesn't exist in project root."""
     config = load_config()
     
-    # Should load the actual config.yml from project root
+    # Should fall back to default config when config.yml is not present
     assert "pushover" in config
     assert "enabled" in config["pushover"]
+    # Default config has pushover disabled
+    assert config["pushover"]["enabled"] is False
 
 
 def test_load_config_with_explicit_path():
