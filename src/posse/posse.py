@@ -203,8 +203,8 @@ def _format_post_content(post_title: str, post_url: str, excerpt: Optional[str],
     hashtags = " ".join([x['name'].lower() for x in tags if "#" in x["name"]])
     hashtags += " #posse"
     
-    # Calculate space needed for tags and URL (with newlines)
-    fixed_content = f"\n{hashtags}\n{post_url}"
+    # Calculate space needed for tags and URL (with double newlines for spacing)
+    fixed_content = f"\n\n{hashtags}\n\n{post_url}"
     max_text_length = max_length - len(fixed_content)
     
     if excerpt:

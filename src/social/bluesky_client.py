@@ -280,7 +280,7 @@ class BlueskyClient(SocialMediaClient):
                     # Get description for this image if available
                     description = ""
                     if media_descriptions and i < len(media_descriptions):
-                        description = media_descriptions[i]
+                        description = media_descriptions[i] or ""
                     
                     # Upload to Bluesky
                     try:
