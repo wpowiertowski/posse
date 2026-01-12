@@ -19,6 +19,7 @@ Running Tests:
 import unittest
 from unittest.mock import patch, MagicMock, call
 
+from atproto import models
 from social.bluesky_client import BlueskyClient
 
 
@@ -364,12 +365,13 @@ class TestBlueskyClient(unittest.TestCase):
         self.assertEqual(len(clients), 1)
         self.assertFalse(clients[0].enabled)
     
+    @patch("social.bluesky_client.models")
     @patch("social.base_client.os.path.exists")
     @patch("social.base_client.os.makedirs")
     @patch("builtins.open", create=True)
     @patch("social.base_client.requests.get")
     @patch("social.bluesky_client.Client")
-    def test_post_with_single_image(self, mock_client_class, mock_requests_get, mock_open, mock_makedirs, mock_exists):
+    def test_post_with_single_image(self, mock_client_class, mock_requests_get, mock_open, mock_makedirs, mock_exists, mock_models):
         """Test posting status with a single image attachment."""
         # Mock that file doesn't exist (not cached)
         mock_exists.return_value = False
@@ -389,9 +391,15 @@ class TestBlueskyClient(unittest.TestCase):
         mock_blob_result.blob = MagicMock()
         mock_client.upload_blob.return_value = mock_blob_result
         
-        # Mock get_embed_images
-        mock_embed = MagicMock()
-        mock_client.get_embed_images.return_value = mock_embed
+        # Mock models.AppBskyEmbedImages
+        mock_image = MagicMock()
+        mock_image.alt = "A beautiful sunset"
+        mock_image.image = mock_blob_result.blob
+        mock_models.AppBskyEmbedImages.Image.return_value = mock_image
+        
+        mock_embed = MagicMock(spec=models.AppBskyEmbedImages.Main)
+        mock_embed.images = [mock_image]
+        mock_models.AppBskyEmbedImages.Main.return_value = mock_embed
         
         # Mock send_post result
         mock_result = MagicMock()
@@ -422,29 +430,31 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify blob was uploaded
         self.assertEqual(mock_client.upload_blob.call_count, 1)
         
-        # Verify get_embed_images was called with correct structure
-        mock_client.get_embed_images.assert_called_once()
-        embed_args = mock_client.get_embed_images.call_args[0][0]
-        self.assertEqual(len(embed_args), 1)
-        self.assertEqual(embed_args[0]['alt'], "A beautiful sunset")
-        self.assertEqual(embed_args[0]['blob'], mock_blob_result.blob)
+        # Verify models were called correctly
+        mock_models.AppBskyEmbedImages.Image.assert_called_once_with(
+            alt="A beautiful sunset",
+            image=mock_blob_result.blob
+        )
+        mock_models.AppBskyEmbedImages.Main.assert_called_once()
         
         # Verify send_post was called with embed
         mock_client.send_post.assert_called_once()
         send_post_call = mock_client.send_post.call_args
-        self.assertEqual(send_post_call[1]['embed'], mock_embed)
+        embed = send_post_call[1]['embed']
+        self.assertEqual(embed, mock_embed)
         
         # Verify result
         self.assertIsNotNone(result)
         self.assertEqual(result["uri"], "at://did:plc:abc123/app.bsky.feed.post/xyz789")
         self.assertEqual(result["cid"], "bafyreiabc123")
     
+    @patch("social.bluesky_client.models")
     @patch("social.base_client.os.path.exists")
     @patch("social.base_client.os.makedirs")
     @patch("builtins.open", create=True)
     @patch("social.base_client.requests.get")
     @patch("social.bluesky_client.Client")
-    def test_post_with_multiple_images(self, mock_client_class, mock_requests_get, mock_open, mock_makedirs, mock_exists):
+    def test_post_with_multiple_images(self, mock_client_class, mock_requests_get, mock_open, mock_makedirs, mock_exists, mock_models):
         """Test posting status with multiple image attachments."""
         # Mock that files don't exist (not cached)
         mock_exists.return_value = False
@@ -468,9 +478,18 @@ class TestBlueskyClient(unittest.TestCase):
         mock_blob3.blob = MagicMock()
         mock_client.upload_blob.side_effect = [mock_blob1, mock_blob2, mock_blob3]
         
-        # Mock get_embed_images
-        mock_embed = MagicMock()
-        mock_client.get_embed_images.return_value = mock_embed
+        # Mock models.AppBskyEmbedImages
+        mock_image1 = MagicMock()
+        mock_image1.alt = "First image"
+        mock_image2 = MagicMock()
+        mock_image2.alt = "Second image"
+        mock_image3 = MagicMock()
+        mock_image3.alt = "Third image"
+        mock_models.AppBskyEmbedImages.Image.side_effect = [mock_image1, mock_image2, mock_image3]
+        
+        mock_embed = MagicMock(spec=models.AppBskyEmbedImages.Main)
+        mock_embed.images = [mock_image1, mock_image2, mock_image3]
+        mock_models.AppBskyEmbedImages.Main.return_value = mock_embed
         
         # Mock send_post result
         mock_result = MagicMock()
@@ -502,13 +521,15 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify all blobs were uploaded
         self.assertEqual(mock_client.upload_blob.call_count, 3)
         
-        # Verify get_embed_images was called with correct structure
-        mock_client.get_embed_images.assert_called_once()
-        embed_args = mock_client.get_embed_images.call_args[0][0]
-        self.assertEqual(len(embed_args), 3)
-        self.assertEqual(embed_args[0]['alt'], "First image")
-        self.assertEqual(embed_args[1]['alt'], "Second image")
-        self.assertEqual(embed_args[2]['alt'], "Third image")
+        # Verify models were called correctly
+        self.assertEqual(mock_models.AppBskyEmbedImages.Image.call_count, 3)
+        mock_models.AppBskyEmbedImages.Main.assert_called_once()
+        
+        # Verify send_post was called with embed
+        mock_client.send_post.assert_called_once()
+        send_post_call = mock_client.send_post.call_args
+        embed = send_post_call[1]['embed']
+        self.assertEqual(embed, mock_embed)
         
         # Verify result
         self.assertIsNotNone(result)
@@ -553,9 +574,6 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify upload_blob was NOT called (no successful download)
         mock_client.upload_blob.assert_not_called()
         
-        # Verify get_embed_images was NOT called (no images)
-        mock_client.get_embed_images.assert_not_called()
-        
         # Verify send_post was still called without embed
         mock_client.send_post.assert_called_once()
         send_post_call = mock_client.send_post.call_args
@@ -564,12 +582,13 @@ class TestBlueskyClient(unittest.TestCase):
         # Verify result
         self.assertIsNotNone(result)
     
+    @patch("social.bluesky_client.models")
     @patch("social.base_client.os.path.exists")
     @patch("social.base_client.os.makedirs")
     @patch("builtins.open", create=True)
     @patch("social.base_client.requests.get")
     @patch("social.bluesky_client.Client")
-    def test_post_without_image_descriptions(self, mock_client_class, mock_requests_get, mock_open, mock_makedirs, mock_exists):
+    def test_post_without_image_descriptions(self, mock_client_class, mock_requests_get, mock_open, mock_makedirs, mock_exists, mock_models):
         """Test posting with images but no alt text descriptions."""
         # Mock that file doesn't exist (not cached)
         mock_exists.return_value = False
@@ -589,9 +608,15 @@ class TestBlueskyClient(unittest.TestCase):
         mock_blob_result.blob = MagicMock()
         mock_client.upload_blob.return_value = mock_blob_result
         
-        # Mock get_embed_images
-        mock_embed = MagicMock()
-        mock_client.get_embed_images.return_value = mock_embed
+        # Mock models.AppBskyEmbedImages
+        mock_image = MagicMock()
+        mock_image.alt = ""
+        mock_image.image = mock_blob_result.blob
+        mock_models.AppBskyEmbedImages.Image.return_value = mock_image
+        
+        mock_embed = MagicMock(spec=models.AppBskyEmbedImages.Main)
+        mock_embed.images = [mock_image]
+        mock_models.AppBskyEmbedImages.Main.return_value = mock_embed
         
         # Mock send_post result
         mock_result = MagicMock()
@@ -612,11 +637,18 @@ class TestBlueskyClient(unittest.TestCase):
             media_urls=["https://example.com/image.jpg"]
         )
         
-        # Verify get_embed_images was called with empty alt text
-        mock_client.get_embed_images.assert_called_once()
-        embed_args = mock_client.get_embed_images.call_args[0][0]
-        self.assertEqual(len(embed_args), 1)
-        self.assertEqual(embed_args[0]['alt'], "")
+        # Verify models were called correctly with empty alt text
+        mock_models.AppBskyEmbedImages.Image.assert_called_once_with(
+            alt="",
+            image=mock_blob_result.blob
+        )
+        mock_models.AppBskyEmbedImages.Main.assert_called_once()
+        
+        # Verify send_post was called with embed
+        mock_client.send_post.assert_called_once()
+        send_post_call = mock_client.send_post.call_args
+        embed = send_post_call[1]['embed']
+        self.assertEqual(embed, mock_embed)
         
         # Verify result
         self.assertIsNotNone(result)
@@ -661,9 +693,6 @@ class TestBlueskyClient(unittest.TestCase):
         
         # Verify upload_blob was called
         mock_client.upload_blob.assert_called_once()
-        
-        # Verify get_embed_images was NOT called (no successful uploads)
-        mock_client.get_embed_images.assert_not_called()
         
         # Verify send_post was still called without embed
         mock_client.send_post.assert_called_once()
