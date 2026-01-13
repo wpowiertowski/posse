@@ -41,7 +41,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix={{branch}}-
             type=ref,event=branch
-            type=raw,value=${{ github.ref_name }},enable={{github.event_name == 'push'}}
+            type=raw,value=${{ github.ref_name }},enable=${{ github.event_name == 'push' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
