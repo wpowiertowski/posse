@@ -322,10 +322,8 @@ def _generate_missing_alt_text(images: List[str], media_descriptions: List[str],
         
         logger.info(f"Generating alt text for image {i+1}/{len(images)}: {image_url}")
         
-        # Get the cached image path (assumes image has been downloaded by a client)
-        # We'll use a temporary client instance just to get the cache path
-        temp_client = SocialMediaClient.__new__(SocialMediaClient)
-        cache_path = temp_client._get_image_cache_path(image_url)
+        # Get the cached image path using static method
+        cache_path = SocialMediaClient._get_image_cache_path(image_url)
         
         # Check if image is in cache
         if not Path(cache_path).exists():

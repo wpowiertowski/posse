@@ -108,7 +108,8 @@ class SocialMediaClient(ABC):
                 self.enabled = False
                 self.api = None
     
-    def _get_image_cache_path(self, url: str) -> str:
+    @staticmethod
+    def _get_image_cache_path(url: str, default_extension: str = ".jpg") -> str:
         """Generate a predictable cache path for an image URL.
         
         Uses SHA-256 hash of the URL to create a consistent filename, allowing
@@ -116,6 +117,7 @@ class SocialMediaClient(ABC):
         
         Args:
             url: URL of the image
+            default_extension: Default file extension if URL doesn't have one (default: .jpg)
             
         Returns:
             Full path to the cached image file
@@ -124,7 +126,7 @@ class SocialMediaClient(ABC):
         url_hash = hashlib.sha256(url.encode()).hexdigest()
         
         # Extract file extension from URL, use default if not present
-        suffix = os.path.splitext(url)[1] or self.DEFAULT_IMAGE_EXTENSION
+        suffix = os.path.splitext(url)[1] or default_extension
         
         # Create filename with hash and extension
         filename = f"{url_hash}{suffix}"
@@ -161,7 +163,7 @@ class SocialMediaClient(ABC):
         """
         try:
             # Get predictable cache path for this URL
-            cache_path = self._get_image_cache_path(url)
+            cache_path = SocialMediaClient._get_image_cache_path(url, self.DEFAULT_IMAGE_EXTENSION)
             
             # Check if already downloaded
             # Note: There's a TOCTOU race here - file could be deleted or incomplete
@@ -211,7 +213,7 @@ class SocialMediaClient(ABC):
         """
         for url in media_urls:
             try:
-                cache_path = self._get_image_cache_path(url)
+                cache_path = SocialMediaClient._get_image_cache_path(url, self.DEFAULT_IMAGE_EXTENSION)
                 if os.path.exists(cache_path):
                     os.unlink(cache_path)
                     logger.debug(f"Removed cached image {cache_path}")

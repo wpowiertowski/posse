@@ -16,6 +16,10 @@ import os
 from llm.llm_client import LLMClient
 
 
+# Minimal 1x1 pixel PNG image for testing (base64 encoded)
+MINIMAL_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
+
 @pytest.fixture
 def mock_config():
     """Provide a mock configuration dictionary."""
@@ -45,10 +49,8 @@ def mock_config_disabled():
 def mock_image_file(tmp_path):
     """Create a temporary image file for testing."""
     image_path = tmp_path / "test_image.jpg"
-    # Create a minimal valid image file (1x1 pixel)
-    image_data = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-    )
+    # Create a minimal valid image file (1x1 pixel PNG)
+    image_data = base64.b64decode(MINIMAL_PNG_BASE64)
     image_path.write_bytes(image_data)
     return str(image_path)
 
