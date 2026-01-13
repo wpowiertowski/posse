@@ -14,6 +14,7 @@ POSSE is a Docker-ready Python application that receives webhooks from your Ghos
 
 - **Ghost Webhook Integration**: Automatically receives and validates Ghost post webhooks
 - **Multi-Account Support**: Configure unlimited Mastodon and Bluesky accounts
+- **LLM Alt Text Generation**: Optional AI-powered alt text generation for images using vision models
 - **Pushover Notifications**: Get real-time push notifications for important events:
   - 📝 New post received and validated
   - ✅ Post queued for syndication
@@ -64,6 +65,13 @@ Your Ghost blog remains the source of truth while your content reaches audiences
 Create a `config.yml` file in the project root (use `config.example.yml` as a template):
 
 ```yaml
+# Optional: Enable LLM for automatic alt text generation
+llm:
+  enabled: false  # Set to true to enable automatic alt text generation
+  url: "llama-vision"  # Hostname or URL of the LLM service
+  port: 5000  # Port number for the LLM service
+  # timeout: 60  # Optional: Request timeout in seconds (default: 60)
+
 # Optional: Enable Pushover notifications
 pushover:
   enabled: true
@@ -92,6 +100,54 @@ bluesky:
       app_password_file: "/run/secrets/bluesky_main_app_password"
       tags: ["personal", "blog"]  # Filter by tags
 ```
+
+### LLM-Powered Alt Text Generation (Optional)
+
+POSSE can automatically generate descriptive alt text for images that don't already have alt text in your Ghost posts. This feature uses a vision-capable language model (like Llama 3.2 Vision) to analyze images and create accessible descriptions.
+
+**Benefits**:
+- Improves accessibility for visually impaired users
+- Automatically adds alt text to images without manual intervention
+- Only processes images that are missing alt text
+
+**Setup**:
+
+1. **Deploy a vision-capable LLM service**. You can use the [llama-vision Docker container](https://github.com/wpowiertowski/docker/tree/main/llama-vision) which provides a compatible API.
+
+2. **Enable LLM in config.yml**:
+   ```yaml
+   llm:
+     enabled: true
+     url: "llama-vision"  # Hostname of your LLM service
+     port: 5000
+   ```
+
+3. **Add to docker-compose.yml** (if using Docker):
+   ```yaml
+   services:
+     posse:
+       # ... existing config ...
+       depends_on:
+         - llama-vision
+     
+     llama-vision:
+       image: your-llama-vision-image:latest
+       ports:
+         - "5000:5000"
+       environment:
+         MODEL_PATH: /models
+         MODEL_NAME: llama-3.2-11b-vision-instruct-q4_k_m.gguf
+       volumes:
+         - ./models:/models
+   ```
+
+**How it works**:
+- When a post is received, POSSE checks each image for existing alt text
+- If alt text is missing, the image is sent to the LLM service
+- The LLM generates a concise, descriptive caption
+- The generated alt text is used when posting to social media
+
+**Note**: LLM processing adds latency to post syndication (typically 5-30 seconds per image depending on your hardware). Images with existing alt text are not processed.
 
 ### Tag-Based Filtering
 
