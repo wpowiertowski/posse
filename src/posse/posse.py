@@ -39,6 +39,7 @@ from logging.handlers import RotatingFileHandler
 from typing import List, TYPE_CHECKING, Dict, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
+from pathlib import Path
 
 if TYPE_CHECKING:
     from social.mastodon_client import MastodonClient
@@ -293,6 +294,56 @@ def _prepare_content(post: Dict[str, Any], max_length: int) -> tuple[str, List[s
     return post_content, images, media_descriptions, tags
 
 
+def _generate_missing_alt_text(images: List[str], media_descriptions: List[str], llm_client) -> List[str]:
+    """Generate alt text for images that don't have it using LLM.
+    
+    Args:
+        images: List of image URLs
+        media_descriptions: List of existing alt text (empty strings for missing)
+        llm_client: LLMClient instance for generating alt text
+        
+    Returns:
+        Updated list of media descriptions with generated alt text where needed
+    """
+    if not llm_client or not llm_client.enabled:
+        logger.debug("LLM client not available, skipping alt text generation")
+        return media_descriptions
+    
+    # Import here to avoid issues if clients haven't downloaded images yet
+    from social.base_client import SocialMediaClient
+    
+    updated_descriptions = list(media_descriptions)  # Create a copy
+    
+    for i, (image_url, alt_text) in enumerate(zip(images, media_descriptions)):
+        # Skip if alt text already exists
+        if alt_text and alt_text.strip():
+            logger.debug(f"Image {i+1}/{len(images)} already has alt text, skipping")
+            continue
+        
+        logger.info(f"Generating alt text for image {i+1}/{len(images)}: {image_url}")
+        
+        # Get the cached image path (assumes image has been downloaded by a client)
+        # We'll use a temporary client instance just to get the cache path
+        temp_client = SocialMediaClient.__new__(SocialMediaClient)
+        cache_path = temp_client._get_image_cache_path(image_url)
+        
+        # Check if image is in cache
+        if not Path(cache_path).exists():
+            logger.warning(f"Image not yet downloaded to cache: {image_url}, skipping alt text generation")
+            continue
+        
+        # Generate alt text using LLM
+        generated_alt = llm_client.generate_alt_text(cache_path)
+        
+        if generated_alt:
+            updated_descriptions[i] = generated_alt
+            logger.info(f"Generated alt text for image {i+1}: {generated_alt[:80]}...")
+        else:
+            logger.warning(f"Failed to generate alt text for image {i+1}")
+    
+    return updated_descriptions
+
+
 def _filter_clients_by_tags(post_tags: List[Dict[str, str]], all_clients: List[tuple[str, Any]]) -> List[tuple[str, Any]]:
     """Filter clients based on post tags.
     
@@ -353,15 +404,21 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
     # Import notifier here to avoid circular imports
     from config import load_config
     from notifications.pushover import PushoverNotifier
+    from llm import LLMClient
     
     # Load config and initialize notifier with error handling for test environments
     try:
         config = load_config()
         notifier = PushoverNotifier.from_config(config)
+        llm_client = LLMClient.from_config(config)
     except Exception as e:
         logger.warning(f"Failed to initialize notifier (this is expected in test environments): {e}")
         # Create a disabled notifier as fallback
         notifier = PushoverNotifier(config_enabled=False)
+        llm_client = LLMClient(url="", enabled=False)
+    
+    if llm_client.enabled:
+        logger.info(f"LLM client enabled for automatic alt text generation")
     
     logger.info(f"Event processor thread started with {len(mastodon_clients)} Mastodon clients and {len(bluesky_clients)} Bluesky clients")
     
@@ -402,6 +459,24 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
             # Filter clients by tags
             filtered_clients = _filter_clients_by_tags(tags, all_clients)
             logger.info(f"Posting to {len(filtered_clients)} of {len(all_clients)} enabled accounts after tag filtering")
+            
+            # Pre-download images if we have any and LLM is enabled for alt text generation
+            if images and llm_client.enabled:
+                logger.info(f"Pre-downloading {len(images)} images for alt text generation")
+                # Use the first available client to download images
+                download_client = None
+                if filtered_clients:
+                    download_client = filtered_clients[0][1]
+                
+                if download_client:
+                    # Download all images to cache
+                    for image_url in images:
+                        download_client._download_image(image_url)
+                    
+                    # Generate missing alt text
+                    media_descriptions = _generate_missing_alt_text(images, media_descriptions, llm_client)
+                else:
+                    logger.warning("No clients available to download images for alt text generation")
             
             # Post to all accounts in parallel using thread pool
             def post_to_account(platform: str, client, title: str, url: str, excerpt: Optional[str], tags: List[Dict[str, str]], media_urls: List[str], media_descriptions: List[str]) -> Dict[str, any]:

@@ -1,6 +1,15 @@
 # POSSE Multi-Account Configuration Example
 # This is a comprehensive example showing multi-account setup for Mastodon and Bluesky
 
+# LLM Vision Service (Optional)
+# Configure a vision-capable LLM service (like Llama 3.2 Vision) to automatically
+# generate alt text for images that don't already have alt text in Ghost posts
+llm:
+  enabled: false  # Set to true to enable automatic alt text generation
+  url: "llama-vision"  # Hostname or URL of the LLM service (without http://)
+  port: 5000  # Port number for the LLM service
+  # timeout: 60  # Optional: Request timeout in seconds (default: 60)
+
 # Pushover Push Notifications
 # Optional: Get notified when posts are received and queued
 pushover:

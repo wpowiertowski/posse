@@ -10,7 +10,8 @@ packages = [
     { include = "schema", from = "src" },
     { include = "notifications", from = "src" },
     { include = "config", from = "src" },
-    { include = "social", from = "src" }
+    { include = "social", from = "src" },
+    { include = "llm", from = "src" }
 ]
 
 [tool.poetry.dependencies]
