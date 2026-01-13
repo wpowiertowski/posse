@@ -1,0 +1,110 @@
+version: '3.8'
+
+# Example Docker Compose configuration showing POSSE with LLM alt text generation
+# This is a complete setup including Ghost blog, MySQL, POSSE, and Llama Vision service
+
+services:
+  # MySQL database for Ghost
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+      MYSQL_DATABASE: ghost
+      MYSQL_USER: ghost
+      MYSQL_PASSWORD_FILE: /run/secrets/mysql_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+    secrets:
+      - mysql_root_password
+      - mysql_password
+    networks:
+      - ghost_network
+
+  # Ghost blog
+  ghost:
+    image: ghost:5-alpine
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    environment:
+      url: https://yourblog.com
+      database__client: mysql
+      database__connection__host: mysql
+      database__connection__user: ghost
+      database__connection__password__file: /run/secrets/mysql_password
+      database__connection__database: ghost
+    volumes:
+      - ghost_content:/var/lib/ghost/content
+    secrets:
+      - mysql_password
+    networks:
+      - ghost_network
+    ports:
+      - "2368:2368"
+
+  # POSSE - Syndication service
+  posse:
+    image: wpowiertowski/posse:latest
+    restart: unless-stopped
+    depends_on:
+      - llama-vision  # Optional: only needed if LLM is enabled
+    volumes:
+      - ./config.yml:/app/config.yml:ro
+    secrets:
+      - pushover_app_token
+      - pushover_user_key
+      - mastodon_personal_access_token
+      - bluesky_main_app_password
+    networks:
+      - ghost_network
+    ports:
+      - "5000:5000"
+    environment:
+      # Optional: Enable debug mode for development
+      # POSSE_DEBUG: "true"
+
+  # Llama Vision - LLM service for alt text generation (OPTIONAL)
+  # Remove this service if you don't want LLM-powered alt text generation
+  llama-vision:
+    # Replace with your llama-vision image
+    # See: https://github.com/wpowiertowski/docker/tree/main/llama-vision
+    image: your-registry/llama-vision:latest
+    restart: unless-stopped
+    environment:
+      MODEL_PATH: /models
+      MODEL_NAME: llama-3.2-11b-vision-instruct-q4_k_m.gguf
+      CLIP_MODEL_NAME: mmproj-model-f16.gguf
+      # Adjust based on your CPU cores (default: half of available cores)
+      N_THREADS: 4
+      PORT: 5000
+    volumes:
+      # Mount directory containing your GGUF model files
+      - ./models:/models:ro
+    networks:
+      - ghost_network
+    # No need to expose port externally, only POSSE needs access
+    # ports:
+    #   - "5001:5000"
+
+volumes:
+  mysql_data:
+  ghost_content:
+
+networks:
+  ghost_network:
+    driver: bridge
+
+secrets:
+  mysql_root_password:
+    file: ./secrets/mysql_root_password.txt
+  mysql_password:
+    file: ./secrets/mysql_password.txt
+  pushover_app_token:
+    file: ./secrets/pushover_app_token.txt
+  pushover_user_key:
+    file: ./secrets/pushover_user_key.txt
+  mastodon_personal_access_token:
+    file: ./secrets/mastodon_personal_access_token.txt
+  bluesky_main_app_password:
+    file: ./secrets/bluesky_main_app_password.txt
