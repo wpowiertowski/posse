@@ -710,8 +710,24 @@ def main(debug: bool = False) -> None:
         else:
             logger.warning(f"  - Bluesky account '{client.account_name}' disabled (missing credentials or config)")
     
-    # Create Flask app with events_queue passed as dependency
-    app = create_app(events_queue)
+    # Initialize LLM client from config
+    from llm import LLMClient
+    logger.info("Initializing LLM client from configuration")
+    llm_client = LLMClient.from_config(config)
+    if llm_client.enabled:
+        logger.info(f"  - LLM client enabled for {llm_client.base_url}")
+    else:
+        logger.info("  - LLM client disabled")
+    
+    # Create Flask app with events_queue and service clients passed as dependencies
+    app = create_app(
+        events_queue, 
+        notifier=notifier, 
+        config=config,
+        mastodon_clients=mastodon_clients,
+        bluesky_clients=bluesky_clients,
+        llm_client=llm_client
+    )
     
     # Load Gunicorn configuration from ghost package
     config_path = os.path.join(os.path.dirname(__file__), "..", "ghost", "gunicorn_config.py")

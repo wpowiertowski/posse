@@ -316,3 +316,25 @@ class PushoverNotifier:
             message=message,
             priority=1  # High priority for errors
         )
+    
+    def send_test_notification(self) -> bool:
+        """Send a low-priority test notification to verify Pushover service is working.
+        
+        This method is used by the healthcheck endpoint to verify that the
+        Pushover notification service is properly configured and operational.
+        
+        Returns:
+            True if test notification sent successfully, False otherwise
+            
+        Example:
+            >>> notifier = PushoverNotifier.from_config(config)
+            >>> if notifier.send_test_notification():
+            ...     print("Pushover service is healthy")
+        """
+        title = "🔔 POSSE Health Check"
+        message = "This is a test notification from the POSSE healthcheck endpoint."
+        return self._send_notification(
+            title=title,
+            message=message,
+            priority=-1  # Low priority (no sound)
+        )
