@@ -100,7 +100,9 @@ logger = logging.getLogger(__name__)
 validator = Draft7Validator(GHOST_POST_SCHEMA)
 
 
-def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None, config: Optional[Dict[str, Any]] = None) -> Flask:
+def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None, config: Optional[Dict[str, Any]] = None,
+               mastodon_clients: Optional[list] = None, bluesky_clients: Optional[list] = None, 
+               llm_client: Optional[Any] = None) -> Flask:
     """Factory function to create and configure the Flask application.
     
     This factory pattern allows dependency injection of the events_queue, notifier,
@@ -110,6 +112,9 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         events_queue: Thread-safe Queue instance for validated Ghost posts
         notifier: Optional PushoverNotifier instance (if None, will be created from config)
         config: Optional configuration dictionary (if None, will be loaded from config.yml)
+        mastodon_clients: Optional list of MastodonClient instances
+        bluesky_clients: Optional list of BlueskyClient instances
+        llm_client: Optional LLMClient instance
         
     Returns:
         Configured Flask application instance with webhook and health endpoints
@@ -132,6 +137,11 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     if notifier is None:
         notifier = PushoverNotifier.from_config(config)
     app.config["PUSHOVER_NOTIFIER"] = notifier
+    
+    # Store service clients for healthcheck endpoint
+    app.config["MASTODON_CLIENTS"] = mastodon_clients or []
+    app.config["BLUESKY_CLIENTS"] = bluesky_clients or []
+    app.config["LLM_CLIENT"] = llm_client
     
     @app.route("/webhook/ghost", methods=["POST"])
     def receive_ghost_post():
@@ -300,6 +310,191 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             {"status": "healthy"}
         """
         return jsonify({"status": "healthy"}), 200
+    
+    @app.route("/healthcheck", methods=["POST"])
+    def comprehensive_healthcheck():
+        """Comprehensive health check endpoint that verifies all enabled services.
+        
+        This endpoint checks the status of all configured services:
+        - Mastodon accounts (verify credentials)
+        - Bluesky accounts (verify credentials)
+        - LLM service (health check)
+        - Pushover notification service (test notification)
+        
+        Request:
+            POST /healthcheck
+            Content-Type: application/json
+            
+        Success Response (200):
+            {
+              "status": "healthy",  // or "unhealthy" if any service fails
+              "timestamp": "2026-01-16T17:30:00.000Z",
+              "services": {
+                "mastodon": {
+                  "enabled": true,
+                  "accounts": {
+                    "personal": {"status": "healthy", "username": "@user"},
+                    "tech": {"status": "unhealthy", "error": "Invalid token"}
+                  }
+                },
+                "bluesky": {
+                  "enabled": true,
+                  "accounts": {
+                    "main": {"status": "healthy", "handle": "user.bsky.social"}
+                  }
+                },
+                "llm": {"enabled": true, "status": "healthy"},
+                "pushover": {"enabled": true, "status": "healthy"}
+              }
+            }
+        
+        Returns:
+            tuple: (JSON response, 200 status code)
+            
+        Example:
+            $ curl -X POST http://localhost:5000/healthcheck
+        """
+        from datetime import datetime
+        
+        # Get service clients from app config
+        mastodon_clients = current_app.config.get("MASTODON_CLIENTS", [])
+        bluesky_clients = current_app.config.get("BLUESKY_CLIENTS", [])
+        llm_client = current_app.config.get("LLM_CLIENT")
+        notifier = current_app.config.get("PUSHOVER_NOTIFIER")
+        
+        # Initialize response structure
+        response = {
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "services": {}
+        }
+        
+        overall_healthy = True
+        
+        # Check Mastodon clients
+        mastodon_status = {
+            "enabled": len(mastodon_clients) > 0,
+            "accounts": {}
+        }
+        
+        for client in mastodon_clients:
+            if not client.enabled:
+                continue
+            
+            account_name = client.account_name
+            try:
+                account_info = client.verify_credentials()
+                if account_info:
+                    mastodon_status["accounts"][account_name] = {
+                        "status": "healthy",
+                        "username": f"@{account_info.get('username', 'unknown')}"
+                    }
+                    logger.info(f"Healthcheck: Mastodon account '{account_name}' is healthy")
+                else:
+                    mastodon_status["accounts"][account_name] = {
+                        "status": "unhealthy",
+                        "error": "Failed to verify credentials"
+                    }
+                    overall_healthy = False
+                    logger.warning(f"Healthcheck: Mastodon account '{account_name}' failed credential verification")
+            except Exception as e:
+                mastodon_status["accounts"][account_name] = {
+                    "status": "unhealthy",
+                    "error": str(e)
+                }
+                overall_healthy = False
+                logger.error(f"Healthcheck: Mastodon account '{account_name}' error: {e}")
+        
+        response["services"]["mastodon"] = mastodon_status
+        
+        # Check Bluesky clients
+        bluesky_status = {
+            "enabled": len(bluesky_clients) > 0,
+            "accounts": {}
+        }
+        
+        for client in bluesky_clients:
+            if not client.enabled:
+                continue
+            
+            account_name = client.account_name
+            try:
+                account_info = client.verify_credentials()
+                if account_info:
+                    bluesky_status["accounts"][account_name] = {
+                        "status": "healthy",
+                        "handle": account_info.get('handle', 'unknown')
+                    }
+                    logger.info(f"Healthcheck: Bluesky account '{account_name}' is healthy")
+                else:
+                    bluesky_status["accounts"][account_name] = {
+                        "status": "unhealthy",
+                        "error": "Failed to verify credentials"
+                    }
+                    overall_healthy = False
+                    logger.warning(f"Healthcheck: Bluesky account '{account_name}' failed credential verification")
+            except Exception as e:
+                bluesky_status["accounts"][account_name] = {
+                    "status": "unhealthy",
+                    "error": str(e)
+                }
+                overall_healthy = False
+                logger.error(f"Healthcheck: Bluesky account '{account_name}' error: {e}")
+        
+        response["services"]["bluesky"] = bluesky_status
+        
+        # Check LLM service
+        llm_status = {
+            "enabled": llm_client is not None and llm_client.enabled
+        }
+        
+        if llm_status["enabled"]:
+            try:
+                is_healthy = llm_client._check_health()
+                if is_healthy:
+                    llm_status["status"] = "healthy"
+                    logger.info("Healthcheck: LLM service is healthy")
+                else:
+                    llm_status["status"] = "unhealthy"
+                    llm_status["error"] = "LLM service health check failed"
+                    overall_healthy = False
+                    logger.warning("Healthcheck: LLM service health check failed")
+            except Exception as e:
+                llm_status["status"] = "unhealthy"
+                llm_status["error"] = str(e)
+                overall_healthy = False
+                logger.error(f"Healthcheck: LLM service error: {e}")
+        
+        response["services"]["llm"] = llm_status
+        
+        # Check Pushover service
+        pushover_status = {
+            "enabled": notifier is not None and notifier.enabled
+        }
+        
+        if pushover_status["enabled"]:
+            try:
+                test_result = notifier.send_test_notification()
+                if test_result:
+                    pushover_status["status"] = "healthy"
+                    logger.info("Healthcheck: Pushover service is healthy")
+                else:
+                    pushover_status["status"] = "unhealthy"
+                    pushover_status["error"] = "Failed to send test notification"
+                    overall_healthy = False
+                    logger.warning("Healthcheck: Pushover service failed to send test notification")
+            except Exception as e:
+                pushover_status["status"] = "unhealthy"
+                pushover_status["error"] = str(e)
+                overall_healthy = False
+                logger.error(f"Healthcheck: Pushover service error: {e}")
+        
+        response["services"]["pushover"] = pushover_status
+        
+        # Set overall status
+        response["status"] = "healthy" if overall_healthy else "unhealthy"
+        
+        return jsonify(response), 200
     
     return app
 
