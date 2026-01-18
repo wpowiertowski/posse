@@ -225,8 +225,15 @@ def _extract_post_data(post: Dict[str, Any]) -> tuple[str, str, str, List[str], 
         except Exception as e:
             logger.warning(f"Failed to parse HTML for images: {e}")
     
-    # Convert to sorted list for consistent ordering
-    images = sorted(list(images))
+    # Convert to sorted list for consistent ordering, with featured image first
+    images_list = sorted(list(images))
+    
+    # Ensure featured image is first if it exists
+    if feature_image and feature_image in images_list:
+        images_list.remove(feature_image)
+        images_list.insert(0, feature_image)
+    
+    images = images_list
     
     # Create media descriptions list matching images order
     media_descriptions = [alt_text_map.get(img, "") for img in images]

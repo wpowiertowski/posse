@@ -116,9 +116,13 @@ def test_extract_post_data_filters_external_images():
     
     # Should extract only local images (feature + 2 local from HTML)
     assert len(images) == 3
-    assert "https://myblog.com/content/images/feature.jpg" in images
-    assert "https://myblog.com/content/images/local1.jpg" in images
-    assert "https://myblog.com/content/images/local2.jpg" in images
+    
+    # Featured image should be first
+    assert images[0] == "https://myblog.com/content/images/feature.jpg"
+    
+    # Other images should be in alphabetical order
+    assert images[1] == "https://myblog.com/content/images/local1.jpg"
+    assert images[2] == "https://myblog.com/content/images/local2.jpg"
     
     # External images should not be included
     assert "https://wikipedia.org/external.jpg" not in images
@@ -203,6 +207,15 @@ def test_extract_post_data_with_real_fixture():
     # All images in the fixture are from behindtheviewfinder.com, so all should be included
     assert len(images) == 5
     assert all("behindtheviewfinder.com" in img for img in images)
+    
+    # Featured image (antelope5.jpg) should be first, even though alphabetically it would be last
+    assert images[0] == "https://behindtheviewfinder.com/content/images/2026/01/antelope5.jpg"
+    
+    # Other images should follow in alphabetical order
+    assert images[1] == "https://behindtheviewfinder.com/content/images/2026/01/antelope1-1.jpg"
+    assert images[2] == "https://behindtheviewfinder.com/content/images/2026/01/antelope2-1.jpg"
+    assert images[3] == "https://behindtheviewfinder.com/content/images/2026/01/antelope3-1.jpg"
+    assert images[4] == "https://behindtheviewfinder.com/content/images/2026/01/antelope4-1.jpg"
 
 
 def test_extract_post_data_preserves_alt_text():
@@ -226,3 +239,81 @@ def test_extract_post_data_preserves_alt_text():
     assert len(media_descriptions) == 1
     assert images[0] == "https://myblog.com/local.jpg"
     assert media_descriptions[0] == "Local alt text"
+
+
+def test_feature_image_is_first_in_list():
+    """Test that featured image is always first in the images list."""
+    post = {
+        "id": "test123",
+        "title": "Test Post",
+        "url": "https://myblog.com/test-post",
+        "custom_excerpt": "This is a test",
+        "tags": [],
+        "feature_image": "https://myblog.com/content/images/feature-zebra.jpg",  # Would be last alphabetically
+        "html": """
+            <img src="https://myblog.com/content/images/image-alpha.jpg" alt="Image A">
+            <img src="https://myblog.com/content/images/image-beta.jpg" alt="Image B">
+            <img src="https://myblog.com/content/images/image-gamma.jpg" alt="Image C">
+        """
+    }
+    
+    title, url, excerpt, images, media_descriptions, tags = _extract_post_data(post)
+    
+    # Featured image should be first, even though it would be last alphabetically
+    assert len(images) == 4
+    assert images[0] == "https://myblog.com/content/images/feature-zebra.jpg"
+    assert media_descriptions[0] == ""  # Featured image has no alt text
+    
+    # Other images should be in alphabetical order
+    assert images[1] == "https://myblog.com/content/images/image-alpha.jpg"
+    assert images[2] == "https://myblog.com/content/images/image-beta.jpg"
+    assert images[3] == "https://myblog.com/content/images/image-gamma.jpg"
+
+
+def test_feature_image_first_with_alt_text():
+    """Test that featured image with alt text is first and alt text is preserved."""
+    post = {
+        "id": "test123",
+        "title": "Test Post",
+        "url": "https://myblog.com/test-post",
+        "custom_excerpt": "This is a test",
+        "tags": [],
+        "feature_image": "https://myblog.com/content/images/main-feature.jpg",
+        "feature_image_alt": "Main feature image description",
+        "html": """
+            <img src="https://myblog.com/content/images/content1.jpg" alt="Content 1">
+            <img src="https://myblog.com/content/images/content2.jpg" alt="Content 2">
+        """
+    }
+    
+    title, url, excerpt, images, media_descriptions, tags = _extract_post_data(post)
+    
+    # Featured image should be first with its alt text
+    assert len(images) == 3
+    assert images[0] == "https://myblog.com/content/images/main-feature.jpg"
+    assert media_descriptions[0] == "Main feature image description"
+    
+    # Other images should follow in alphabetical order with their alt text
+    assert images[1] == "https://myblog.com/content/images/content1.jpg"
+    assert media_descriptions[1] == "Content 1"
+    assert images[2] == "https://myblog.com/content/images/content2.jpg"
+    assert media_descriptions[2] == "Content 2"
+
+
+def test_feature_image_when_no_html_images():
+    """Test that featured image is still first when there are no HTML images."""
+    post = {
+        "id": "test123",
+        "title": "Test Post",
+        "url": "https://myblog.com/test-post",
+        "custom_excerpt": "This is a test",
+        "tags": [],
+        "feature_image": "https://myblog.com/content/images/only-feature.jpg",
+        "html": "<p>No images in content</p>"
+    }
+    
+    title, url, excerpt, images, media_descriptions, tags = _extract_post_data(post)
+    
+    # Should have only the featured image
+    assert len(images) == 1
+    assert images[0] == "https://myblog.com/content/images/only-feature.jpg"
