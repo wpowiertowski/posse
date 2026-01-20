@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.0.2] - 2026-01-19
+
+### Added
+
+- POST /healthcheck endpoint to verify enabled services (#58)
+
+### Changed
+
+- Ensure featured image appears first in syndication media list (#59)
+- README documentation cleanup
+
+### Fixed
+
+- Docker publish workflow for tag pushes by disabling sha tag when no branch (v1.0.1a)
+
+
 ## [1.0.1] - 2026-01-15
 
 ### Added
@@ -61,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secure credential management using Docker secrets
 - JSON schema validation for all webhook payloads
 
+[1.0.2]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.2
 [1.0.1]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.1
 [1.0.0]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.0
 
