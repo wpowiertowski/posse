@@ -55,10 +55,11 @@ class SocialMediaClient(ABC):
         config_enabled: bool = True,
         account_name: Optional[str] = None,
         tags: Optional[List[str]] = None,
-        max_post_length: Optional[int] = None
+        max_post_length: Optional[int] = None,
+        split_multi_image_posts: bool = False
     ):
         """Initialize social media client with credentials.
-        
+
         Args:
             instance_url: URL of the social media instance (e.g., https://mastodon.social)
             access_token: Access token for API authentication
@@ -66,7 +67,8 @@ class SocialMediaClient(ABC):
             account_name: Optional name for this account (for logging)
             tags: Optional list of tags to filter posts (empty or None means all posts)
             max_post_length: Optional maximum post length for this account (uses platform default if None)
-            
+            split_multi_image_posts: Whether to split posts with multiple images into separate posts (default: False)
+
         Note:
             Posting will be disabled if:
             - config_enabled is False
@@ -78,7 +80,8 @@ class SocialMediaClient(ABC):
         self.api: Optional[Any] = None
         self.account_name = account_name or "unnamed"
         self.tags = tags if tags is not None else []
-        
+        self.split_multi_image_posts = split_multi_image_posts
+
         # Set max_post_length to instance-specific value or fall back to class constant
         if max_post_length is not None:
             self.max_post_length = max_post_length
@@ -282,20 +285,22 @@ class SocialMediaClient(ABC):
             access_token = read_secret_file(access_token_file) if access_token_file else None
             tags = account_config.get("tags", [])
             max_post_length = account_config.get("max_post_length")
-            
+            split_multi_image_posts = account_config.get("split_multi_image_posts", False)
+
             # Account is enabled if it has required fields
             enabled = bool(instance_url and access_token)
-            
+
             client = cls(
                 instance_url=instance_url,
                 access_token=access_token,
                 config_enabled=enabled,
                 account_name=account_name,
                 tags=tags,
-                max_post_length=max_post_length
+                max_post_length=max_post_length,
+                split_multi_image_posts=split_multi_image_posts
             )
             clients.append(client)
-        
+
         return clients
     
     @abstractmethod

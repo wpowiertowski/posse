@@ -524,18 +524,40 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                 # Submit all posting tasks
                 futures = []
                 for platform, client in filtered_clients:
-                    future = executor.submit(
-                        post_to_account,
-                        platform,
-                        client,
-                        title,
-                        url,
-                        excerpt,
-                        tags,
-                        images,
-                        media_descriptions
-                    )
-                    futures.append(future)
+                    # Check if this client should split multi-image posts
+                    if client.split_multi_image_posts and images and len(images) > 1:
+                        # Split into multiple posts, one image per post
+                        logger.info(f"Splitting {len(images)} images into separate posts for {platform} account '{client.account_name}'")
+                        for idx, image_url in enumerate(images):
+                            # Get the corresponding alt text for this image
+                            image_description = [media_descriptions[idx]] if idx < len(media_descriptions) else []
+
+                            future = executor.submit(
+                                post_to_account,
+                                platform,
+                                client,
+                                title,
+                                url,
+                                excerpt,
+                                tags,
+                                [image_url],  # Single image
+                                image_description  # Single description
+                            )
+                            futures.append(future)
+                    else:
+                        # Post all images together (current behavior)
+                        future = executor.submit(
+                            post_to_account,
+                            platform,
+                            client,
+                            title,
+                            url,
+                            excerpt,
+                            tags,
+                            images,
+                            media_descriptions
+                        )
+                        futures.append(future)
                 
                 # Wait for all posts to complete (with timeout)
                 results = []

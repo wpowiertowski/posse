@@ -97,10 +97,11 @@ class BlueskyClient(SocialMediaClient):
         account_name: Optional[str] = None,
         notifier: Optional["PushoverNotifier"] = None,
         tags: Optional[List[str]] = None,
-        max_post_length: Optional[int] = None
+        max_post_length: Optional[int] = None,
+        split_multi_image_posts: bool = False
     ):
         """Initialize Bluesky client with credentials.
-        
+
         Args:
             instance_url: URL of the Bluesky instance (e.g., https://bsky.social)
             handle: Bluesky handle (e.g., user.bsky.social)
@@ -111,6 +112,7 @@ class BlueskyClient(SocialMediaClient):
             notifier: PushoverNotifier instance for error notifications
             tags: Optional list of tags to filter posts (empty or None means all posts)
             max_post_length: Optional maximum post length for this account (uses platform default if None)
+            split_multi_image_posts: Whether to split posts with multiple images into separate posts (default: False)
         """
         # For Bluesky, app_password is the access_token equivalent
         if app_password is None and access_token is not None:
@@ -127,7 +129,8 @@ class BlueskyClient(SocialMediaClient):
             config_enabled=config_enabled,
             account_name=account_name,
             tags=tags,
-            max_post_length=max_post_length
+            max_post_length=max_post_length,
+            split_multi_image_posts=split_multi_image_posts
         )
     
     def _initialize_api(self) -> None:
@@ -268,10 +271,11 @@ class BlueskyClient(SocialMediaClient):
             app_password = read_secret_file(app_password_file) if app_password_file else None
             tags = account_config.get("tags", [])
             max_post_length = account_config.get("max_post_length")
-            
+            split_multi_image_posts = account_config.get("split_multi_image_posts", False)
+
             # Account is enabled if it has required fields
             enabled = bool(instance_url and handle and app_password)
-            
+
             client = cls(
                 instance_url=instance_url,
                 handle=handle,
@@ -280,7 +284,8 @@ class BlueskyClient(SocialMediaClient):
                 account_name=account_name,
                 notifier=notifier,
                 tags=tags,
-                max_post_length=max_post_length
+                max_post_length=max_post_length,
+                split_multi_image_posts=split_multi_image_posts
             )
             clients.append(client)
         
