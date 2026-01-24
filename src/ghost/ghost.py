@@ -355,17 +355,18 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             $ curl -X POST http://localhost:5000/healthcheck
         """
         from datetime import datetime
-        
+        from zoneinfo import ZoneInfo
+
         # Get service clients from app config
         mastodon_clients = current_app.config.get("MASTODON_CLIENTS", [])
         bluesky_clients = current_app.config.get("BLUESKY_CLIENTS", [])
         llm_client = current_app.config.get("LLM_CLIENT")
         notifier = current_app.config.get("PUSHOVER_NOTIFIER")
-        
+
         # Initialize response structure
         response = {
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat(),
             "services": {}
         }
         

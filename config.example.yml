@@ -27,6 +27,7 @@ mastodon:
       access_token_file: "/run/secrets/mastodon_personal_access_token"
       # tags: []  # Empty or omitted means this account receives ALL posts
       # max_post_length: 500  # Optional: Override default character limit (default: 500 for Mastodon)
+      # split_multi_image_posts: false  # Optional: Split posts with multiple images into separate posts, one image each (default: false)
     
     # Professional/Tech account - only receives tech-related posts
     - name: "tech"
@@ -46,6 +47,7 @@ mastodon:
       instance_url: "https://mastodon.archive.org"
       access_token_file: "/run/secrets/mastodon_archive_access_token"
       tags: []  # Empty list means this account receives ALL posts
+      split_multi_image_posts: true  # Split multi-image posts into separate posts
 
 # Bluesky Multi-Account Configuration
 # Same structure as Mastodon - configure multiple accounts
@@ -66,4 +68,5 @@ bluesky:
       app_password_file: "/run/secrets/bluesky_professional_app_password"
       tags: ["tech", "coding"]  # Only posts tagged with these
       max_post_length: 280  # Custom character limit for this account
+      # split_multi_image_posts: false  # Optional: Split posts with multiple images into separate posts, one image each (default: false)
 
