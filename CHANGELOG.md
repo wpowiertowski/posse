@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.0.3] - 2026-01-25
+
+### Added
+
+- Option to split Ghost posts with multiple images into individual syndicated posts (#60)
+- `#nosplit` hashtag to bypass post splitting on a per-post basis (#62)
+- Claude Code GitHub Workflow for automated assistance (#61)
+
+### Changed
+
+- Updated AGENTS.md to reflect Claude Code development guidelines
+
+
 ## [1.0.2] - 2026-01-19
 
 ### Added
@@ -77,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secure credential management using Docker secrets
 - JSON schema validation for all webhook payloads
 
+[1.0.3]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.3
 [1.0.2]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.2
 [1.0.1]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.1
 [1.0.0]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.0
