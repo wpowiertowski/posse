@@ -55,6 +55,9 @@ events_queue: Queue = Queue()
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Special tag to bypass post splitting
+NOSPLIT_TAG = "#nosplit"
+
 
 class ImageExtractor(HTMLParser):
     """HTML parser to extract image URLs and alt text from HTML content.
@@ -249,6 +252,34 @@ def _extract_post_data(post: Dict[str, Any]) -> tuple[str, str, str, List[str], 
     return post_title, post_url, excerpt, images, media_descriptions, tags
 
 
+def _has_nosplit_tag(tags: List[Dict[str, str]]) -> bool:
+    """Check if the nosplit tag is present in the post tags.
+
+    Args:
+        tags: List of tag dictionaries with 'name' and 'slug' fields
+
+    Returns:
+        True if #nosplit tag is present, False otherwise
+    """
+    for tag in tags:
+        tag_name = tag.get("name", "").lower()
+        if tag_name == NOSPLIT_TAG:
+            return True
+    return False
+
+
+def _filter_nosplit_tag(tags: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """Filter out the nosplit tag from the post tags.
+
+    Args:
+        tags: List of tag dictionaries with 'name' and 'slug' fields
+
+    Returns:
+        Filtered list of tags without the nosplit tag
+    """
+    return [tag for tag in tags if tag.get("name", "").lower() != NOSPLIT_TAG]
+
+
 def _format_post_content(post_title: str, post_url: str, excerpt: Optional[str], tags: List[Dict[str, str]], max_length: int) -> str:
     """Format post content for a specific platform with character limit.
     
@@ -262,8 +293,8 @@ def _format_post_content(post_title: str, post_url: str, excerpt: Optional[str],
     Returns:
         Formatted post content string
     """
-    # Extract hashtags from post tags and append #posse
-    hashtag_list = [x['name'].lower() for x in tags if "#" in x["name"]]
+    # Extract hashtags from post tags, excluding #nosplit, and append #posse
+    hashtag_list = [x['name'].lower() for x in tags if "#" in x["name"] and x['name'].lower() != NOSPLIT_TAG]
     hashtag_list.append("#posse")
     hashtags = " ".join(hashtag_list)
     
@@ -525,7 +556,14 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                 futures = []
                 for platform, client in filtered_clients:
                     # Check if this client should split multi-image posts
-                    if client.split_multi_image_posts and images and len(images) > 1:
+                    # Skip splitting if #nosplit tag is present
+                    should_split = (
+                        client.split_multi_image_posts
+                        and images
+                        and len(images) > 1
+                        and not _has_nosplit_tag(tags)
+                    )
+                    if should_split:
                         # Split into multiple posts, one image per post
                         logger.info(f"Splitting {len(images)} images into separate posts for {platform} account '{client.account_name}'")
                         for idx, image_url in enumerate(images):
@@ -545,6 +583,9 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                             )
                             futures.append(future)
                     else:
+                        # Log when nosplit tag bypasses splitting
+                        if client.split_multi_image_posts and images and len(images) > 1 and _has_nosplit_tag(tags):
+                            logger.info(f"Skipping split for {platform} account '{client.account_name}' due to {NOSPLIT_TAG} tag")
                         # Post all images together (current behavior)
                         future = executor.submit(
                             post_to_account,
