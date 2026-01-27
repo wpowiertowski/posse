@@ -1,0 +1,571 @@
+<!--
+Social Interactions Widget for Ghost Posts
+
+This widget displays social media interactions (comments, likes, reposts) from
+Mastodon and Bluesky for syndicated Ghost blog posts.
+
+INSTALLATION:
+1. Copy this entire file
+2. In Ghost Admin, go to your post → Settings → Code Injection → Post Footer
+3. Paste this code
+4. Replace POSSE_API_URL with your POSSE service URL
+5. Replace POST_ID with your Ghost post ID (or use {{@post.id}} in themes)
+
+For theme integration, save this as a partial and include it in post.hbs:
+{{> "social-interactions-widget"}}
+-->
+
+<div id="social-interactions-widget" data-post-id="POST_ID"></div>
+
+<script>
+(function() {
+  'use strict';
+
+  // Configuration
+  const CONFIG = {
+    apiUrl: 'https://POSSE_API_URL/api/interactions',  // Replace with your POSSE URL
+    postId: document.getElementById('social-interactions-widget').dataset.postId,
+    refreshInterval: 300000, // Refresh every 5 minutes (in milliseconds)
+    maxRepliesShown: 5 // Maximum number of replies to display
+  };
+
+  // State
+  let currentData = null;
+
+  // Fetch interactions from POSSE API
+  async function fetchInteractions() {
+    try {
+      const response = await fetch(`${CONFIG.apiUrl}/${CONFIG.postId}`);
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.log('No interaction data available yet');
+          return null;
+        }
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Failed to fetch interactions:', error);
+      return null;
+    }
+  }
+
+  // Calculate total engagement across all platforms
+  function calculateTotals(data) {
+    if (!data || !data.platforms) {
+      return { likes: 0, reposts: 0, replies: 0 };
+    }
+
+    let likes = 0;
+    let reposts = 0;
+    let replies = 0;
+
+    // Aggregate Mastodon
+    if (data.platforms.mastodon) {
+      Object.values(data.platforms.mastodon).forEach(account => {
+        likes += account.favorites || 0;
+        reposts += account.reblogs || 0;
+        replies += account.replies || 0;
+      });
+    }
+
+    // Aggregate Bluesky
+    if (data.platforms.bluesky) {
+      Object.values(data.platforms.bluesky).forEach(account => {
+        likes += account.likes || 0;
+        reposts += account.reposts || 0;
+        replies += account.replies || 0;
+      });
+    }
+
+    return { likes, reposts, replies };
+  }
+
+  // Format timestamp for display
+  function formatTimestamp(timestamp) {
+    if (!timestamp) return '';
+
+    try {
+      const date = new Date(timestamp);
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) return 'just now';
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      if (diffDays < 7) return `${diffDays}d ago`;
+
+      return date.toLocaleDateString();
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // Escape HTML to prevent XSS
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // Render Mastodon section
+  function renderMastodonSection(mastodon) {
+    if (!mastodon || Object.keys(mastodon).length === 0) {
+      return '';
+    }
+
+    let html = '<div class="platform-section mastodon-section">';
+    html += '<h4>';
+    html += '<svg class="platform-icon" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M23.193 7.879c0-5.206-3.411-6.732-3.411-6.732C18.062.357 15.108.025 12.041 0h-.076c-3.068.025-6.02.357-7.74 1.147 0 0-3.411 1.526-3.411 6.732 0 1.192-.023 2.618.015 4.129.124 5.092.934 10.109 5.641 11.355 2.17.574 4.034.695 5.535.612 2.722-.15 4.25-.972 4.25-.972l-.09-1.975s-1.945.613-4.129.539c-2.165-.074-4.449-.233-4.799-2.891a5.499 5.499 0 0 1-.048-.745s2.125.52 4.817.643c1.646.075 3.19-.097 4.758-.283 3.007-.359 5.625-2.212 5.954-3.905.517-2.665.475-6.507.475-6.507zm-4.024 6.709h-2.497V8.469c0-1.29-.543-1.944-1.628-1.944-1.2 0-1.802.776-1.802 2.312v3.349h-2.483v-3.349c0-1.536-.602-2.312-1.802-2.312-1.085 0-1.628.655-1.628 1.944v6.119H4.832V8.284c0-1.289.328-2.313.987-3.07.68-.758 1.569-1.146 2.674-1.146 1.278 0 2.246.491 2.886 1.474L12 6.585l.622-1.043c.64-.983 1.608-1.474 2.886-1.474 1.104 0 1.994.388 2.674 1.146.658.757.986 1.781.986 3.07v6.304z"/></svg>';
+    html += ' Mastodon';
+    html += '</h4>';
+
+    Object.entries(mastodon).forEach(([accountName, accountData]) => {
+      html += '<div class="account-stats">';
+      html += `<a href="${escapeHtml(accountData.post_url)}" target="_blank" rel="noopener" class="view-link">`;
+      html += `<strong>${accountData.favorites || 0}</strong> favorites, `;
+      html += `<strong>${accountData.reblogs || 0}</strong> boosts, `;
+      html += `<strong>${accountData.replies || 0}</strong> replies`;
+      html += ' →</a>';
+      html += '</div>';
+    });
+
+    html += '</div>';
+    return html;
+  }
+
+  // Render Bluesky section
+  function renderBlueskySection(bluesky) {
+    if (!bluesky || Object.keys(bluesky).length === 0) {
+      return '';
+    }
+
+    let html = '<div class="platform-section bluesky-section">';
+    html += '<h4>';
+    html += '<svg class="platform-icon" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>';
+    html += ' Bluesky';
+    html += '</h4>';
+
+    Object.entries(bluesky).forEach(([accountName, accountData]) => {
+      html += '<div class="account-stats">';
+      html += `<a href="${escapeHtml(accountData.post_url)}" target="_blank" rel="noopener" class="view-link">`;
+      html += `<strong>${accountData.likes || 0}</strong> likes, `;
+      html += `<strong>${accountData.reposts || 0}</strong> reposts, `;
+      html += `<strong>${accountData.replies || 0}</strong> replies`;
+      html += ' →</a>';
+      html += '</div>';
+    });
+
+    html += '</div>';
+    return html;
+  }
+
+  // Collect all replies from all platforms
+  function collectAllReplies(data) {
+    if (!data || !data.platforms) return [];
+
+    const replies = [];
+
+    // Collect Mastodon replies
+    if (data.platforms.mastodon) {
+      Object.entries(data.platforms.mastodon).forEach(([accountName, accountData]) => {
+        if (accountData.reply_previews) {
+          accountData.reply_previews.forEach(reply => {
+            replies.push({
+              ...reply,
+              platform: 'mastodon',
+              platform_account: accountName
+            });
+          });
+        }
+      });
+    }
+
+    // Collect Bluesky replies
+    if (data.platforms.bluesky) {
+      Object.entries(data.platforms.bluesky).forEach(([accountName, accountData]) => {
+        if (accountData.reply_previews) {
+          accountData.reply_previews.forEach(reply => {
+            replies.push({
+              ...reply,
+              platform: 'bluesky',
+              platform_account: accountName
+            });
+          });
+        }
+      });
+    }
+
+    // Sort by timestamp (newest first)
+    replies.sort((a, b) => {
+      const dateA = new Date(a.created_at || 0);
+      const dateB = new Date(b.created_at || 0);
+      return dateB - dateA;
+    });
+
+    return replies;
+  }
+
+  // Render reply previews
+  function renderReplies(data) {
+    const replies = collectAllReplies(data);
+
+    if (replies.length === 0) {
+      return '';
+    }
+
+    let html = '<div class="replies-section">';
+    html += '<h4>Recent Comments</h4>';
+
+    const displayReplies = replies.slice(0, CONFIG.maxRepliesShown);
+
+    displayReplies.forEach(reply => {
+      const platformClass = reply.platform === 'mastodon' ? 'mastodon-reply' : 'bluesky-reply';
+
+      html += `<div class="reply-preview ${platformClass}">`;
+      html += '<div class="reply-header">';
+
+      if (reply.author_avatar) {
+        html += `<img src="${escapeHtml(reply.author_avatar)}" alt="${escapeHtml(reply.author)}" class="reply-avatar">`;
+      }
+
+      html += '<div class="reply-meta">';
+      html += `<a href="${escapeHtml(reply.author_url)}" target="_blank" rel="noopener" class="reply-author">${escapeHtml(reply.author)}</a>`;
+      html += ` <span class="reply-time">${formatTimestamp(reply.created_at)}</span>`;
+      html += '</div>';
+      html += '</div>';
+
+      html += `<div class="reply-content">${escapeHtml(reply.content)}</div>`;
+      html += `<a href="${escapeHtml(reply.url)}" target="_blank" rel="noopener" class="reply-link">View on ${reply.platform} →</a>`;
+      html += '</div>';
+    });
+
+    if (replies.length > CONFIG.maxRepliesShown) {
+      html += `<div class="more-replies">+ ${replies.length - CONFIG.maxRepliesShown} more comments</div>`;
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  // Render the complete widget
+  function renderWidget(data) {
+    const container = document.getElementById('social-interactions-widget');
+
+    if (!data || !data.platforms) {
+      container.style.display = 'none';
+      return;
+    }
+
+    // Calculate totals
+    const totals = calculateTotals(data);
+
+    // Don't show widget if no interactions
+    if (totals.likes === 0 && totals.reposts === 0 && totals.replies === 0) {
+      container.style.display = 'none';
+      return;
+    }
+
+    let html = '<div class="social-interactions-container">';
+    html += '<h3>Social Media Engagement</h3>';
+
+    // Summary stats
+    html += '<div class="engagement-summary">';
+    html += `<span class="stat"><span class="stat-number">${totals.likes}</span><span class="stat-label">likes</span></span>`;
+    html += `<span class="stat"><span class="stat-number">${totals.reposts}</span><span class="stat-label">reposts</span></span>`;
+    html += `<span class="stat"><span class="stat-number">${totals.replies}</span><span class="stat-label">replies</span></span>`;
+    html += '</div>';
+
+    // Platform sections
+    html += renderMastodonSection(data.platforms.mastodon);
+    html += renderBlueskySection(data.platforms.bluesky);
+
+    // Reply previews
+    html += renderReplies(data);
+
+    // Last updated
+    if (data.updated_at) {
+      html += `<div class="last-updated">Last updated: ${formatTimestamp(data.updated_at)}</div>`;
+    }
+
+    html += '</div>';
+
+    container.innerHTML = html;
+    container.style.display = 'block';
+  }
+
+  // Initialize widget
+  async function init() {
+    console.log('Initializing Social Interactions Widget');
+
+    if (!CONFIG.postId || CONFIG.postId === 'POST_ID') {
+      console.error('Social Interactions Widget: Post ID not configured');
+      return;
+    }
+
+    if (CONFIG.apiUrl.includes('POSSE_API_URL')) {
+      console.error('Social Interactions Widget: API URL not configured');
+      return;
+    }
+
+    // Initial fetch
+    const data = await fetchInteractions();
+    if (data) {
+      currentData = data;
+      renderWidget(data);
+    }
+
+    // Set up periodic refresh
+    setInterval(async () => {
+      const data = await fetchInteractions();
+      if (data) {
+        currentData = data;
+        renderWidget(data);
+      }
+    }, CONFIG.refreshInterval);
+  }
+
+  // Start when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+
+<style>
+.social-interactions-container {
+  border: 1px solid #e1e8ed;
+  border-radius: 12px;
+  padding: 24px;
+  margin: 40px 0;
+  background: linear-gradient(to bottom, #ffffff, #f7f9fa);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.social-interactions-container h3 {
+  margin: 0 0 20px 0;
+  color: #14171a;
+  font-size: 1.5em;
+  font-weight: 700;
+}
+
+/* Engagement Summary */
+.engagement-summary {
+  display: flex;
+  gap: 16px;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+
+.engagement-summary .stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 24px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  min-width: 80px;
+}
+
+.engagement-summary .stat-number {
+  font-size: 2em;
+  font-weight: 700;
+  color: #1da1f2;
+}
+
+.engagement-summary .stat-label {
+  font-size: 0.9em;
+  color: #657786;
+  margin-top: 4px;
+}
+
+/* Platform Sections */
+.platform-section {
+  margin: 20px 0;
+  padding: 16px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.platform-section h4 {
+  margin: 0 0 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.1em;
+  font-weight: 600;
+  color: #14171a;
+}
+
+.platform-icon {
+  vertical-align: middle;
+}
+
+.mastodon-section h4 {
+  color: #563acc;
+}
+
+.mastodon-section .platform-icon {
+  color: #563acc;
+}
+
+.bluesky-section h4 {
+  color: #0085ff;
+}
+
+.bluesky-section .platform-icon {
+  color: #0085ff;
+}
+
+.account-stats {
+  margin: 8px 0;
+  color: #14171a;
+}
+
+.view-link {
+  color: #1da1f2;
+  text-decoration: none;
+  font-size: 0.95em;
+}
+
+.view-link:hover {
+  text-decoration: underline;
+}
+
+/* Replies Section */
+.replies-section {
+  margin: 20px 0 0 0;
+}
+
+.replies-section h4 {
+  margin: 0 0 16px 0;
+  font-size: 1.1em;
+  font-weight: 600;
+  color: #14171a;
+}
+
+.reply-preview {
+  border-left: 3px solid #1da1f2;
+  padding: 12px 16px;
+  margin: 12px 0;
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.reply-preview.mastodon-reply {
+  border-left-color: #563acc;
+}
+
+.reply-preview.bluesky-reply {
+  border-left-color: #0085ff;
+}
+
+.reply-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.reply-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.reply-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.reply-author {
+  font-weight: 600;
+  color: #1da1f2;
+  text-decoration: none;
+  font-size: 0.95em;
+}
+
+.reply-author:hover {
+  text-decoration: underline;
+}
+
+.reply-time {
+  font-size: 0.85em;
+  color: #657786;
+}
+
+.reply-content {
+  margin: 8px 0;
+  color: #14171a;
+  line-height: 1.5;
+  font-size: 0.95em;
+}
+
+.reply-link {
+  font-size: 0.85em;
+  color: #1da1f2;
+  text-decoration: none;
+  display: inline-block;
+  margin-top: 4px;
+}
+
+.reply-link:hover {
+  text-decoration: underline;
+}
+
+.more-replies {
+  text-align: center;
+  padding: 12px;
+  color: #657786;
+  font-size: 0.9em;
+  font-style: italic;
+}
+
+/* Last Updated */
+.last-updated {
+  text-align: center;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e1e8ed;
+  color: #657786;
+  font-size: 0.85em;
+}
+
+/* Responsive Design */
+@media (max-width: 600px) {
+  .social-interactions-container {
+    padding: 16px;
+    margin: 20px 0;
+  }
+
+  .engagement-summary {
+    gap: 8px;
+  }
+
+  .engagement-summary .stat {
+    padding: 12px 16px;
+    min-width: 70px;
+  }
+
+  .engagement-summary .stat-number {
+    font-size: 1.5em;
+  }
+
+  .reply-avatar {
+    width: 28px;
+    height: 28px;
+  }
+}
+</style>

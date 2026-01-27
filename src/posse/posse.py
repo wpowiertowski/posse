@@ -520,29 +520,68 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                 try:
                     # Format content with platform-specific character limit
                     content = _format_post_content(title, url, excerpt, tags, client.max_post_length)
-                    
+
                     logger.info(f"Posting to {platform} account '{client.account_name}'...")
                     result = client.post(
                         content=content,
                         media_urls=media_urls if media_urls else None,
                         media_descriptions=media_descriptions if media_descriptions else None
                     )
-                    
+
                     if result:
-                        # Extract post URL from result
+                        # Extract post URL and ID from result
                         result_url = None
+                        result_id = None
+                        result_uri = None
+
                         if isinstance(result, dict):
-                            result_url = result.get("url") or result.get("uri")
-                        
+                            result_url = result.get("url")
+                            result_id = result.get("id")  # Mastodon status ID
+                            result_uri = result.get("uri")  # Bluesky AT URI
+
+                            # If no direct URL, try to construct from URI (Bluesky)
+                            if not result_url and result_uri:
+                                result_url = result_uri
+
                         logger.info(f"Successfully posted to {platform} account '{client.account_name}': {result_url}")
                         notifier.notify_post_success(title, client.account_name, platform, result_url)
+
+                        # Store syndication mapping for interaction sync
+                        from interactions.interaction_sync import store_syndication_mapping
+
+                        try:
+                            if platform.lower() == "mastodon" and result_id:
+                                store_syndication_mapping(
+                                    ghost_post_id=post_id,
+                                    ghost_post_url=post_url,
+                                    platform="mastodon",
+                                    account_name=client.account_name,
+                                    post_data={
+                                        "status_id": result_id,
+                                        "post_url": result_url
+                                    }
+                                )
+                            elif platform.lower() == "bluesky" and result_uri:
+                                store_syndication_mapping(
+                                    ghost_post_id=post_id,
+                                    ghost_post_url=post_url,
+                                    platform="bluesky",
+                                    account_name=client.account_name,
+                                    post_data={
+                                        "post_uri": result_uri,
+                                        "post_url": result_url
+                                    }
+                                )
+                        except Exception as mapping_error:
+                            logger.warning(f"Failed to store syndication mapping: {mapping_error}")
+
                         return {"success": True, "platform": platform, "account": client.account_name, "url": result_url}
                     else:
                         error_msg = "Posting returned no result"
                         logger.error(f"Failed to post to {platform} account '{client.account_name}': {error_msg}")
                         notifier.notify_post_failure(title, client.account_name, platform, error_msg)
                         return {"success": False, "platform": platform, "account": client.account_name, "error": error_msg}
-                
+
                 except Exception as e:
                     error_msg = str(e)
                     logger.error(f"Error posting to {platform} account '{client.account_name}': {error_msg}", exc_info=True)
@@ -788,16 +827,54 @@ def main(debug: bool = False) -> None:
         logger.info(f"  - LLM client enabled for {llm_client.base_url}")
     else:
         logger.info("  - LLM client disabled")
-    
+
+    # Initialize interaction sync service and scheduler
+    from interactions.interaction_sync import InteractionSyncService
+    from interactions.scheduler import InteractionScheduler
+
+    interactions_config = config.get("interactions", {})
+    interactions_enabled = interactions_config.get("enabled", True)
+    sync_interval_minutes = interactions_config.get("sync_interval_minutes", 30)
+    max_post_age_days = interactions_config.get("max_post_age_days", 30)
+    storage_path = interactions_config.get("cache_directory", "./data/interactions")
+    mappings_path = "./data/syndication_mappings"
+
+    logger.info("Initializing interaction sync service")
+    interaction_sync_service = InteractionSyncService(
+        mastodon_clients=mastodon_clients,
+        bluesky_clients=bluesky_clients,
+        storage_path=storage_path,
+        mappings_path=mappings_path
+    )
+
+    logger.info("Initializing interaction scheduler")
+    interaction_scheduler = InteractionScheduler(
+        sync_service=interaction_sync_service,
+        sync_interval_minutes=sync_interval_minutes,
+        max_post_age_days=max_post_age_days,
+        enabled=interactions_enabled
+    )
+
+    if interactions_enabled:
+        logger.info(f"  - Interaction sync enabled: interval={sync_interval_minutes}min, max_age={max_post_age_days}days")
+        # Start the scheduler
+        interaction_scheduler.start()
+    else:
+        logger.info("  - Interaction sync disabled")
+
     # Create Flask app with events_queue and service clients passed as dependencies
     app = create_app(
-        events_queue, 
-        notifier=notifier, 
+        events_queue,
+        notifier=notifier,
         config=config,
         mastodon_clients=mastodon_clients,
         bluesky_clients=bluesky_clients,
         llm_client=llm_client
     )
+
+    # Store interaction scheduler in app config for API endpoints
+    app.config["INTERACTION_SCHEDULER"] = interaction_scheduler
+    app.config["INTERACTIONS_STORAGE_PATH"] = storage_path
     
     # Load Gunicorn configuration from ghost package
     config_path = os.path.join(os.path.dirname(__file__), "..", "ghost", "gunicorn_config.py")

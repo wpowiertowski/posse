@@ -491,12 +491,131 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                 logger.error(f"Healthcheck: Pushover service error: {e}")
         
         response["services"]["pushover"] = pushover_status
-        
+
         # Set overall status
         response["status"] = "healthy" if overall_healthy else "unhealthy"
-        
+
         return jsonify(response), 200
-    
+
+    @app.route("/api/interactions/<ghost_post_id>", methods=["GET"])
+    def get_interactions(ghost_post_id: str):
+        """
+        Retrieve interactions for a specific Ghost post.
+
+        This endpoint returns the cached interaction data for a Ghost post,
+        including comments, likes, and reposts from Mastodon and Bluesky.
+
+        Args:
+            ghost_post_id: Ghost post ID
+
+        Returns:
+            JSON response with interaction data
+
+        Example:
+            GET /api/interactions/abc123
+
+            Response:
+            {
+              "ghost_post_id": "abc123",
+              "updated_at": "2026-01-27T10:00:00Z",
+              "platforms": {
+                "mastodon": {...},
+                "bluesky": {...}
+              }
+            }
+        """
+        from interactions.interaction_sync import InteractionSyncService
+        import os
+
+        # Get interaction scheduler from app config (if available)
+        scheduler = current_app.config.get("INTERACTION_SCHEDULER")
+
+        # Get storage path from config or use default
+        storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data/interactions")
+
+        # Load interaction data from file
+        interaction_file = os.path.join(storage_path, f"{ghost_post_id}.json")
+
+        if not os.path.exists(interaction_file):
+            # No interaction data found - return empty structure
+            logger.warning(f"No interaction data found for post: {ghost_post_id}")
+            return jsonify({
+                "ghost_post_id": ghost_post_id,
+                "updated_at": None,
+                "platforms": {
+                    "mastodon": {},
+                    "bluesky": {}
+                },
+                "message": "No interaction data available"
+            }), 404
+
+        try:
+            with open(interaction_file, 'r') as f:
+                interactions = json.load(f)
+
+            logger.debug(f"Retrieved interactions for post: {ghost_post_id}")
+            return jsonify(interactions), 200
+
+        except Exception as e:
+            logger.error(f"Failed to load interactions for {ghost_post_id}: {e}")
+            return jsonify({
+                "status": "error",
+                "message": "Failed to load interaction data",
+                "details": str(e)
+            }), 500
+
+    @app.route("/api/interactions/<ghost_post_id>/sync", methods=["POST"])
+    def trigger_interaction_sync(ghost_post_id: str):
+        """
+        Manually trigger a sync for a specific post.
+
+        This endpoint immediately syncs interactions for the specified post,
+        bypassing the normal scheduler. Useful for testing or immediate updates.
+
+        Args:
+            ghost_post_id: Ghost post ID
+
+        Returns:
+            JSON response with sync result
+
+        Example:
+            POST /api/interactions/abc123/sync
+
+            Response:
+            {
+              "status": "success",
+              "message": "Interactions synced successfully",
+              "ghost_post_id": "abc123"
+            }
+        """
+        scheduler = current_app.config.get("INTERACTION_SCHEDULER")
+
+        if not scheduler:
+            logger.error("InteractionScheduler not configured")
+            return jsonify({
+                "status": "error",
+                "message": "Interaction sync not enabled"
+            }), 503
+
+        try:
+            # Trigger manual sync
+            scheduler.trigger_manual_sync(ghost_post_id)
+
+            logger.info(f"Manual sync triggered for post: {ghost_post_id}")
+            return jsonify({
+                "status": "success",
+                "message": "Interactions synced successfully",
+                "ghost_post_id": ghost_post_id
+            }), 200
+
+        except Exception as e:
+            logger.error(f"Failed to sync interactions for {ghost_post_id}: {e}")
+            return jsonify({
+                "status": "error",
+                "message": "Failed to sync interactions",
+                "details": str(e)
+            }), 500
+
     return app
 
 
