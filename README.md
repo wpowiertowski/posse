@@ -14,6 +14,7 @@ POSSE is a Docker-ready Python application that receives webhooks from your Ghos
 
 - **Ghost Webhook Integration**: Automatically receives and validates Ghost post webhooks
 - **Multi-Account Support**: Configure unlimited Mastodon and Bluesky accounts
+- **Social Interaction Sync**: Display social media engagement (likes, reposts, comments) on your Ghost posts
 - **LLM Alt Text Generation**: Optional AI-powered alt text generation for images using vision models
 - **Pushover Notifications**: Get real-time push notifications for important events:
   - 📝 New post received and validated
@@ -226,12 +227,35 @@ secrets:
 
 **Notification types**: 📝 Post received | ✅ Queued for syndication | ⚠️ Validation errors
 
+### Social Interaction Sync (Optional)
+
+Display social media engagement from Mastodon and Bluesky directly on your Ghost posts.
+
+1. **Enable in `config.yml`**:
+   ```yaml
+   interactions:
+     enabled: true
+     sync_interval_minutes: 30
+     max_post_age_days: 30
+   ```
+
+2. **Add widget to Ghost posts**: See [Interaction Sync Guide](docs/INTERACTION_SYNC_README.md) for detailed setup
+
+3. **Features**:
+   - Aggregated stats (likes, reposts, replies)
+   - Recent comment previews
+   - Auto-refresh every 5 minutes
+   - Responsive design
+
+For complete setup instructions, see the [Social Interaction Sync Guide](docs/INTERACTION_SYNC_README.md).
+
 ## How It Works
 
 1. **Receive**: Ghost sends a webhook when a post is published
 2. **Validate**: The post is validated against a JSON schema
 3. **Notify**: Optional push notifications via Pushover
 4. **Syndicate**: Posts are distributed to configured Mastodon and Bluesky accounts
+5. **Sync Back**: Social media interactions are synced back to Ghost (optional)
 
 Your Ghost blog remains the source of truth while your content reaches audiences across multiple platforms.
 

@@ -70,3 +70,14 @@ bluesky:
       max_post_length: 280  # Custom character limit for this account
       # split_multi_image_posts: false  # Optional: Split posts with multiple images into separate posts, one image each (default: false)
 
+# Social Interaction Sync Configuration
+# Sync interactions (likes, reposts, comments) from social media back to Ghost
+interactions:
+  enabled: true  # Enable/disable interaction syncing (default: true)
+  sync_interval_minutes: 30  # How often to check for new interactions (default: 30)
+  max_post_age_days: 30  # Maximum age of posts to sync (default: 30)
+  cache_directory: "./data/interactions"  # Where to store interaction data
+
+  # Privacy settings (optional)
+  show_reply_content: true  # Show full comment text (default: true)
+  show_reply_authors: true  # Show commenter names and avatars (default: true)
