@@ -127,12 +127,31 @@ For theme integration, save this as a partial and include it in post.hbs:
     html += '</h4>';
 
     Object.entries(mastodon).forEach(([accountName, accountData]) => {
+      const isSplit = accountData.is_split === true;
+      const totalSplits = accountData.total_splits || 1;
+
       html += '<div class="account-stats">';
-      html += `<a href="${escapeHtml(accountData.post_url)}" target="_blank" rel="noopener" class="view-link">`;
-      html += `<strong>${accountData.favorites || 0}</strong> favorites, `;
-      html += `<strong>${accountData.reblogs || 0}</strong> boosts, `;
-      html += `<strong>${accountData.replies || 0}</strong> replies`;
-      html += ' →</a>';
+
+      if (isSplit && totalSplits > 1) {
+        // Split posts - show aggregated stats with note
+        html += `<span class="split-indicator" title="Interactions aggregated from ${totalSplits} posts">📷×${totalSplits}</span> `;
+        html += `<strong>${accountData.favorites || 0}</strong> favorites, `;
+        html += `<strong>${accountData.reblogs || 0}</strong> boosts, `;
+        html += `<strong>${accountData.replies || 0}</strong> replies`;
+
+        // Link to first split post
+        if (accountData.split_posts && accountData.split_posts.length > 0) {
+          html += ` <a href="${escapeHtml(accountData.split_posts[0].post_url)}" target="_blank" rel="noopener" class="view-link">→</a>`;
+        }
+      } else {
+        // Single post
+        html += `<a href="${escapeHtml(accountData.post_url || '')}" target="_blank" rel="noopener" class="view-link">`;
+        html += `<strong>${accountData.favorites || 0}</strong> favorites, `;
+        html += `<strong>${accountData.reblogs || 0}</strong> boosts, `;
+        html += `<strong>${accountData.replies || 0}</strong> replies`;
+        html += ' →</a>';
+      }
+
       html += '</div>';
     });
 
@@ -153,12 +172,31 @@ For theme integration, save this as a partial and include it in post.hbs:
     html += '</h4>';
 
     Object.entries(bluesky).forEach(([accountName, accountData]) => {
+      const isSplit = accountData.is_split === true;
+      const totalSplits = accountData.total_splits || 1;
+
       html += '<div class="account-stats">';
-      html += `<a href="${escapeHtml(accountData.post_url)}" target="_blank" rel="noopener" class="view-link">`;
-      html += `<strong>${accountData.likes || 0}</strong> likes, `;
-      html += `<strong>${accountData.reposts || 0}</strong> reposts, `;
-      html += `<strong>${accountData.replies || 0}</strong> replies`;
-      html += ' →</a>';
+
+      if (isSplit && totalSplits > 1) {
+        // Split posts - show aggregated stats with note
+        html += `<span class="split-indicator" title="Interactions aggregated from ${totalSplits} posts">📷×${totalSplits}</span> `;
+        html += `<strong>${accountData.likes || 0}</strong> likes, `;
+        html += `<strong>${accountData.reposts || 0}</strong> reposts, `;
+        html += `<strong>${accountData.replies || 0}</strong> replies`;
+
+        // Link to first split post
+        if (accountData.split_posts && accountData.split_posts.length > 0) {
+          html += ` <a href="${escapeHtml(accountData.split_posts[0].post_url)}" target="_blank" rel="noopener" class="view-link">→</a>`;
+        }
+      } else {
+        // Single post
+        html += `<a href="${escapeHtml(accountData.post_url || '')}" target="_blank" rel="noopener" class="view-link">`;
+        html += `<strong>${accountData.likes || 0}</strong> likes, `;
+        html += `<strong>${accountData.reposts || 0}</strong> reposts, `;
+        html += `<strong>${accountData.replies || 0}</strong> replies`;
+        html += ' →</a>';
+      }
+
       html += '</div>';
     });
 
@@ -202,11 +240,11 @@ For theme integration, save this as a partial and include it in post.hbs:
       });
     }
 
-    // Sort by timestamp (newest first)
+    // Sort by timestamp (chronological - oldest first)
     replies.sort((a, b) => {
       const dateA = new Date(a.created_at || 0);
       const dateB = new Date(b.created_at || 0);
-      return dateB - dateA;
+      return dateA - dateB;  // Oldest first for chronological order
     });
 
     return replies;
@@ -440,6 +478,27 @@ For theme integration, save this as a partial and include it in post.hbs:
 
 .view-link:hover {
   text-decoration: underline;
+}
+
+/* Split Post Indicator */
+.split-indicator {
+  display: inline-block;
+  font-size: 0.85em;
+  padding: 2px 6px;
+  background: linear-gradient(135deg, #f0f0f0, #e8e8e8);
+  border-radius: 4px;
+  margin-right: 4px;
+  cursor: help;
+}
+
+.mastodon-section .split-indicator {
+  background: linear-gradient(135deg, #ede7f6, #d1c4e9);
+  color: #563acc;
+}
+
+.bluesky-section .split-indicator {
+  background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+  color: #0085ff;
 }
 
 /* Replies Section */

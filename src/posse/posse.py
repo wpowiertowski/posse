@@ -515,8 +515,16 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                     logger.warning("No clients available to download images for alt text generation")
             
             # Post to all accounts in parallel using thread pool
-            def post_to_account(platform: str, client, title: str, url: str, excerpt: Optional[str], tags: List[Dict[str, str]], media_urls: List[str], media_descriptions: List[str]) -> Dict[str, any]:
-                """Post to a single account and return result."""
+            def post_to_account(platform: str, client, title: str, url: str, excerpt: Optional[str], tags: List[Dict[str, str]], media_urls: List[str], media_descriptions: List[str], split_info: Optional[Dict[str, Any]] = None) -> Dict[str, any]:
+                """Post to a single account and return result.
+
+                Args:
+                    split_info: Optional dict with split post metadata:
+                        - is_split: True if this is part of a split post
+                        - split_index: Index of this post in the split (0-based)
+                        - total_splits: Total number of split posts
+                        - image_url: URL of the image for this split
+                """
                 try:
                     # Format content with platform-specific character limit
                     content = _format_post_content(title, url, excerpt, tags, client.max_post_length)
@@ -559,7 +567,8 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                                     post_data={
                                         "status_id": result_id,
                                         "post_url": result_url
-                                    }
+                                    },
+                                    split_info=split_info
                                 )
                             elif platform.lower() == "bluesky" and result_uri:
                                 store_syndication_mapping(
@@ -570,7 +579,8 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                                     post_data={
                                         "post_uri": result_uri,
                                         "post_url": result_url
-                                    }
+                                    },
+                                    split_info=split_info
                                 )
                         except Exception as mapping_error:
                             logger.warning(f"Failed to store syndication mapping: {mapping_error}")
@@ -604,10 +614,19 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                     )
                     if should_split:
                         # Split into multiple posts, one image per post
-                        logger.info(f"Splitting {len(images)} images into separate posts for {platform} account '{client.account_name}'")
+                        total_splits = len(images)
+                        logger.info(f"Splitting {total_splits} images into separate posts for {platform} account '{client.account_name}'")
                         for idx, image_url in enumerate(images):
                             # Get the corresponding alt text for this image
                             image_description = [media_descriptions[idx]] if idx < len(media_descriptions) else []
+
+                            # Create split info for this post
+                            split_info = {
+                                "is_split": True,
+                                "split_index": idx,
+                                "total_splits": total_splits,
+                                "image_url": image_url
+                            }
 
                             future = executor.submit(
                                 post_to_account,
@@ -618,7 +637,8 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                                 excerpt,
                                 tags,
                                 [image_url],  # Single image
-                                image_description  # Single description
+                                image_description,  # Single description
+                                split_info  # Split metadata
                             )
                             futures.append(future)
                     else:
@@ -635,7 +655,8 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                             excerpt,
                             tags,
                             images,
-                            media_descriptions
+                            media_descriptions,
+                            None  # No split info for non-split posts
                         )
                         futures.append(future)
                 

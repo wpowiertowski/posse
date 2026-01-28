@@ -98,11 +98,20 @@ class InteractionSyncService:
         if "mastodon" in mapping.get("platforms", {}):
             for account_name, account_data in mapping["platforms"]["mastodon"].items():
                 try:
-                    mastodon_data = self._sync_mastodon_interactions(
-                        account_name=account_name,
-                        status_id=account_data["status_id"],
-                        post_url=account_data["post_url"]
-                    )
+                    # Handle split posts (account_data is a list) or single posts (account_data is dict)
+                    if isinstance(account_data, list):
+                        # Split posts - aggregate interactions from all split entries
+                        mastodon_data = self._sync_mastodon_split_interactions(
+                            account_name=account_name,
+                            split_entries=account_data
+                        )
+                    else:
+                        # Single post
+                        mastodon_data = self._sync_mastodon_interactions(
+                            account_name=account_name,
+                            status_id=account_data["status_id"],
+                            post_url=account_data["post_url"]
+                        )
                     if mastodon_data:
                         interactions["platforms"]["mastodon"][account_name] = mastodon_data
                 except Exception as e:
@@ -115,11 +124,20 @@ class InteractionSyncService:
         if "bluesky" in mapping.get("platforms", {}):
             for account_name, account_data in mapping["platforms"]["bluesky"].items():
                 try:
-                    bluesky_data = self._sync_bluesky_interactions(
-                        account_name=account_name,
-                        post_uri=account_data["post_uri"],
-                        post_url=account_data["post_url"]
-                    )
+                    # Handle split posts (account_data is a list) or single posts (account_data is dict)
+                    if isinstance(account_data, list):
+                        # Split posts - aggregate interactions from all split entries
+                        bluesky_data = self._sync_bluesky_split_interactions(
+                            account_name=account_name,
+                            split_entries=account_data
+                        )
+                    else:
+                        # Single post
+                        bluesky_data = self._sync_bluesky_interactions(
+                            account_name=account_name,
+                            post_uri=account_data["post_uri"],
+                            post_url=account_data["post_url"]
+                        )
                     if bluesky_data:
                         interactions["platforms"]["bluesky"][account_name] = bluesky_data
                 except Exception as e:
@@ -197,6 +215,89 @@ class InteractionSyncService:
         except Exception as e:
             logger.error(f"Error syncing Mastodon status {status_id}: {e}")
             return None
+
+    def _sync_mastodon_split_interactions(
+        self,
+        account_name: str,
+        split_entries: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Aggregate interactions from multiple split Mastodon posts.
+
+        Args:
+            account_name: Name of the Mastodon account
+            split_entries: List of split post entries with status_id, post_url, etc.
+
+        Returns:
+            Aggregated dictionary with Mastodon interaction data or None if all failed
+        """
+        total_favorites = 0
+        total_reblogs = 0
+        total_replies = 0
+        all_reply_previews = []
+        split_posts = []
+        successful_syncs = 0
+
+        for entry in split_entries:
+            status_id = entry.get("status_id")
+            post_url = entry.get("post_url")
+            split_index = entry.get("split_index", 0)
+
+            if not status_id:
+                continue
+
+            # Sync this individual split post
+            data = self._sync_mastodon_interactions(
+                account_name=account_name,
+                status_id=status_id,
+                post_url=post_url
+            )
+
+            if data:
+                successful_syncs += 1
+                total_favorites += data.get("favorites", 0)
+                total_reblogs += data.get("reblogs", 0)
+                total_replies += data.get("replies", 0)
+
+                # Add reply previews with split context
+                for reply in data.get("reply_previews", []):
+                    reply_with_context = {
+                        **reply,
+                        "split_index": split_index,
+                        "split_post_url": post_url
+                    }
+                    all_reply_previews.append(reply_with_context)
+
+                # Track individual split post data
+                split_posts.append({
+                    "status_id": status_id,
+                    "post_url": post_url,
+                    "split_index": split_index,
+                    "favorites": data.get("favorites", 0),
+                    "reblogs": data.get("reblogs", 0),
+                    "replies": data.get("replies", 0)
+                })
+
+        if successful_syncs == 0:
+            return None
+
+        # Sort replies by created_at (chronological - oldest first)
+        all_reply_previews.sort(
+            key=lambda r: r.get("created_at", ""),
+            reverse=False  # Oldest first for chronological order
+        )
+
+        return {
+            "is_split": True,
+            "total_splits": len(split_entries),
+            "synced_splits": successful_syncs,
+            "split_posts": split_posts,
+            "favorites": total_favorites,
+            "reblogs": total_reblogs,
+            "replies": total_replies,
+            "reply_previews": all_reply_previews[:20],  # Limit to 20 across all splits
+            "updated_at": datetime.now(ZoneInfo("UTC")).isoformat()
+        }
 
     def _sync_bluesky_interactions(
         self,
@@ -278,6 +379,89 @@ class InteractionSyncService:
         except Exception as e:
             logger.error(f"Error syncing Bluesky post {post_uri}: {e}")
             return None
+
+    def _sync_bluesky_split_interactions(
+        self,
+        account_name: str,
+        split_entries: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Aggregate interactions from multiple split Bluesky posts.
+
+        Args:
+            account_name: Name of the Bluesky account
+            split_entries: List of split post entries with post_uri, post_url, etc.
+
+        Returns:
+            Aggregated dictionary with Bluesky interaction data or None if all failed
+        """
+        total_likes = 0
+        total_reposts = 0
+        total_replies = 0
+        all_reply_previews = []
+        split_posts = []
+        successful_syncs = 0
+
+        for entry in split_entries:
+            post_uri = entry.get("post_uri")
+            post_url = entry.get("post_url")
+            split_index = entry.get("split_index", 0)
+
+            if not post_uri:
+                continue
+
+            # Sync this individual split post
+            data = self._sync_bluesky_interactions(
+                account_name=account_name,
+                post_uri=post_uri,
+                post_url=post_url
+            )
+
+            if data:
+                successful_syncs += 1
+                total_likes += data.get("likes", 0)
+                total_reposts += data.get("reposts", 0)
+                total_replies += data.get("replies", 0)
+
+                # Add reply previews with split context
+                for reply in data.get("reply_previews", []):
+                    reply_with_context = {
+                        **reply,
+                        "split_index": split_index,
+                        "split_post_url": post_url
+                    }
+                    all_reply_previews.append(reply_with_context)
+
+                # Track individual split post data
+                split_posts.append({
+                    "post_uri": post_uri,
+                    "post_url": post_url,
+                    "split_index": split_index,
+                    "likes": data.get("likes", 0),
+                    "reposts": data.get("reposts", 0),
+                    "replies": data.get("replies", 0)
+                })
+
+        if successful_syncs == 0:
+            return None
+
+        # Sort replies by created_at (chronological - oldest first)
+        all_reply_previews.sort(
+            key=lambda r: r.get("created_at", ""),
+            reverse=False  # Oldest first for chronological order
+        )
+
+        return {
+            "is_split": True,
+            "total_splits": len(split_entries),
+            "synced_splits": successful_syncs,
+            "split_posts": split_posts,
+            "likes": total_likes,
+            "reposts": total_reposts,
+            "replies": total_replies,
+            "reply_previews": all_reply_previews[:20],  # Limit to 20 across all splits
+            "updated_at": datetime.now(ZoneInfo("UTC")).isoformat()
+        }
 
     def _find_mastodon_client(self, account_name: str) -> Optional[Any]:
         """Find Mastodon client by account name."""
@@ -371,12 +555,15 @@ def store_syndication_mapping(
     platform: str,
     account_name: str,
     post_data: Dict[str, Any],
-    mappings_path: str = "./data/syndication_mappings"
+    mappings_path: str = "./data/syndication_mappings",
+    split_info: Optional[Dict[str, Any]] = None
 ) -> None:
     """
     Store syndication mapping when a post is syndicated to a platform.
 
     This function should be called after successfully posting to a social media platform.
+    For split posts (multi-image posts split into individual posts), each split post
+    is stored as a separate entry with split metadata.
 
     Args:
         ghost_post_id: Ghost post ID
@@ -386,15 +573,29 @@ def store_syndication_mapping(
         post_data: Platform-specific post data (status_id, post_url for Mastodon;
                   post_uri, post_url for Bluesky)
         mappings_path: Directory path for storing mapping files
+        split_info: Optional split post metadata:
+            - is_split: True if this is part of a split post
+            - split_index: Index of this post in the split (0-based)
+            - total_splits: Total number of split posts
+            - image_url: URL of the image for this split
 
     Example:
-        >>> # After posting to Mastodon
+        >>> # After posting to Mastodon (non-split)
         >>> store_syndication_mapping(
         ...     ghost_post_id="abc123",
         ...     ghost_post_url="https://blog.example.com/post/",
         ...     platform="mastodon",
         ...     account_name="personal",
         ...     post_data={"status_id": "123456", "post_url": "https://..."}
+        ... )
+        >>> # After posting a split post to Mastodon
+        >>> store_syndication_mapping(
+        ...     ghost_post_id="abc123",
+        ...     ghost_post_url="https://blog.example.com/post/",
+        ...     platform="mastodon",
+        ...     account_name="archive",
+        ...     post_data={"status_id": "789012", "post_url": "https://..."},
+        ...     split_info={"is_split": True, "split_index": 0, "total_splits": 3}
         ... )
     """
     os.makedirs(mappings_path, mode=0o755, exist_ok=True)
@@ -425,13 +626,50 @@ def store_syndication_mapping(
     if platform not in mapping["platforms"]:
         mapping["platforms"][platform] = {}
 
-    # Add account data
-    mapping["platforms"][platform][account_name] = post_data
+    # Handle split posts - store as list of entries per account
+    if split_info and split_info.get("is_split"):
+        # Add split metadata to post_data
+        post_data_with_split = {
+            **post_data,
+            "is_split": True,
+            "split_index": split_info.get("split_index", 0),
+            "total_splits": split_info.get("total_splits", 1),
+            "image_url": split_info.get("image_url")
+        }
+
+        # Check if this account already has entries
+        existing = mapping["platforms"][platform].get(account_name)
+
+        if existing is None:
+            # First split post for this account - create list
+            mapping["platforms"][platform][account_name] = [post_data_with_split]
+        elif isinstance(existing, list):
+            # Already a list - append if not duplicate
+            existing_ids = {
+                entry.get("status_id") or entry.get("post_uri")
+                for entry in existing
+            }
+            new_id = post_data.get("status_id") or post_data.get("post_uri")
+            if new_id not in existing_ids:
+                existing.append(post_data_with_split)
+        else:
+            # Was a single entry (non-split), convert to list with both
+            mapping["platforms"][platform][account_name] = [existing, post_data_with_split]
+
+        logger.info(
+            f"Stored split syndication mapping for {platform}/{account_name} "
+            f"(split {split_info.get('split_index', 0) + 1}/{split_info.get('total_splits', 1)}) "
+            f"to {mapping_file}"
+        )
+    else:
+        # Non-split post - store as single entry (original behavior)
+        mapping["platforms"][platform][account_name] = post_data
+
+        logger.info(f"Stored syndication mapping for {platform}/{account_name} to {mapping_file}")
 
     # Save mapping
     try:
         with open(mapping_file, 'w') as f:
             json.dump(mapping, f, indent=2)
-        logger.info(f"Stored syndication mapping for {platform}/{account_name} to {mapping_file}")
     except Exception as e:
         logger.error(f"Failed to store syndication mapping to {mapping_file}: {e}")
