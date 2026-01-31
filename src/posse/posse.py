@@ -295,8 +295,7 @@ def _format_post_content(post_title: str, post_url: str, excerpt: Optional[str],
         Formatted post content string
     """
     # Extract hashtags from post tags, excluding #nosplit, #dont-duplicate-feature, and append #posse
-    hashtag_list = [x['name'].lower() for x in tags if "#" in x["name"] and x['name'].lower() != NOSPLIT_TAG]
-    hashtag_list = [x['name'].lower() for x in hashtag_list if "#" in x["name"] and x['name'].lower() != NOFEATURE_TAG]
+    hashtag_list = [x['name'].lower() for x in tags if "#" in x["name"] and (x['name'].lower() != NOSPLIT_TAG and x["name"].lower() != NOFEATURE_TAG)]
     hashtag_list.append("#posse")
     hashtags = " ".join(hashtag_list)
     
