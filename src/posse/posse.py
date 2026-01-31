@@ -859,8 +859,9 @@ def main(debug: bool = False) -> None:
     interactions_enabled = interactions_config.get("enabled", True)
     sync_interval_minutes = interactions_config.get("sync_interval_minutes", 30)
     max_post_age_days = interactions_config.get("max_post_age_days", 30)
-    storage_path = interactions_config.get("cache_directory", "./data/interactions")
-    mappings_path = "./data/syndication_mappings"
+    cache_directory = interactions_config.get("cache_directory", "./data") 
+    storage_path = os.path.join(cache_directory, "interactions")
+    mappings_path = os.path.join(cache_directory, "syndication_mappings")
 
     logger.info("Initializing interaction sync service")
     interaction_sync_service = InteractionSyncService(
