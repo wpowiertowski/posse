@@ -11,7 +11,9 @@ packages = [
     { include = "notifications", from = "src" },
     { include = "config", from = "src" },
     { include = "social", from = "src" },
-    { include = "llm", from = "src" }
+    { include = "llm", from = "src" },
+    { include = "indieweb", from = "src" },
+    { include = "interactions", from = "src" }
 ]
 
 [tool.poetry.dependencies]

@@ -319,13 +319,13 @@ class PushoverNotifier:
     
     def send_test_notification(self) -> bool:
         """Send a low-priority test notification to verify Pushover service is working.
-        
+
         This method is used by the healthcheck endpoint to verify that the
         Pushover notification service is properly configured and operational.
-        
+
         Returns:
             True if test notification sent successfully, False otherwise
-            
+
         Example:
             >>> notifier = PushoverNotifier.from_config(config)
             >>> if notifier.send_test_notification():
@@ -337,4 +337,58 @@ class PushoverNotifier:
             title=title,
             message=message,
             priority=-1  # Low priority (no sound)
+        )
+
+    def notify_indieweb_success(self, post_title: str, post_url: str) -> bool:
+        """Send notification when a post is successfully submitted to IndieWeb News.
+
+        Args:
+            post_title: Title of the Ghost post
+            post_url: URL of the published post
+
+        Returns:
+            True if notification sent successfully, False otherwise
+
+        Example:
+            >>> notifier.notify_indieweb_success(
+            ...     "My IndieWeb Post",
+            ...     "https://blog.example.com/my-post"
+            ... )
+        """
+        title = "🌐 IndieWeb News"
+        message = f"Post submitted to IndieWeb News:\n{post_title}"
+        return self._send_notification(
+            title=title,
+            message=message,
+            priority=0,  # Normal priority
+            url=post_url,
+            url_title="View Post"
+        )
+
+    def notify_indieweb_failure(self, post_title: str, post_url: str, error: str) -> bool:
+        """Send notification when IndieWeb News submission fails.
+
+        Args:
+            post_title: Title of the Ghost post
+            post_url: URL of the published post
+            error: Error message describing the failure
+
+        Returns:
+            True if notification sent successfully, False otherwise
+
+        Example:
+            >>> notifier.notify_indieweb_failure(
+            ...     "My IndieWeb Post",
+            ...     "https://blog.example.com/my-post",
+            ...     "no_link_found: The source document does not contain a link to the target"
+            ... )
+        """
+        title = "❌ IndieWeb News Failed"
+        message = f"Failed to submit to IndieWeb News:\n{post_title}\n\nError: {error}"
+        return self._send_notification(
+            title=title,
+            message=message,
+            priority=1,  # High priority for errors
+            url=post_url,
+            url_title="View Post"
         )
