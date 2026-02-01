@@ -683,7 +683,42 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                     mastodon_clients[0]._remove_images(images)
                 elif bluesky_clients:
                     bluesky_clients[0]._remove_images(images)
-            
+
+            # IndieWeb News submission
+            # Check if post has indiewebnews tag and config is enabled
+            try:
+                from indieweb.utils import has_indieweb_tag, get_indieweb_config
+                from indieweb.webmention import IndieWebNewsClient
+
+                indieweb_config = get_indieweb_config(config)
+
+                if indieweb_config["enabled"]:
+                    tag_to_check = indieweb_config["news"]["tag"]
+
+                    if has_indieweb_tag(tags, tag_to_check):
+                        logger.info(f"Post has IndieWeb tag '{tag_to_check}', submitting to IndieWeb News")
+
+                        indieweb_client = IndieWebNewsClient(
+                            endpoint=indieweb_config["news"]["endpoint"],
+                            target=indieweb_config["news"]["target"],
+                            timeout=indieweb_config["news"]["timeout"]
+                        )
+
+                        result = indieweb_client.send_webmention(post_url)
+
+                        if result.success:
+                            logger.info(f"Successfully submitted to IndieWeb News: {post_url}")
+                            notifier.notify_indieweb_success(post_title, post_url)
+                        else:
+                            logger.warning(f"IndieWeb News submission failed: {result.message}")
+                            notifier.notify_indieweb_failure(post_title, post_url, result.message)
+                    else:
+                        logger.debug(f"Post does not have IndieWeb tag '{tag_to_check}', skipping IndieWeb News submission")
+                else:
+                    logger.debug("IndieWeb integration disabled in config")
+            except Exception as indieweb_error:
+                logger.warning(f"IndieWeb News submission error: {indieweb_error}")
+
             # Mark task as done
             events_queue.task_done()
             

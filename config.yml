@@ -47,3 +47,22 @@ pushover:
 #     - name: "professional"
 #       instance_url: "https://bsky.social"
 #       access_token_file: "/run/secrets/bluesky_professional_access_token"
+
+# IndieWeb Configuration
+# Enable IndieWeb integration for webmention sending
+#
+# When enabled, posts tagged with the configured tag (default: "indiewebnews")
+# will be submitted to IndieWeb News via webmention.
+#
+# Requirements:
+# - Ghost theme must include u-syndication link to news.indieweb.org
+# - Posts must be tagged with the indiewebnews tag
+#
+# Example configuration:
+# indieweb:
+#   enabled: true
+#   news:
+#     endpoint: "https://news.indieweb.org/webmention"
+#     target: "https://news.indieweb.org/en"
+#     tag: "indiewebnews"
+#     timeout: 30
