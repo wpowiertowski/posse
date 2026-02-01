@@ -1,12 +1,14 @@
 """
-Unit Tests for Split Multi-Image Posts Feature.
+Unit Tests for Split Multi-Image Posts Feature and Service Tags Filtering.
 
 This test suite validates the split_multi_image_posts configuration option
 that allows accounts to split Ghost posts with multiple images into separate
 syndicated posts, each containing one image.
 
-It also tests the #nosplit tag feature that allows bypassing the split behavior
-on a per-post basis.
+It also tests the service tag filtering feature, including:
+- #nosplit tag that allows bypassing the split behavior on a per-post basis
+- #dont-duplicate-feature tag that is used internally in Ghost templates
+  and should not be syndicated to social media
 
 Test Coverage:
     - Configuration loading with split_multi_image_posts option
@@ -15,6 +17,10 @@ Test Coverage:
     - Mastodon and Bluesky client support
     - #nosplit tag detection and filtering
     - Bypass split behavior when #nosplit tag is present
+    - #dont-duplicate-feature tag exclusion from syndicated content
+    - Both service tags excluded from formatted post content
+    - Case-insensitive service tag matching
+    - Partial tag name matching (similar but not exact tags are preserved)
 """
 import unittest
 from unittest.mock import patch, MagicMock
@@ -23,7 +29,8 @@ from posse.posse import (
     _has_nosplit_tag,
     _filter_nosplit_tag,
     _format_post_content,
-    NOSPLIT_TAG
+    NOSPLIT_TAG,
+    NOFEATURE_TAG
 )
 from social.mastodon_client import MastodonClient
 from social.bluesky_client import BlueskyClient
@@ -383,8 +390,16 @@ class TestNosplitTagDetection(unittest.TestCase):
         self.assertEqual(filtered, [])
 
 
-class TestNosplitTagInPostContent(unittest.TestCase):
-    """Test suite for #nosplit tag exclusion from formatted post content."""
+class TestServiceTagsInPostContent(unittest.TestCase):
+    """Test suite for service tags exclusion from formatted post content.
+
+    Service tags are internal tags used for processing control that should
+    not be syndicated to social media platforms. Currently includes:
+    - #nosplit: Bypasses multi-image post splitting
+    - #dont-duplicate-feature: Used internally in Ghost templates
+    """
+
+    # --- NOSPLIT_TAG tests ---
 
     def test_nosplit_tag_excluded_from_hashtags(self):
         """Test that #nosplit is excluded from formatted post hashtags."""
@@ -420,8 +435,138 @@ class TestNosplitTagInPostContent(unittest.TestCase):
 
         self.assertNotIn("#nosplit", content.lower())
 
-    def test_content_without_nosplit_tag_unchanged(self):
-        """Test that content without #nosplit tag includes all hashtags."""
+    def test_nosplit_tag_excluded_mixed_case(self):
+        """Test that #nosplit exclusion handles mixed case variations."""
+        case_variations = ["#NoSplit", "#NOSPLIT", "#Nosplit", "#noSPLIT"]
+        for tag_variant in case_variations:
+            with self.subTest(tag_variant=tag_variant):
+                tags = [
+                    {"name": "#photography", "slug": "hash-photography"},
+                    {"name": tag_variant, "slug": "hash-nosplit"}
+                ]
+                content = _format_post_content(
+                    post_title="Test Post",
+                    post_url="https://example.com/test",
+                    excerpt="This is a test excerpt",
+                    tags=tags,
+                    max_length=500
+                )
+                self.assertNotIn("#nosplit", content.lower())
+
+    def test_nosplit_constant_value(self):
+        """Test that NOSPLIT_TAG constant has expected value."""
+        self.assertEqual(NOSPLIT_TAG, "#nosplit")
+
+    # --- NOFEATURE_TAG tests ---
+
+    def test_nofeature_tag_excluded_from_hashtags(self):
+        """Test that #dont-duplicate-feature is excluded from formatted post hashtags."""
+        tags = [
+            {"name": "#photography", "slug": "hash-photography"},
+            {"name": "#dont-duplicate-feature", "slug": "hash-dont-duplicate-feature"}
+        ]
+        content = _format_post_content(
+            post_title="Test Post",
+            post_url="https://example.com/test",
+            excerpt="This is a test excerpt",
+            tags=tags,
+            max_length=500
+        )
+
+        self.assertIn("#photography", content)
+        self.assertIn("#posse", content)  # Always added
+        self.assertNotIn("#dont-duplicate-feature", content)
+
+    def test_nofeature_tag_excluded_case_insensitive(self):
+        """Test that #dont-duplicate-feature exclusion is case-insensitive."""
+        tags = [
+            {"name": "#photography", "slug": "hash-photography"},
+            {"name": "#DONT-DUPLICATE-FEATURE", "slug": "hash-dont-duplicate-feature"}
+        ]
+        content = _format_post_content(
+            post_title="Test Post",
+            post_url="https://example.com/test",
+            excerpt="This is a test excerpt",
+            tags=tags,
+            max_length=500
+        )
+
+        self.assertNotIn("#dont-duplicate-feature", content.lower())
+
+    def test_nofeature_tag_excluded_mixed_case(self):
+        """Test that #dont-duplicate-feature exclusion handles mixed case variations."""
+        case_variations = [
+            "#Dont-Duplicate-Feature",
+            "#DONT-DUPLICATE-FEATURE",
+            "#dont-DUPLICATE-feature",
+            "#Dont-duplicate-Feature"
+        ]
+        for tag_variant in case_variations:
+            with self.subTest(tag_variant=tag_variant):
+                tags = [
+                    {"name": "#photography", "slug": "hash-photography"},
+                    {"name": tag_variant, "slug": "hash-dont-duplicate-feature"}
+                ]
+                content = _format_post_content(
+                    post_title="Test Post",
+                    post_url="https://example.com/test",
+                    excerpt="This is a test excerpt",
+                    tags=tags,
+                    max_length=500
+                )
+                self.assertNotIn("#dont-duplicate-feature", content.lower())
+
+    def test_nofeature_constant_value(self):
+        """Test that NOFEATURE_TAG constant has expected value."""
+        self.assertEqual(NOFEATURE_TAG, "#dont-duplicate-feature")
+
+    # --- Combined service tags tests ---
+
+    def test_both_service_tags_excluded_together(self):
+        """Test that both #nosplit and #dont-duplicate-feature are excluded together."""
+        tags = [
+            {"name": "#photography", "slug": "hash-photography"},
+            {"name": "#nosplit", "slug": "hash-nosplit"},
+            {"name": "#dont-duplicate-feature", "slug": "hash-dont-duplicate-feature"},
+            {"name": "#travel", "slug": "hash-travel"}
+        ]
+        content = _format_post_content(
+            post_title="Test Post",
+            post_url="https://example.com/test",
+            excerpt="This is a test excerpt",
+            tags=tags,
+            max_length=500
+        )
+
+        # User tags should be present
+        self.assertIn("#photography", content)
+        self.assertIn("#travel", content)
+        self.assertIn("#posse", content)  # Always added
+        # Service tags should be excluded
+        self.assertNotIn("#nosplit", content)
+        self.assertNotIn("#dont-duplicate-feature", content)
+
+    def test_both_service_tags_excluded_mixed_case(self):
+        """Test that both service tags with mixed case are excluded together."""
+        tags = [
+            {"name": "#photography", "slug": "hash-photography"},
+            {"name": "#NOSPLIT", "slug": "hash-nosplit"},
+            {"name": "#Dont-Duplicate-Feature", "slug": "hash-dont-duplicate-feature"}
+        ]
+        content = _format_post_content(
+            post_title="Test Post",
+            post_url="https://example.com/test",
+            excerpt="This is a test excerpt",
+            tags=tags,
+            max_length=500
+        )
+
+        self.assertIn("#photography", content)
+        self.assertNotIn("#nosplit", content.lower())
+        self.assertNotIn("#dont-duplicate-feature", content.lower())
+
+    def test_content_without_service_tags_unchanged(self):
+        """Test that content without any service tags includes all hashtags."""
         tags = [
             {"name": "#photography", "slug": "hash-photography"},
             {"name": "#travel", "slug": "hash-travel"}
@@ -438,9 +583,140 @@ class TestNosplitTagInPostContent(unittest.TestCase):
         self.assertIn("#travel", content)
         self.assertIn("#posse", content)
 
-    def test_nosplit_constant_value(self):
-        """Test that NOSPLIT_TAG constant has expected value."""
-        self.assertEqual(NOSPLIT_TAG, "#nosplit")
+    def test_only_service_tags_results_in_posse_hashtag(self):
+        """Test that having only service tags still results in #posse hashtag."""
+        tags = [
+            {"name": "#nosplit", "slug": "hash-nosplit"},
+            {"name": "#dont-duplicate-feature", "slug": "hash-dont-duplicate-feature"}
+        ]
+        content = _format_post_content(
+            post_title="Test Post",
+            post_url="https://example.com/test",
+            excerpt="This is a test excerpt",
+            tags=tags,
+            max_length=500
+        )
+
+        self.assertIn("#posse", content)
+        self.assertNotIn("#nosplit", content)
+        self.assertNotIn("#dont-duplicate-feature", content)
+
+    # --- Partial tag match tests (similar but not exact tags should be preserved) ---
+
+    def test_similar_nosplit_tags_not_filtered(self):
+        """Test that tags similar to #nosplit are NOT filtered (exact match only)."""
+        tags = [
+            {"name": "#nosplitter", "slug": "hash-nosplitter"},
+            {"name": "#nosplit-extra", "slug": "hash-nosplit-extra"},
+            {"name": "#my-nosplit", "slug": "hash-my-nosplit"},
+            {"name": "#photography", "slug": "hash-photography"}
+        ]
+        content = _format_post_content(
+            post_title="Test Post",
+            post_url="https://example.com/test",
+            excerpt="This is a test excerpt",
+            tags=tags,
+            max_length=500
+        )
+
+        # Similar tags should NOT be filtered
+        self.assertIn("#nosplitter", content)
+        self.assertIn("#nosplit-extra", content)
+        self.assertIn("#my-nosplit", content)
+        self.assertIn("#photography", content)
+
+    def test_similar_nofeature_tags_not_filtered(self):
+        """Test that tags similar to #dont-duplicate-feature are NOT filtered."""
+        tags = [
+            {"name": "#dont-duplicate-feature-extra", "slug": "hash-feature-extra"},
+            {"name": "#my-dont-duplicate-feature", "slug": "hash-my-feature"},
+            {"name": "#photography", "slug": "hash-photography"}
+        ]
+        content = _format_post_content(
+            post_title="Test Post",
+            post_url="https://example.com/test",
+            excerpt="This is a test excerpt",
+            tags=tags,
+            max_length=500
+        )
+
+        # Similar tags should NOT be filtered
+        self.assertIn("#dont-duplicate-feature-extra", content)
+        self.assertIn("#my-dont-duplicate-feature", content)
+        self.assertIn("#photography", content)
+
+    def test_exact_match_filtered_similar_preserved(self):
+        """Test exact service tag is filtered but similar tags are preserved."""
+        tags = [
+            {"name": "#nosplit", "slug": "hash-nosplit"},  # Should be filtered
+            {"name": "#nosplitter", "slug": "hash-nosplitter"},  # Should be preserved
+            {"name": "#dont-duplicate-feature", "slug": "hash-ddf"},  # Should be filtered
+            {"name": "#dont-duplicate-feature-v2", "slug": "hash-ddf-v2"}  # Should be preserved
+        ]
+        content = _format_post_content(
+            post_title="Test Post",
+            post_url="https://example.com/test",
+            excerpt="This is a test excerpt",
+            tags=tags,
+            max_length=500
+        )
+
+        # Exact matches should be filtered
+        self.assertNotIn(" #nosplit ", content)  # Use spaces to ensure exact match check
+        self.assertNotIn(" #dont-duplicate-feature ", content)
+        # Similar tags should be preserved
+        self.assertIn("#nosplitter", content)
+        self.assertIn("#dont-duplicate-feature-v2", content)
+
+    # --- Edge case tests ---
+
+    def test_empty_tags_list(self):
+        """Test that empty tags list only adds #posse."""
+        content = _format_post_content(
+            post_title="Test Post",
+            post_url="https://example.com/test",
+            excerpt="This is a test excerpt",
+            tags=[],
+            max_length=500
+        )
+
+        self.assertIn("#posse", content)
+
+    def test_tags_without_hash_prefix_preserved(self):
+        """Test that tags without # prefix are handled gracefully."""
+        tags = [
+            {"name": "photography", "slug": "photography"},  # No # prefix
+            {"name": "#travel", "slug": "hash-travel"}
+        ]
+        content = _format_post_content(
+            post_title="Test Post",
+            post_url="https://example.com/test",
+            excerpt="This is a test excerpt",
+            tags=tags,
+            max_length=500
+        )
+
+        # Tags without # are excluded from hashtag list by design
+        self.assertNotIn("photography", content.split("\n")[1])  # Not in hashtag line
+        self.assertIn("#travel", content)
+        self.assertIn("#posse", content)
+
+    def test_service_tags_without_hash_prefix_not_special(self):
+        """Test that service tag names without # are not filtered (need exact match)."""
+        tags = [
+            {"name": "nosplit", "slug": "nosplit"},  # No # prefix - not a service tag
+            {"name": "#photography", "slug": "hash-photography"}
+        ]
+        content = _format_post_content(
+            post_title="Test Post",
+            post_url="https://example.com/test",
+            excerpt="This is a test excerpt",
+            tags=tags,
+            max_length=500
+        )
+
+        # 'nosplit' without # is not filtered (but also not in hashtags since no # prefix)
+        self.assertIn("#photography", content)
 
 
 if __name__ == "__main__":
