@@ -85,6 +85,7 @@ from typing import Any, Dict, Optional
 from queue import Queue
 
 from flask import Flask, request, jsonify, current_app
+from flask_cors import CORS
 from jsonschema import validate, ValidationError, Draft7Validator
 
 from schema import GHOST_POST_SCHEMA
@@ -126,14 +127,27 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         >>> # Use app with test client or run with Gunicorn
     """
     app = Flask(__name__)
-    
-    # Store events_queue in app config for access in route handlers
-    app.config["EVENTS_QUEUE"] = events_queue
-    
+
     # Load configuration and initialize Pushover notifier if not provided
     # Reads from config.yml and Docker secrets
     if config is None:
         config = load_config()
+
+    # Configure CORS to allow requests from the blog domain(s)
+    # Read origins from config.yml
+    cors_config = config.get("cors", {})
+    if cors_config.get("enabled", False):
+        cors_origins = cors_config.get("origins", [])
+        if cors_origins:
+            CORS(app, origins=cors_origins)
+            logger.info(f"CORS enabled for origins: {cors_origins}")
+        else:
+            logger.warning("CORS enabled but no origins configured")
+    else:
+        logger.info("CORS is disabled in configuration")
+
+    # Store events_queue in app config for access in route handlers
+    app.config["EVENTS_QUEUE"] = events_queue
     if notifier is None:
         notifier = PushoverNotifier.from_config(config)
     app.config["PUSHOVER_NOTIFIER"] = notifier

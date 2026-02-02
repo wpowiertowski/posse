@@ -73,11 +73,15 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
 def get_default_config() -> Dict[str, Any]:
     """Return default configuration when config.yml is not available.
-    
+
     Returns:
         Dictionary with default configuration values
     """
     return {
+        "cors": {
+            "enabled": False,
+            "origins": []
+        },
         "pushover": {
             "enabled": False,
             "app_token_file": "/run/secrets/pushover_app_token",
