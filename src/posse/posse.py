@@ -415,22 +415,24 @@ def _filter_clients_by_tags(post_tags: List[Dict[str, str]], all_clients: List[t
     return filtered_clients
 
 
-def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clients: List["BlueskyClient"] = None):
+def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clients: List["BlueskyClient"] = None, interaction_scheduler=None):
     """Process events from the events queue.
-    
+
     This function runs in a separate daemon thread and continuously monitors
     the events_queue for new posts. When a post is added to the queue, it:
     1. Pops the event from the queue (blocking until available)
     2. Logs the event details
     3. Syndicates to configured Mastodon and Bluesky accounts
-    
+    4. Pushes interaction sync events after successful syndication
+
     Args:
         mastodon_clients: List of initialized MastodonClient instances (default: None)
         bluesky_clients: List of initialized BlueskyClient instances (default: None)
-    
+        interaction_scheduler: InteractionScheduler instance for pushing sync events (default: None)
+
     Note:
         Uses None as default and converts to empty list to avoid mutable default argument pitfall.
-    
+
     The thread runs as a daemon so it will automatically terminate when
     the main program exits.
     """
@@ -458,6 +460,12 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
         logger.info(f"LLM client enabled for automatic alt text generation")
     
     logger.info(f"Event processor thread started with {len(mastodon_clients)} Mastodon clients and {len(bluesky_clients)} Bluesky clients")
+
+    # Log interaction scheduler status
+    if interaction_scheduler:
+        logger.info("Interaction scheduler available for push-based sync events")
+    else:
+        logger.debug("Interaction scheduler not provided, sync events will not be pushed")
     
     while True:
         try:
@@ -583,6 +591,16 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                                     },
                                     split_info=split_info
                                 )
+                            # Push sync event to interaction scheduler for immediate sync
+                            if interaction_scheduler:
+                                try:
+                                    interaction_scheduler.push_sync_post(
+                                        ghost_post_id=post_id,
+                                        priority=2,  # High priority for newly syndicated posts
+                                        metadata={"source": "syndication", "platform": platform.lower()}
+                                    )
+                                except Exception as sync_event_error:
+                                    logger.warning(f"Failed to push sync event: {sync_event_error}")
                         except Exception as mapping_error:
                             logger.warning(f"Failed to store syndication mapping: {mapping_error}")
 
@@ -963,12 +981,13 @@ def main(debug: bool = False) -> None:
                 def post_worker_init_hook(worker):
                     """Start event processor thread after worker initialization."""
                     worker.log.info(f"Starting event processor thread in worker {worker.pid}")
-                    # Get clients from options
+                    # Get clients and scheduler from options
                     mastodon_clients = self.options.get("mastodon_clients", [])
                     bluesky_clients = self.options.get("bluesky_clients", [])
+                    interaction_scheduler = self.options.get("interaction_scheduler")
                     event_thread = threading.Thread(
-                        target=process_events, 
-                        args=(mastodon_clients, bluesky_clients),
+                        target=process_events,
+                        args=(mastodon_clients, bluesky_clients, interaction_scheduler),
                         daemon=True
                     )
                     event_thread.start()
@@ -988,7 +1007,8 @@ def main(debug: bool = False) -> None:
         "config": config_path,
         "debug": debug,
         "mastodon_clients": mastodon_clients,
-        "bluesky_clients": bluesky_clients
+        "bluesky_clients": bluesky_clients,
+        "interaction_scheduler": interaction_scheduler
     }
     StandaloneApplication(app, options).run()
 
