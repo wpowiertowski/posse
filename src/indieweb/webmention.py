@@ -13,7 +13,7 @@ The protocol is simple:
 
     source={your-post-url}&target={linked-url}
 
-For IndieWeb News, the endpoint is https://news.indieweb.org/webmention.
+For IndieWeb News, the endpoint is https://news.indieweb.org/en/webmention.
 
 Usage:
     >>> from indieweb.webmention import IndieWebNewsClient
@@ -76,7 +76,7 @@ class IndieWebNewsClient:
     """
 
     # Default IndieWeb News endpoints
-    DEFAULT_ENDPOINT = "https://news.indieweb.org/webmention"
+    DEFAULT_ENDPOINT = "https://news.indieweb.org/en/webmention"
     DEFAULT_TARGET = "https://news.indieweb.org/en"
     DEFAULT_TIMEOUT = 30.0
 

@@ -15,6 +15,7 @@ POSSE is a Docker-ready Python application that receives webhooks from your Ghos
 - **Ghost Webhook Integration**: Automatically receives and validates Ghost post webhooks
 - **Multi-Account Support**: Configure unlimited Mastodon and Bluesky accounts
 - **Social Interaction Sync**: Display social media engagement (likes, reposts, comments) on your Ghost posts
+- **IndieWeb News Syndication**: Submit posts to IndieWeb News via webmention
 - **LLM Alt Text Generation**: Optional AI-powered alt text generation for images using vision models
 - **Pushover Notifications**: Get real-time push notifications for important events:
   - 📝 New post received and validated
@@ -248,6 +249,26 @@ Display social media engagement from Mastodon and Bluesky directly on your Ghost
    - Responsive design
 
 For complete setup instructions, see the [Social Interaction Sync Guide](docs/INTERACTION_SYNC_README.md).
+
+### IndieWeb News Syndication (Optional)
+
+Submit your posts to [IndieWeb News](https://news.indieweb.org/) via webmention when tagged with a specific tag.
+
+1. **Enable in `config.yml`**:
+   ```yaml
+   indieweb:
+     enabled: true
+     news:
+       endpoint: "https://news.indieweb.org/en/webmention"
+       target: "https://news.indieweb.org/en"
+       tag: "indiewebnews"
+   ```
+
+2. **Add u-syndication markup to your Ghost theme**: Your theme must include a link to IndieWeb News with the `u-syndication` class in your h-entry markup for the webmention to be accepted.
+
+3. **Tag your posts**: Add the `indiewebnews` tag to posts you want submitted to IndieWeb News.
+
+**Note**: The webmention endpoint is language-specific. Use `/en/webmention` for English, `/de/webmention` for German, etc.
 
 ## How It Works
 

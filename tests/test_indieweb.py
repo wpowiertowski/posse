@@ -469,7 +469,7 @@ class TestGetIndiewebConfig:
         result = get_indieweb_config({})
 
         assert result["enabled"] is False
-        assert result["news"]["endpoint"] == "https://news.indieweb.org/webmention"
+        assert result["news"]["endpoint"] == "https://news.indieweb.org/en/webmention"
         assert result["news"]["target"] == "https://news.indieweb.org/en"
         assert result["news"]["tag"] == "indiewebnews"
         assert result["news"]["timeout"] == 30
@@ -488,7 +488,7 @@ class TestGetIndiewebConfig:
         result = get_indieweb_config(config)
 
         assert result["enabled"] is True
-        assert result["news"]["endpoint"] == "https://news.indieweb.org/webmention"
+        assert result["news"]["endpoint"] == "https://news.indieweb.org/en/webmention"
         assert result["news"]["tag"] == "customtag"
 
     def test_missing_news_section(self):
@@ -502,7 +502,7 @@ class TestGetIndiewebConfig:
         result = get_indieweb_config(config)
 
         assert result["enabled"] is True
-        assert result["news"]["endpoint"] == "https://news.indieweb.org/webmention"
+        assert result["news"]["endpoint"] == "https://news.indieweb.org/en/webmention"
         assert result["news"]["tag"] == "indiewebnews"
 
 

@@ -26,7 +26,7 @@ Configuration (config.yml):
     indieweb:
       enabled: true
       news:
-        endpoint: "https://news.indieweb.org/webmention"
+        endpoint: "https://news.indieweb.org/en/webmention"
         target: "https://news.indieweb.org/en"
         tag: "indiewebnews"
 """
