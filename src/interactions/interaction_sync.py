@@ -69,11 +69,28 @@ class InteractionSyncService:
             ghost_post_id: Ghost post ID to sync interactions for
 
         Returns:
-            Dictionary containing all interactions from Mastodon and Bluesky
+            Dictionary containing all interactions from Mastodon and Bluesky, with structure:
+            {
+              "ghost_post_id": "abc123",
+              "updated_at": "2026-01-27T10:00:00Z",
+              "syndication_links": {
+                "mastodon": {
+                  "account_name": {"post_url": "https://..."}
+                },
+                "bluesky": {
+                  "account_name": {"post_url": "https://..."}
+                }
+              },
+              "platforms": {
+                "mastodon": {...interaction data...},
+                "bluesky": {...interaction data...}
+              }
+            }
 
         Example:
             >>> service = InteractionSyncService(mastodon_clients, bluesky_clients)
             >>> interactions = service.sync_post_interactions("abc123")
+            >>> print(interactions['syndication_links']['mastodon'])
             >>> print(interactions['platforms']['mastodon'])
         """
         logger.info(f"Syncing interactions for Ghost post: {ghost_post_id}")
@@ -88,6 +105,10 @@ class InteractionSyncService:
         interactions = {
             "ghost_post_id": ghost_post_id,
             "updated_at": datetime.now(ZoneInfo("UTC")).isoformat(),
+            "syndication_links": {
+                "mastodon": {},
+                "bluesky": {}
+            },
             "platforms": {
                 "mastodon": {},
                 "bluesky": {}
@@ -114,6 +135,21 @@ class InteractionSyncService:
                         )
                     if mastodon_data:
                         interactions["platforms"]["mastodon"][account_name] = mastodon_data
+                        # Add to syndication_links summary
+                        if "is_split" in mastodon_data and mastodon_data["is_split"]:
+                            # For split posts, include all split post URLs
+                            interactions["syndication_links"]["mastodon"][account_name] = [
+                                {
+                                    "post_url": split["post_url"],
+                                    "split_index": split["split_index"]
+                                }
+                                for split in mastodon_data.get("split_posts", [])
+                            ]
+                        else:
+                            # For single posts, just include the post URL
+                            interactions["syndication_links"]["mastodon"][account_name] = {
+                                "post_url": mastodon_data.get("post_url")
+                            }
                 except Exception as e:
                     logger.error(
                         f"Failed to sync Mastodon interactions for {account_name}: {e}",
@@ -140,6 +176,21 @@ class InteractionSyncService:
                         )
                     if bluesky_data:
                         interactions["platforms"]["bluesky"][account_name] = bluesky_data
+                        # Add to syndication_links summary
+                        if "is_split" in bluesky_data and bluesky_data["is_split"]:
+                            # For split posts, include all split post URLs
+                            interactions["syndication_links"]["bluesky"][account_name] = [
+                                {
+                                    "post_url": split["post_url"],
+                                    "split_index": split["split_index"]
+                                }
+                                for split in bluesky_data.get("split_posts", [])
+                            ]
+                        else:
+                            # For single posts, just include the post URL
+                            interactions["syndication_links"]["bluesky"][account_name] = {
+                                "post_url": bluesky_data.get("post_url")
+                            }
                 except Exception as e:
                     logger.error(
                         f"Failed to sync Bluesky interactions for {account_name}: {e}",
@@ -521,6 +572,10 @@ class InteractionSyncService:
         return {
             "ghost_post_id": ghost_post_id,
             "updated_at": datetime.now(ZoneInfo("UTC")).isoformat(),
+            "syndication_links": {
+                "mastodon": {},
+                "bluesky": {}
+            },
             "platforms": {
                 "mastodon": {},
                 "bluesky": {}

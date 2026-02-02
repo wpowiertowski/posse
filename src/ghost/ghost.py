@@ -518,6 +518,14 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             {
               "ghost_post_id": "abc123",
               "updated_at": "2026-01-27T10:00:00Z",
+              "syndication_links": {
+                "mastodon": {
+                  "personal": {"post_url": "https://mastodon.social/@user/123"}
+                },
+                "bluesky": {
+                  "main": {"post_url": "https://bsky.app/profile/user/post/abc"}
+                }
+              },
               "platforms": {
                 "mastodon": {...},
                 "bluesky": {...}
@@ -542,6 +550,10 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             return jsonify({
                 "ghost_post_id": ghost_post_id,
                 "updated_at": None,
+                "syndication_links": {
+                    "mastodon": {},
+                    "bluesky": {}
+                },
                 "platforms": {
                     "mastodon": {},
                     "bluesky": {}
