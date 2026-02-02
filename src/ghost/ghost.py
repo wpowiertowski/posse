@@ -534,47 +534,122 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         """
         from interactions.interaction_sync import InteractionSyncService
         import os
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
 
         # Get interaction scheduler from app config (if available)
         scheduler = current_app.config.get("INTERACTION_SCHEDULER")
 
-        # Get storage path from config or use default
+        # Get storage paths from config or use defaults
         storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data/interactions")
+        mappings_path = current_app.config.get("SYNDICATION_MAPPINGS_PATH", "./data/syndication_mappings")
 
         # Load interaction data from file
         interaction_file = os.path.join(storage_path, f"{ghost_post_id}.json")
 
-        if not os.path.exists(interaction_file):
-            # No interaction data found - return empty structure
-            logger.warning(f"No interaction data found for post: {ghost_post_id}")
-            return jsonify({
-                "ghost_post_id": ghost_post_id,
-                "updated_at": None,
-                "syndication_links": {
+        if os.path.exists(interaction_file):
+            # Interaction data exists - return it
+            try:
+                with open(interaction_file, 'r') as f:
+                    interactions = json.load(f)
+
+                logger.debug(f"Retrieved interactions for post: {ghost_post_id}")
+                return jsonify(interactions), 200
+
+            except Exception as e:
+                logger.error(f"Failed to load interactions for {ghost_post_id}: {e}")
+                return jsonify({
+                    "status": "error",
+                    "message": "Failed to load interaction data",
+                    "details": str(e)
+                }), 500
+
+        # No interaction file - check for syndication mappings
+        mapping_file = os.path.join(mappings_path, f"{ghost_post_id}.json")
+
+        if os.path.exists(mapping_file):
+            # Syndication mapping exists - return syndication links without interaction counts
+            try:
+                with open(mapping_file, 'r') as f:
+                    mapping = json.load(f)
+
+                # Build syndication_links from mapping
+                syndication_links = {
                     "mastodon": {},
                     "bluesky": {}
-                },
-                "platforms": {
-                    "mastodon": {},
-                    "bluesky": {}
-                },
-                "message": "No interaction data available"
-            }), 404
+                }
 
-        try:
-            with open(interaction_file, 'r') as f:
-                interactions = json.load(f)
+                # Extract Mastodon links
+                if "mastodon" in mapping.get("platforms", {}):
+                    for account_name, account_data in mapping["platforms"]["mastodon"].items():
+                        if isinstance(account_data, list):
+                            # Split posts
+                            syndication_links["mastodon"][account_name] = [
+                                {
+                                    "post_url": entry.get("post_url"),
+                                    "split_index": entry.get("split_index")
+                                }
+                                for entry in account_data
+                            ]
+                        else:
+                            # Single post
+                            syndication_links["mastodon"][account_name] = {
+                                "post_url": account_data.get("post_url")
+                            }
 
-            logger.debug(f"Retrieved interactions for post: {ghost_post_id}")
-            return jsonify(interactions), 200
+                # Extract Bluesky links
+                if "bluesky" in mapping.get("platforms", {}):
+                    for account_name, account_data in mapping["platforms"]["bluesky"].items():
+                        if isinstance(account_data, list):
+                            # Split posts
+                            syndication_links["bluesky"][account_name] = [
+                                {
+                                    "post_url": entry.get("post_url"),
+                                    "split_index": entry.get("split_index")
+                                }
+                                for entry in account_data
+                            ]
+                        else:
+                            # Single post
+                            syndication_links["bluesky"][account_name] = {
+                                "post_url": account_data.get("post_url")
+                            }
 
-        except Exception as e:
-            logger.error(f"Failed to load interactions for {ghost_post_id}: {e}")
-            return jsonify({
-                "status": "error",
-                "message": "Failed to load interaction data",
-                "details": str(e)
-            }), 500
+                logger.debug(f"Retrieved syndication links for post: {ghost_post_id}")
+                return jsonify({
+                    "ghost_post_id": ghost_post_id,
+                    "updated_at": None,
+                    "syndication_links": syndication_links,
+                    "platforms": {
+                        "mastodon": {},
+                        "bluesky": {}
+                    },
+                    "message": "Syndication links available, no interaction data yet"
+                }), 200
+
+            except Exception as e:
+                logger.error(f"Failed to load syndication mapping for {ghost_post_id}: {e}")
+                return jsonify({
+                    "status": "error",
+                    "message": "Failed to load syndication mapping",
+                    "details": str(e)
+                }), 500
+
+        # Neither interaction file nor mapping file exists
+        logger.warning(f"No interaction data or syndication mapping found for post: {ghost_post_id}")
+        return jsonify({
+            "ghost_post_id": ghost_post_id,
+            "updated_at": None,
+            "syndication_links": {
+                "mastodon": {},
+                "bluesky": {}
+            },
+            "platforms": {
+                "mastodon": {},
+                "bluesky": {}
+            },
+            "message": "No syndication or interaction data available"
+        }), 404
 
     @app.route("/api/interactions/<ghost_post_id>/sync", methods=["POST"])
     def trigger_interaction_sync(ghost_post_id: str):
