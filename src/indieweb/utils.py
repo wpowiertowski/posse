@@ -102,7 +102,7 @@ def get_indieweb_config(config: Dict) -> Dict:
         "enabled": indieweb.get("enabled", False),
         "news": {
             "endpoint": indieweb.get("news", {}).get(
-                "endpoint", "https://news.indieweb.org/webmention"
+                "endpoint", "https://news.indieweb.org/en/webmention"
             ),
             "target": indieweb.get("news", {}).get(
                 "target", "https://news.indieweb.org/en"
