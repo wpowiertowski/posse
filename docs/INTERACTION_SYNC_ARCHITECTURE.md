@@ -500,6 +500,16 @@ interactions:
 4. **XSS Protection**: Sanitize reply content before display
 5. **Rate Limiting**: Implement rate limiting on API endpoints
 
+## Implemented Enhancements
+
+The following planned enhancements have been implemented:
+
+1. **Ghost REST API Integration**: Posts are now retrieved via Ghost Content API for automatic syndication discovery
+2. **CORS Support**: Configurable CORS for cross-origin API access from widgets
+3. **Automatic Syndication Discovery**: Discovers mappings for posts syndicated before interaction sync was enabled
+4. **Webmentions Support**: Widget displays likes, reposts, and comments from webmention.io
+5. **Dark Mode**: Widget supports automatic dark mode via CSS media queries
+
 ## Future Enhancements
 
 1. **Reply Threading**: Show full conversation threads

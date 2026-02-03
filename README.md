@@ -240,13 +240,31 @@ Display social media engagement from Mastodon and Bluesky directly on your Ghost
      max_post_age_days: 30
    ```
 
-2. **Add widget to Ghost posts**: See [Interaction Sync Guide](docs/INTERACTION_SYNC_README.md) for detailed setup
+2. **Configure Ghost Content API** (recommended for automatic syndication discovery):
+   ```yaml
+   ghost:
+     content_api:
+       url: "https://yourblog.com"
+       key_file: "/run/secrets/ghost_content_api_key"
+   ```
 
-3. **Features**:
+3. **Enable CORS** for widget API access:
+   ```yaml
+   cors:
+     enabled: true
+     origins:
+       - "https://yourblog.com"
+   ```
+
+4. **Add widget to Ghost posts**: See [Interaction Sync Guide](docs/INTERACTION_SYNC_README.md) for detailed setup
+
+5. **Features**:
    - Aggregated stats (likes, reposts, replies)
    - Recent comment previews
+   - Webmentions support (likes, reposts, comments via webmention.io)
    - Auto-refresh every 5 minutes
-   - Responsive design
+   - Responsive design with dark mode support
+   - Automatic syndication mapping discovery for older posts
 
 For complete setup instructions, see the [Social Interaction Sync Guide](docs/INTERACTION_SYNC_README.md).
 
