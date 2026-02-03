@@ -10,6 +10,7 @@ import os
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from requests.exceptions import Timeout, RequestException
 
 logger = logging.getLogger(__name__)
 
@@ -244,14 +245,26 @@ class InteractionSyncService:
             # Get the status
             status = client.api.status(status_id)
 
-            # Get favourites (with pagination for accounts)
-            favourited_by = client.api.status_favourited_by(status_id)
+            # Get favourites (with pagination for accounts) - limit to avoid timeouts
+            try:
+                favourited_by = client.api.status_favourited_by(status_id, limit=80)
+            except (Timeout, RequestException) as e:
+                logger.warning(f"Timeout fetching favourites for status {status_id}: {e}")
+                favourited_by = []
 
-            # Get reblogs (with pagination for accounts)
-            reblogged_by = client.api.status_reblogged_by(status_id)
+            # Get reblogs (with pagination for accounts) - limit to avoid timeouts
+            try:
+                reblogged_by = client.api.status_reblogged_by(status_id, limit=80)
+            except (Timeout, RequestException) as e:
+                logger.warning(f"Timeout fetching reblogs for status {status_id}: {e}")
+                reblogged_by = []
 
             # Get context (replies)
-            context = client.api.status_context(status_id)
+            try:
+                context = client.api.status_context(status_id)
+            except (Timeout, RequestException) as e:
+                logger.warning(f"Timeout fetching context for status {status_id}: {e}")
+                context = {}
 
             # Extract reply previews (limit to 10 most recent)
             reply_previews = []
@@ -277,6 +290,9 @@ class InteractionSyncService:
                 "updated_at": datetime.now(ZoneInfo("UTC")).isoformat()
             }
 
+        except Timeout as e:
+            logger.error(f"Timeout syncing Mastodon status {status_id}: {e}")
+            return None
         except Exception as e:
             logger.error(f"Error syncing Mastodon status {status_id}: {e}")
             return None

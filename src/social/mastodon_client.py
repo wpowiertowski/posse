@@ -83,15 +83,16 @@ class MastodonClient(SocialMediaClient):
     
     def _initialize_api(self) -> None:
         """Initialize the Mastodon API client.
-        
+
         Sets up the Mastodon.py client with the access token and instance URL.
-        
+
         Raises:
             Exception: If Mastodon API initialization fails
         """
         self.api = Mastodon(
             access_token=self.access_token,
-            api_base_url=self.instance_url
+            api_base_url=self.instance_url,
+            request_timeout=15  # 15 second timeout for API requests
         )
         
         # Verify credentials immediately to catch authentication issues
