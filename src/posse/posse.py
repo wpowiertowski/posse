@@ -181,7 +181,6 @@ def _extract_post_data(post: Dict[str, Any]) -> tuple[str, str, str, List[str], 
     Returns:
         Tuple of (post_title, post_url, excerpt, images, media_descriptions, tags)
     """
-    post_id = post.get("id", None)
     post_title = post.get("title", None)
     post_url = post.get("url", None)
     
@@ -304,14 +303,8 @@ def _format_post_content(post_title: str, post_url: str, excerpt: Optional[str],
     fixed_content = f"\n{hashtags}\n\n🔗 {post_url}"
     max_text_length = max_length - len(fixed_content)
     
-    if excerpt:
-        text_content = trim_to_words(excerpt, max_text_length)
-        post_content = f"{text_content}{fixed_content}"
-    else:
-        text_content = trim_to_words(post_title, max_text_length)
-        post_content = f"{text_content}{fixed_content}"
-    
-    return post_content
+    text_content = trim_to_words(excerpt or post_title, max_text_length)
+    return f"{text_content}{fixed_content}"
 
 
 def _prepare_content(post: Dict[str, Any], max_length: int) -> tuple[str, List[str], List[str], List[Dict[str, str]]]:
@@ -435,12 +428,11 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
     the main program exits.
     """
     # Convert None to empty list (avoids mutable default argument anti-pattern)
-    mastodon_clients = mastodon_clients if mastodon_clients is not None else []
-    bluesky_clients = bluesky_clients if bluesky_clients is not None else []
-    
-    # Import notifier here to avoid circular imports
+    mastodon_clients = mastodon_clients or []
+    bluesky_clients = bluesky_clients or []
+
+    # Import here to avoid circular imports
     from config import load_config
-    from notifications.pushover import PushoverNotifier
     from llm import LLMClient
     
     # Load config and initialize notifier with error handling for test environments
@@ -485,13 +477,10 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
             title, url, excerpt, images, media_descriptions, tags = _extract_post_data(post)
             
             # Collect all enabled clients
-            all_clients = []
-            for client in mastodon_clients:
-                if client.enabled:
-                    all_clients.append(("Mastodon", client))
-            for client in bluesky_clients:
-                if client.enabled:
-                    all_clients.append(("Bluesky", client))
+            all_clients = (
+                [("Mastodon", c) for c in mastodon_clients if c.enabled] +
+                [("Bluesky", c) for c in bluesky_clients if c.enabled]
+            )
             
             # Filter clients by tags
             filtered_clients = _filter_clients_by_tags(tags, all_clients)
