@@ -12,7 +12,6 @@ The Social Interaction Sync feature allows you to display social media engagemen
 - **Platform-Specific Details**: View engagement breakdown by platform
 - **Webmentions Support**: Display likes, reposts, and comments via webmention.io
 - **Automatic Discovery**: Discovers syndication mappings for older posts when Ghost Content API is configured
-- **Legacy Post Backfill**: API endpoint to manually discover mappings for posts syndicated before interaction sync was enabled
 - **Auto-Refresh**: Widget updates every 5 minutes without page reload
 - **Responsive Design**: Mobile-friendly with dark mode support
 
@@ -265,33 +264,6 @@ curl -X POST https://posse.example.com/api/interactions/abc123/sync
   "ghost_post_id": "abc123"
 }
 ```
-
-### POST /api/syndication/backfill
-
-Discover and create syndication mappings for posts that were syndicated before interaction sync was enabled. This endpoint searches your social media accounts for posts that link back to your Ghost blog and creates the necessary mappings.
-
-**Note**: Requires Ghost Content API to be configured.
-
-**Example Request:**
-```bash
-curl -X POST https://posse.example.com/api/syndication/backfill
-```
-
-**Example Response:**
-```json
-{
-  "status": "success",
-  "message": "Backfill completed",
-  "discovered": 15,
-  "created": 12,
-  "skipped": 3
-}
-```
-
-**Use cases:**
-- You enabled interaction sync after already having syndicated posts
-- You migrated to a new POSSE instance
-- Syndication mappings were accidentally deleted
 
 ## Customization
 

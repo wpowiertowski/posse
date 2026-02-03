@@ -507,9 +507,8 @@ The following planned enhancements have been implemented:
 1. **Ghost REST API Integration**: Posts are now retrieved via Ghost Content API for automatic syndication discovery
 2. **CORS Support**: Configurable CORS for cross-origin API access from widgets
 3. **Automatic Syndication Discovery**: Discovers mappings for posts syndicated before interaction sync was enabled
-4. **Legacy Post Backfill**: API endpoint to manually trigger discovery of older syndicated posts
-5. **Webmentions Support**: Widget displays likes, reposts, and comments from webmention.io
-6. **Dark Mode**: Widget supports automatic dark mode via CSS media queries
+4. **Webmentions Support**: Widget displays likes, reposts, and comments from webmention.io
+5. **Dark Mode**: Widget supports automatic dark mode via CSS media queries
 
 ## Future Enhancements
 

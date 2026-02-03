@@ -11,7 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Automatic syndication mapping discovery for older posts - syncs interactions for posts syndicated before interaction sync was enabled (#71)
-- Legacy post syndication backfill endpoint (`POST /api/syndication/backfill`) to manually discover and create mappings (#71)
 - Webmentions support in social interactions widget - display likes, reposts, and comments from webmention.io (#73)
 - Ghost REST API integration for fetching post metadata during interaction sync (#72)
 - CORS support with configuration-based allowed origins for cross-origin API requests
