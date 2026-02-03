@@ -1,6 +1,24 @@
 # POSSE Multi-Account Configuration Example
 # This is a comprehensive example showing multi-account setup for Mastodon and Bluesky
 
+# CORS Configuration (Optional)
+# Enable cross-origin requests for the API endpoints (needed for browser-based widgets)
+cors:
+  enabled: true  # Enable CORS support
+  origins:
+    - "https://yourblog.com"  # Your Ghost blog URL
+    - "https://www.yourblog.com"  # With www prefix if used
+
+# Ghost Content API (Optional)
+# Required for automatic syndication mapping discovery and enhanced interaction sync
+ghost:
+  content_api:
+    url: "https://yourblog.com"  # Your Ghost blog URL
+    key_file: "/run/secrets/ghost_content_api_key"  # Ghost Content API key
+    # key: "your-content-api-key"  # Alternative: inline key (not recommended)
+    version: "v5.0"  # Ghost API version
+    timeout: 30  # Request timeout in seconds
+
 # LLM Vision Service (Optional)
 # Configure a vision-capable LLM service (like Llama 3.2 Vision) to automatically
 # generate alt text for images that don't already have alt text in Ghost posts

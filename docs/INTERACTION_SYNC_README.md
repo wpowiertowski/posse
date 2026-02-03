@@ -10,8 +10,11 @@ The Social Interaction Sync feature allows you to display social media engagemen
 - **Aggregated Stats**: Shows total likes, reposts, and replies across all platforms
 - **Comment Previews**: Displays recent comments from both platforms
 - **Platform-Specific Details**: View engagement breakdown by platform
+- **Webmentions Support**: Display likes, reposts, and comments via webmention.io
+- **Automatic Discovery**: Discovers syndication mappings for older posts when Ghost Content API is configured
+- **Legacy Post Backfill**: API endpoint to manually discover mappings for posts syndicated before interaction sync was enabled
 - **Auto-Refresh**: Widget updates every 5 minutes without page reload
-- **Responsive Design**: Mobile-friendly and adapts to all screen sizes
+- **Responsive Design**: Mobile-friendly with dark mode support
 
 ## Configuration
 
@@ -37,6 +40,38 @@ interactions:
 | `sync_interval_minutes` | `30` | How frequently to check for new interactions |
 | `max_post_age_days` | `30` | Stop syncing posts older than this |
 | `cache_directory` | `./data/interactions` | Directory to store interaction data |
+
+### Ghost Content API (Recommended)
+
+To enable automatic syndication mapping discovery for older posts, configure the Ghost Content API:
+
+```yaml
+ghost:
+  content_api:
+    url: "https://yourblog.com"  # Your Ghost blog URL
+    key_file: "/run/secrets/ghost_content_api_key"  # Content API key file
+    version: "v5.0"  # Ghost API version
+    timeout: 30  # Request timeout in seconds
+```
+
+**To create a Ghost Content API key:**
+1. In Ghost Admin, go to **Settings** → **Integrations**
+2. Click **Add custom integration**
+3. Name it "POSSE"
+4. Copy the **Content API Key**
+5. Store it in a secrets file: `echo "your-key" > secrets/ghost_content_api_key.txt`
+
+### CORS Configuration
+
+Enable CORS to allow the widget to fetch interaction data from your blog:
+
+```yaml
+cors:
+  enabled: true
+  origins:
+    - "https://yourblog.com"
+    - "https://www.yourblog.com"  # Include www if used
+```
 
 ## Installation
 
@@ -231,6 +266,33 @@ curl -X POST https://posse.example.com/api/interactions/abc123/sync
 }
 ```
 
+### POST /api/syndication/backfill
+
+Discover and create syndication mappings for posts that were syndicated before interaction sync was enabled. This endpoint searches your social media accounts for posts that link back to your Ghost blog and creates the necessary mappings.
+
+**Note**: Requires Ghost Content API to be configured.
+
+**Example Request:**
+```bash
+curl -X POST https://posse.example.com/api/syndication/backfill
+```
+
+**Example Response:**
+```json
+{
+  "status": "success",
+  "message": "Backfill completed",
+  "discovered": 15,
+  "created": 12,
+  "skipped": 3
+}
+```
+
+**Use cases:**
+- You enabled interaction sync after already having syndicated posts
+- You migrated to a new POSSE instance
+- Syndication mappings were accidentally deleted
+
 ## Customization
 
 ### Styling
@@ -399,6 +461,12 @@ If you encounter issues:
    - Steps to reproduce
 
 ## Future Enhancements
+
+Completed:
+- [x] Ghost REST API integration for post metadata
+- [x] Automatic syndication mapping discovery
+- [x] Webmentions support in widget
+- [x] Dark mode support
 
 Planned features:
 - [ ] Database storage for better querying

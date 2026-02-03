@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.0.4] - 2026-02-03
+
+### Added
+
+- Automatic syndication mapping discovery for older posts - syncs interactions for posts syndicated before interaction sync was enabled (#71)
+- Legacy post syndication backfill endpoint (`POST /api/syndication/backfill`) to manually discover and create mappings (#71)
+- Webmentions support in social interactions widget - display likes, reposts, and comments from webmention.io (#73)
+- Ghost REST API integration for fetching post metadata during interaction sync (#72)
+- CORS support with configuration-based allowed origins for cross-origin API requests
+- Syndication links summary field in interactions API response for easier widget integration
+- IndieWeb News syndication support via webmention when posts are tagged appropriately (#66)
+- Timeout handling for Mastodon API requests to prevent sync failures
+
+### Changed
+
+- Simplified and streamlined codebase for better maintainability (#74)
+- Improved interaction storage configuration handling
+- Skip syndicating internal Ghost tags (`#dont-duplicate-feature`)
+
+### Fixed
+
+- Interaction data loss issue during sync operations (#72)
+- Mastodon API interaction sync by removing unsupported `limit` parameter
+- IndieWeb News webmention endpoint URL (#68)
+- Service tags not being dropped correctly from syndicated posts
+- `#nosplit` tag not being dropped from syndicated posts
+
+
 ## [1.0.3] - 2026-01-25
 
 ### Added
@@ -90,6 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secure credential management using Docker secrets
 - JSON schema validation for all webhook payloads
 
+[1.0.4]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.4
 [1.0.3]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.3
 [1.0.2]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.2
 [1.0.1]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.1
