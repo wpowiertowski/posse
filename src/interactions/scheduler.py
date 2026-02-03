@@ -9,7 +9,7 @@ import os
 import json
 import threading
 import time
-from typing import Optional, List
+from typing import Optional, List, Any, Dict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -26,11 +26,16 @@ class InteractionScheduler:
     for all posts with syndication mappings, using a smart strategy
     that syncs recent posts more frequently.
 
+    When a Ghost API client is provided, the scheduler uses the Ghost
+    Content API to discover recent posts and syncs only those posts
+    that exist in both Ghost and have syndication mappings.
+
     Attributes:
         sync_service: InteractionSyncService instance
         sync_interval_minutes: Base sync interval in minutes
         max_post_age_days: Maximum age of posts to sync (in days)
         enabled: Whether the scheduler is enabled
+        ghost_api_client: Optional Ghost Content API client
     """
 
     def __init__(
@@ -38,7 +43,8 @@ class InteractionScheduler:
         sync_service: InteractionSyncService,
         sync_interval_minutes: int = 30,
         max_post_age_days: int = 30,
-        enabled: bool = True
+        enabled: bool = True,
+        ghost_api_client: Optional[Any] = None
     ):
         """
         Initialize the interaction scheduler.
@@ -48,19 +54,27 @@ class InteractionScheduler:
             sync_interval_minutes: Base interval for syncing in minutes
             max_post_age_days: Maximum age of posts to sync (default: 30 days)
             enabled: Whether scheduler is enabled (default: True)
+            ghost_api_client: Optional Ghost Content API client for post discovery
         """
         self.sync_service = sync_service
         self.sync_interval_minutes = sync_interval_minutes
         self.max_post_age_days = max_post_age_days
         self.enabled = enabled
+        self.ghost_api_client = ghost_api_client
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        # Cache for Ghost posts to reduce API calls
+        self._ghost_posts_cache: Dict[str, Dict[str, Any]] = {}
+        self._ghost_posts_cache_time: Optional[datetime] = None
+        self._ghost_posts_cache_ttl_minutes = 60  # Cache for 1 hour
 
+        ghost_status = "enabled" if ghost_api_client and ghost_api_client.enabled else "disabled"
         logger.info(
             f"InteractionScheduler initialized: "
             f"interval={sync_interval_minutes}min, "
             f"max_age={max_post_age_days}days, "
-            f"enabled={enabled}"
+            f"enabled={enabled}, "
+            f"ghost_api={ghost_status}"
         )
 
     def start(self) -> None:
@@ -120,6 +134,10 @@ class InteractionScheduler:
         """
         Sync interactions for all posts with syndication mappings.
 
+        If a Ghost API client is configured, uses the Ghost Content API to
+        discover recent posts and validates that posts still exist in Ghost
+        before syncing.
+
         Uses a smart strategy that syncs posts based on age:
         - Posts < 2 days old: sync every cycle (most active period)
         - Posts 2-7 days old: sync every other cycle
@@ -144,9 +162,15 @@ class InteractionScheduler:
 
         logger.info(f"Found {len(mapping_files)} posts with syndication mappings")
 
+        # If Ghost API is available, refresh the posts cache
+        ghost_posts = self._get_ghost_posts_cache()
+        if ghost_posts:
+            logger.debug(f"Ghost API returned {len(ghost_posts)} recent posts")
+
         # Track sync statistics
         synced = 0
         skipped = 0
+        skipped_not_in_ghost = 0
         failed = 0
 
         for mapping_file in mapping_files:
@@ -160,11 +184,25 @@ class InteractionScheduler:
                     failed += 1
                     continue
 
+                # If Ghost API is available, check if post still exists in Ghost
+                if ghost_posts:
+                    if not self._is_post_in_ghost(ghost_post_id, mapping, ghost_posts):
+                        logger.debug(
+                            f"Skipping {ghost_post_id}: not found in recent Ghost posts"
+                        )
+                        skipped_not_in_ghost += 1
+                        continue
+
+                    # Use Ghost post data for more accurate age calculation
+                    post_age_days = self._get_post_age_from_ghost(ghost_post_id, mapping, ghost_posts)
+                else:
+                    # Fall back to syndication timestamp for age
+                    post_age_days = self._get_post_age_days(mapping)
+
                 # Check if post is too old
-                post_age_days = self._get_post_age_days(mapping)
                 if post_age_days > self.max_post_age_days:
                     logger.debug(
-                        f"Skipping {ghost_post_id}: too old ({post_age_days} days)"
+                        f"Skipping {ghost_post_id}: too old ({post_age_days:.1f} days)"
                     )
                     skipped += 1
                     continue
@@ -173,7 +211,7 @@ class InteractionScheduler:
                 if not self._should_sync_now(post_age_days):
                     logger.debug(
                         f"Skipping {ghost_post_id}: not due for sync "
-                        f"(age={post_age_days} days)"
+                        f"(age={post_age_days:.1f} days)"
                     )
                     skipped += 1
                     continue
@@ -190,9 +228,10 @@ class InteractionScheduler:
                 )
                 failed += 1
 
-        logger.info(
-            f"Sync cycle complete: synced={synced}, skipped={skipped}, failed={failed}"
-        )
+        log_msg = f"Sync cycle complete: synced={synced}, skipped={skipped}, failed={failed}"
+        if ghost_posts:
+            log_msg += f", not_in_ghost={skipped_not_in_ghost}"
+        logger.info(log_msg)
 
     def _load_mapping(self, mapping_file: str) -> Optional[dict]:
         """Load a syndication mapping file."""
@@ -274,3 +313,146 @@ class InteractionScheduler:
             logger.info(f"Manual sync completed for post: {ghost_post_id}")
         except Exception as e:
             logger.error(f"Manual sync failed for post {ghost_post_id}: {e}", exc_info=True)
+
+    def _get_ghost_posts_cache(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get cached Ghost posts, refreshing if necessary.
+
+        Returns a dictionary mapping post IDs to post data for quick lookup.
+
+        Returns:
+            Dictionary mapping ghost post IDs to post data
+        """
+        if not self.ghost_api_client or not self.ghost_api_client.enabled:
+            return {}
+
+        now = datetime.now(ZoneInfo("UTC"))
+
+        # Check if cache is still valid
+        if (self._ghost_posts_cache_time and
+            (now - self._ghost_posts_cache_time).total_seconds() < self._ghost_posts_cache_ttl_minutes * 60):
+            return self._ghost_posts_cache
+
+        # Refresh cache from Ghost API
+        try:
+            posts = self.ghost_api_client.get_recent_posts(
+                max_age_days=self.max_post_age_days,
+                max_posts=200
+            )
+
+            # Build lookup dictionary by ID and slug
+            self._ghost_posts_cache = {}
+            for post in posts:
+                post_id = post.get("id")
+                post_slug = post.get("slug")
+                post_url = post.get("url", "")
+
+                if post_id:
+                    self._ghost_posts_cache[post_id] = post
+                if post_slug:
+                    # Also index by slug for legacy mappings
+                    self._ghost_posts_cache[f"slug:{post_slug}"] = post
+                # Also index by URL for URL-based lookups
+                if post_url:
+                    self._ghost_posts_cache[f"url:{post_url}"] = post
+
+            self._ghost_posts_cache_time = now
+            logger.debug(f"Refreshed Ghost posts cache with {len(posts)} posts")
+
+        except Exception as e:
+            logger.error(f"Failed to refresh Ghost posts cache: {e}")
+            # Return existing cache if refresh failed
+            pass
+
+        return self._ghost_posts_cache
+
+    def _is_post_in_ghost(
+        self,
+        ghost_post_id: str,
+        mapping: Dict[str, Any],
+        ghost_posts: Dict[str, Dict[str, Any]]
+    ) -> bool:
+        """
+        Check if a post exists in the Ghost posts cache.
+
+        Attempts to match by:
+        1. Direct post ID
+        2. Post URL from mapping
+        3. Slug extracted from URL
+
+        Args:
+            ghost_post_id: Ghost post ID from mapping filename
+            mapping: Syndication mapping data
+            ghost_posts: Ghost posts cache dictionary
+
+        Returns:
+            True if post is found in Ghost, False otherwise
+        """
+        # Check by direct ID
+        if ghost_post_id in ghost_posts:
+            return True
+
+        # Check by URL
+        ghost_post_url = mapping.get("ghost_post_url", "")
+        if ghost_post_url and f"url:{ghost_post_url}" in ghost_posts:
+            return True
+
+        # Check by slug extracted from URL
+        if ghost_post_url:
+            # Extract slug from URL: https://blog.com/my-post-slug/ -> my-post-slug
+            slug = ghost_post_url.rstrip('/').split('/')[-1]
+            if slug and f"slug:{slug}" in ghost_posts:
+                return True
+
+        return False
+
+    def _get_post_age_from_ghost(
+        self,
+        ghost_post_id: str,
+        mapping: Dict[str, Any],
+        ghost_posts: Dict[str, Dict[str, Any]]
+    ) -> float:
+        """
+        Get post age from Ghost API data.
+
+        Attempts to find the post in the Ghost cache and return its age
+        based on the published_at timestamp.
+
+        Args:
+            ghost_post_id: Ghost post ID
+            mapping: Syndication mapping data
+            ghost_posts: Ghost posts cache dictionary
+
+        Returns:
+            Age of post in days, or fallback to syndication timestamp age
+        """
+        ghost_post = None
+
+        # Try to find by direct ID
+        if ghost_post_id in ghost_posts:
+            ghost_post = ghost_posts[ghost_post_id]
+
+        # Try by URL
+        if not ghost_post:
+            ghost_post_url = mapping.get("ghost_post_url", "")
+            if ghost_post_url and f"url:{ghost_post_url}" in ghost_posts:
+                ghost_post = ghost_posts[f"url:{ghost_post_url}"]
+
+        # Try by slug
+        if not ghost_post and mapping.get("ghost_post_url"):
+            slug = mapping["ghost_post_url"].rstrip('/').split('/')[-1]
+            if slug and f"slug:{slug}" in ghost_posts:
+                ghost_post = ghost_posts[f"slug:{slug}"]
+
+        if ghost_post and ghost_post.get("published_at"):
+            try:
+                published_at_str = ghost_post["published_at"]
+                published_at = datetime.fromisoformat(published_at_str.replace('Z', '+00:00'))
+                now = datetime.now(ZoneInfo("UTC"))
+                age = now - published_at
+                return age.total_seconds() / 86400
+            except Exception as e:
+                logger.debug(f"Failed to parse Ghost published_at: {e}")
+
+        # Fall back to syndication timestamp
+        return self._get_post_age_days(mapping)

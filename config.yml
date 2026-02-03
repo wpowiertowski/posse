@@ -48,6 +48,33 @@ pushover:
 #       instance_url: "https://bsky.social"
 #       access_token_file: "/run/secrets/bluesky_professional_access_token"
 
+# Ghost Content API Configuration
+# Configure the Ghost Content API for interaction sync post discovery.
+# When configured, the interaction scheduler uses the Ghost API to:
+# - Discover recent posts and their actual published dates
+# - Filter out unpublished or deleted posts from sync
+# - Get more accurate post age information
+#
+# Example configuration:
+# ghost:
+#   content_api:
+#     url: "https://yourblog.com"
+#     key: "your-content-api-key"
+#     # Or use Docker secrets:
+#     # key_file: "/run/secrets/ghost_content_api_key"
+#     version: "v5.0"
+#     timeout: 30
+
+# Interactions Configuration
+# Configure interaction sync settings
+#
+# Example configuration:
+# interactions:
+#   enabled: true
+#   sync_interval_minutes: 30
+#   max_post_age_days: 30
+#   cache_directory: "./data"
+
 # IndieWeb Configuration
 # Enable IndieWeb integration for webmention sending
 #

@@ -888,14 +888,23 @@ def main(debug: bool = False) -> None:
     # Initialize interaction sync service and scheduler
     from interactions.interaction_sync import InteractionSyncService
     from interactions.scheduler import InteractionScheduler
+    from ghost.ghost_api import GhostContentAPIClient
 
     interactions_config = config.get("interactions", {})
     interactions_enabled = interactions_config.get("enabled", True)
     sync_interval_minutes = interactions_config.get("sync_interval_minutes", 30)
     max_post_age_days = interactions_config.get("max_post_age_days", 30)
-    cache_directory = interactions_config.get("cache_directory", "./data") 
+    cache_directory = interactions_config.get("cache_directory", "./data")
     storage_path = os.path.join(cache_directory, "interactions")
     mappings_path = os.path.join(cache_directory, "syndication_mappings")
+
+    # Initialize Ghost Content API client for interaction sync
+    logger.info("Initializing Ghost Content API client")
+    ghost_api_client = GhostContentAPIClient.from_config(config)
+    if ghost_api_client.enabled:
+        logger.info(f"  - Ghost Content API enabled for {ghost_api_client.api_url}")
+    else:
+        logger.info("  - Ghost Content API disabled (no configuration found)")
 
     logger.info("Initializing interaction sync service")
     interaction_sync_service = InteractionSyncService(
@@ -910,11 +919,13 @@ def main(debug: bool = False) -> None:
         sync_service=interaction_sync_service,
         sync_interval_minutes=sync_interval_minutes,
         max_post_age_days=max_post_age_days,
-        enabled=interactions_enabled
+        enabled=interactions_enabled,
+        ghost_api_client=ghost_api_client
     )
 
     if interactions_enabled:
-        logger.info(f"  - Interaction sync enabled: interval={sync_interval_minutes}min, max_age={max_post_age_days}days")
+        ghost_status = "with Ghost API" if ghost_api_client.enabled else "without Ghost API"
+        logger.info(f"  - Interaction sync enabled: interval={sync_interval_minutes}min, max_age={max_post_age_days}days ({ghost_status})")
         # Start the scheduler
         interaction_scheduler.start()
     else:
