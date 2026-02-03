@@ -2,7 +2,7 @@
 Social Interactions Widget for Ghost Posts
 
 This widget displays social media interactions (comments, likes, reposts) from
-Mastodon and Bluesky for syndicated Ghost blog posts.
+Mastodon and Bluesky for syndicated Ghost blog posts, along with Webmentions.
 
 INSTALLATION:
 1. Copy this entire file
@@ -10,621 +10,951 @@ INSTALLATION:
 3. Paste this code
 4. Replace POSSE_API_URL with your POSSE service URL
 5. Replace POST_ID with your Ghost post ID (or use {{@post.id}} in themes)
+6. Replace POST_URL with your post's absolute URL (or use {{url absolute="true"}} in themes)
+7. Replace WEBMENTION_DOMAIN with your domain (or use {{@custom.webmention_domain}} in themes)
 
 For theme integration, save this as a partial and include it in post.hbs:
 {{> "social-interactions-widget"}}
 -->
 
-<div id="social-interactions-widget" data-post-id="POST_ID"></div>
+<section class="social-interactions-area inner">
+    <!-- POSSE Social Interactions Widget -->
+    <div id="social-interactions-widget" data-post-id="POST_ID" data-api-url="https://POSSE_API_URL/api/interactions"></div>
+
+    <!-- Webmentions Section -->
+    <div id="webmentions-widget" data-target="POST_URL" data-domain="WEBMENTION_DOMAIN">
+        <div class="webmentions-container">
+            <h3 class="webmentions-title">Responses</h3>
+            <div class="webmentions-facepile">
+                <div class="webmentions-likes" id="webmentions-likes"></div>
+                <div class="webmentions-reposts" id="webmentions-reposts"></div>
+            </div>
+            <div class="webmentions-comments" id="webmentions-comments"></div>
+            <div class="webmentions-empty" id="webmentions-empty" style="display: none;">
+                <p class="webmentions-empty-text">No responses yet.</p>
+                <div class="webmentions-respond">
+                    <p class="webmentions-respond-label">Join the conversation:</p>
+                    <div class="webmentions-respond-options" id="webmentions-respond-options">
+                        <!-- Syndicated post links will be injected here by JavaScript -->
+                    </div>
+                    <a href="https://indieweb.org/webmention" target="_blank" rel="noopener" class="webmentions-info-link">
+                        What are webmentions?
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
 
 <script>
 (function() {
-  'use strict';
+    'use strict';
 
-  // Configuration
-  const CONFIG = {
-    apiUrl: 'https://POSSE_API_URL/api/interactions',  // Replace with your POSSE URL
-    postId: document.getElementById('social-interactions-widget').dataset.postId,
-    refreshInterval: 300000, // Refresh every 5 minutes (in milliseconds)
-    maxRepliesShown: 5 // Maximum number of replies to display
-  };
+    // Shared state for POSSE data (accessible by webmentions widget)
+    let sharedPosseData = null;
 
-  // State
-  let currentData = null;
+    // ========================================
+    // POSSE Social Interactions Widget
+    // ========================================
+    const posseWidget = document.getElementById('social-interactions-widget');
 
-  // Fetch interactions from POSSE API
-  async function fetchInteractions() {
-    try {
-      const response = await fetch(`${CONFIG.apiUrl}/${CONFIG.postId}`);
+    if (posseWidget) {
+        const POSSE_CONFIG = {
+            apiUrl: posseWidget.dataset.apiUrl,
+            postId: posseWidget.dataset.postId,
+            refreshInterval: 300000
+        };
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          console.log('No interaction data available yet');
-          return null;
+        let currentData = null;
+
+        async function fetchPosseInteractions() {
+            try {
+                const response = await fetch(`${POSSE_CONFIG.apiUrl}/${POSSE_CONFIG.postId}`);
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        console.log('No POSSE interaction data available yet');
+                        return null;
+                    }
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('Failed to fetch POSSE interactions:', error);
+                return null;
+            }
         }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
 
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('Failed to fetch interactions:', error);
-      return null;
-    }
-  }
+        function calculateTotals(data) {
+            if (!data || !data.platforms) {
+                return { likes: 0, reposts: 0, replies: 0 };
+            }
 
-  // Calculate total engagement across all platforms
-  function calculateTotals(data) {
-    if (!data || !data.platforms) {
-      return { likes: 0, reposts: 0, replies: 0 };
-    }
+            let likes = 0, reposts = 0, replies = 0;
 
-    let likes = 0;
-    let reposts = 0;
-    let replies = 0;
+            if (data.platforms.mastodon) {
+                Object.values(data.platforms.mastodon).forEach(account => {
+                    likes += account.favorites || 0;
+                    reposts += account.reblogs || 0;
+                    replies += account.replies || 0;
+                });
+            }
 
-    // Aggregate Mastodon
-    if (data.platforms.mastodon) {
-      Object.values(data.platforms.mastodon).forEach(account => {
-        likes += account.favorites || 0;
-        reposts += account.reblogs || 0;
-        replies += account.replies || 0;
-      });
-    }
+            if (data.platforms.bluesky) {
+                Object.values(data.platforms.bluesky).forEach(account => {
+                    likes += account.likes || 0;
+                    reposts += account.reposts || 0;
+                    replies += account.replies || 0;
+                });
+            }
 
-    // Aggregate Bluesky
-    if (data.platforms.bluesky) {
-      Object.values(data.platforms.bluesky).forEach(account => {
-        likes += account.likes || 0;
-        reposts += account.reposts || 0;
-        replies += account.replies || 0;
-      });
-    }
-
-    return { likes, reposts, replies };
-  }
-
-  // Format timestamp for display
-  function formatTimestamp(timestamp) {
-    if (!timestamp) return '';
-
-    try {
-      const date = new Date(timestamp);
-      const now = new Date();
-      const diffMs = now - date;
-      const diffMins = Math.floor(diffMs / 60000);
-      const diffHours = Math.floor(diffMs / 3600000);
-      const diffDays = Math.floor(diffMs / 86400000);
-
-      if (diffMins < 1) return 'just now';
-      if (diffMins < 60) return `${diffMins}m ago`;
-      if (diffHours < 24) return `${diffHours}h ago`;
-      if (diffDays < 7) return `${diffDays}d ago`;
-
-      return date.toLocaleDateString();
-    } catch (e) {
-      return '';
-    }
-  }
-
-  // Escape HTML to prevent XSS
-  function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  // Render Mastodon section
-  function renderMastodonSection(mastodon) {
-    if (!mastodon || Object.keys(mastodon).length === 0) {
-      return '';
-    }
-
-    let html = '<div class="platform-section mastodon-section">';
-    html += '<h4>';
-    html += '<svg class="platform-icon" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M23.193 7.879c0-5.206-3.411-6.732-3.411-6.732C18.062.357 15.108.025 12.041 0h-.076c-3.068.025-6.02.357-7.74 1.147 0 0-3.411 1.526-3.411 6.732 0 1.192-.023 2.618.015 4.129.124 5.092.934 10.109 5.641 11.355 2.17.574 4.034.695 5.535.612 2.722-.15 4.25-.972 4.25-.972l-.09-1.975s-1.945.613-4.129.539c-2.165-.074-4.449-.233-4.799-2.891a5.499 5.499 0 0 1-.048-.745s2.125.52 4.817.643c1.646.075 3.19-.097 4.758-.283 3.007-.359 5.625-2.212 5.954-3.905.517-2.665.475-6.507.475-6.507zm-4.024 6.709h-2.497V8.469c0-1.29-.543-1.944-1.628-1.944-1.2 0-1.802.776-1.802 2.312v3.349h-2.483v-3.349c0-1.536-.602-2.312-1.802-2.312-1.085 0-1.628.655-1.628 1.944v6.119H4.832V8.284c0-1.289.328-2.313.987-3.07.68-.758 1.569-1.146 2.674-1.146 1.278 0 2.246.491 2.886 1.474L12 6.585l.622-1.043c.64-.983 1.608-1.474 2.886-1.474 1.104 0 1.994.388 2.674 1.146.658.757.986 1.781.986 3.07v6.304z"/></svg>';
-    html += ' Mastodon';
-    html += '</h4>';
-
-    Object.entries(mastodon).forEach(([accountName, accountData]) => {
-      const isSplit = accountData.is_split === true;
-      const totalSplits = accountData.total_splits || 1;
-
-      html += '<div class="account-stats">';
-
-      if (isSplit && totalSplits > 1) {
-        // Split posts - show aggregated stats with note
-        html += `<span class="split-indicator" title="Interactions aggregated from ${totalSplits} posts">📷×${totalSplits}</span> `;
-        html += `<strong>${accountData.favorites || 0}</strong> favorites, `;
-        html += `<strong>${accountData.reblogs || 0}</strong> boosts, `;
-        html += `<strong>${accountData.replies || 0}</strong> replies`;
-
-        // Link to first split post
-        if (accountData.split_posts && accountData.split_posts.length > 0) {
-          html += ` <a href="${escapeHtml(accountData.split_posts[0].post_url)}" target="_blank" rel="noopener" class="view-link">→</a>`;
+            return { likes, reposts, replies };
         }
-      } else {
-        // Single post
-        html += `<a href="${escapeHtml(accountData.post_url || '')}" target="_blank" rel="noopener" class="view-link">`;
-        html += `<strong>${accountData.favorites || 0}</strong> favorites, `;
-        html += `<strong>${accountData.reblogs || 0}</strong> boosts, `;
-        html += `<strong>${accountData.replies || 0}</strong> replies`;
-        html += ' →</a>';
-      }
 
-      html += '</div>';
-    });
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return '';
+            try {
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diffMs = now - date;
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMs / 3600000);
+                const diffDays = Math.floor(diffMs / 86400000);
 
-    html += '</div>';
-    return html;
-  }
+                if (diffMins < 1) return 'just now';
+                if (diffMins < 60) return `${diffMins}m ago`;
+                if (diffHours < 24) return `${diffHours}h ago`;
+                if (diffDays < 7) return `${diffDays}d ago`;
+                return date.toLocaleDateString();
+            } catch (e) {
+                return '';
+            }
+        }
 
-  // Render Bluesky section
-  function renderBlueskySection(bluesky) {
-    if (!bluesky || Object.keys(bluesky).length === 0) {
-      return '';
+        function hasAnyPlatformData(data) {
+            if (!data || !data.platforms) return false;
+
+            const hasMastodon = data.platforms.mastodon && Object.keys(data.platforms.mastodon).length > 0;
+            const hasBluesky = data.platforms.bluesky && Object.keys(data.platforms.bluesky).length > 0;
+
+            return hasMastodon || hasBluesky;
+        }
+
+        function renderPosseWidget(data) {
+            const container = document.getElementById('social-interactions-widget');
+
+            if (!data || !hasAnyPlatformData(data)) {
+                container.style.display = 'none';
+                return;
+            }
+
+            const totals = calculateTotals(data);
+
+            let html = '<div class="social-interactions-container">';
+            html += '<h3>Social engagement</h3>';
+
+            // Show engagement stats (likes, reposts, replies)
+            html += '<div class="engagement-summary">';
+            html += `<span class="stat"><span class="stat-number">${totals.likes}</span><span class="stat-label">likes</span></span>`;
+            html += `<span class="stat"><span class="stat-number">${totals.reposts}</span><span class="stat-label">reposts</span></span>`;
+            html += `<span class="stat"><span class="stat-number">${totals.replies}</span><span class="stat-label">replies</span></span>`;
+            html += '</div>';
+
+            if (data.updated_at) {
+                html += `<div class="last-updated">Last updated: ${formatTimestamp(data.updated_at)}</div>`;
+            }
+
+            html += '</div>';
+
+            container.innerHTML = html;
+            container.style.display = 'block';
+        }
+
+        async function initPosseWidget() {
+            console.log('Initializing POSSE Social Interactions Widget');
+
+            if (!POSSE_CONFIG.postId || POSSE_CONFIG.postId === 'POST_ID') {
+                console.error('POSSE Widget: Post ID not configured');
+                return;
+            }
+
+            if (!POSSE_CONFIG.apiUrl || POSSE_CONFIG.apiUrl.includes('POSSE_API_URL')) {
+                console.error('POSSE Widget: API URL not configured');
+                return;
+            }
+
+            const data = await fetchPosseInteractions();
+            if (data) {
+                currentData = data;
+                sharedPosseData = data;
+                renderPosseWidget(data);
+                // Notify webmentions widget that POSSE data is available
+                window.dispatchEvent(new CustomEvent('posseDataLoaded', { detail: data }));
+            }
+
+            setInterval(async () => {
+                const data = await fetchPosseInteractions();
+                if (data) {
+                    currentData = data;
+                    sharedPosseData = data;
+                    renderPosseWidget(data);
+                    window.dispatchEvent(new CustomEvent('posseDataLoaded', { detail: data }));
+                }
+            }, POSSE_CONFIG.refreshInterval);
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initPosseWidget);
+        } else {
+            initPosseWidget();
+        }
     }
 
-    let html = '<div class="platform-section bluesky-section">';
-    html += '<h4>';
-    html += '<svg class="platform-icon" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>';
-    html += ' Bluesky';
-    html += '</h4>';
+    // ========================================
+    // Webmentions Widget
+    // ========================================
+    const webmentionsWidget = document.getElementById('webmentions-widget');
 
-    Object.entries(bluesky).forEach(([accountName, accountData]) => {
-      const isSplit = accountData.is_split === true;
-      const totalSplits = accountData.total_splits || 1;
+    if (webmentionsWidget) {
+        const WM_CONFIG = {
+            target: webmentionsWidget.dataset.target,
+            domain: webmentionsWidget.dataset.domain || 'example.com',
+            refreshInterval: 300000
+        };
 
-      html += '<div class="account-stats">';
-
-      if (isSplit && totalSplits > 1) {
-        // Split posts - show aggregated stats with note
-        html += `<span class="split-indicator" title="Interactions aggregated from ${totalSplits} posts">📷×${totalSplits}</span> `;
-        html += `<strong>${accountData.likes || 0}</strong> likes, `;
-        html += `<strong>${accountData.reposts || 0}</strong> reposts, `;
-        html += `<strong>${accountData.replies || 0}</strong> replies`;
-
-        // Link to first split post
-        if (accountData.split_posts && accountData.split_posts.length > 0) {
-          html += ` <a href="${escapeHtml(accountData.split_posts[0].post_url)}" target="_blank" rel="noopener" class="view-link">→</a>`;
+        function escapeHtmlWm(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
-      } else {
-        // Single post
-        html += `<a href="${escapeHtml(accountData.post_url || '')}" target="_blank" rel="noopener" class="view-link">`;
-        html += `<strong>${accountData.likes || 0}</strong> likes, `;
-        html += `<strong>${accountData.reposts || 0}</strong> reposts, `;
-        html += `<strong>${accountData.replies || 0}</strong> replies`;
-        html += ' →</a>';
-      }
 
-      html += '</div>';
-    });
+        // Convert AT Protocol URIs to HTTPS URLs (webmentions version)
+        function convertAtUriToHttpsWm(atUri) {
+            if (!atUri || !atUri.startsWith('at://')) {
+                return atUri;
+            }
 
-    html += '</div>';
-    return html;
-  }
+            const match = atUri.match(/^at:\/\/(did:[^\/]+)\/app\.bsky\.feed\.post\/(.+)$/);
+            if (match) {
+                const [, did, postId] = match;
+                return `https://bsky.app/profile/${did}/post/${postId}`;
+            }
 
-  // Collect all replies from all platforms
-  function collectAllReplies(data) {
-    if (!data || !data.platforms) return [];
+            return atUri;
+        }
 
-    const replies = [];
+        // Extract syndicated post URLs from POSSE data
+        function getSyndicatedPosts(posseData) {
+            const posts = [];
 
-    // Collect Mastodon replies
-    if (data.platforms.mastodon) {
-      Object.entries(data.platforms.mastodon).forEach(([accountName, accountData]) => {
-        if (accountData.reply_previews) {
-          accountData.reply_previews.forEach(reply => {
-            replies.push({
-              ...reply,
-              platform: 'mastodon',
-              platform_account: accountName
+            if (!posseData) return posts;
+
+            // First check for syndication_links (preferred)
+            if (posseData.syndication_links) {
+                if (posseData.syndication_links.mastodon) {
+                    Object.entries(posseData.syndication_links.mastodon).forEach(([accountName, accountData]) => {
+                        if (accountData.post_url) {
+                            posts.push({
+                                platform: 'mastodon',
+                                account: accountName,
+                                url: convertAtUriToHttpsWm(accountData.post_url),
+                                icon: '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M23.193 7.879c0-5.206-3.411-6.732-3.411-6.732C18.062.357 15.108.025 12.041 0h-.076c-3.068.025-6.02.357-7.74 1.147 0 0-3.411 1.526-3.411 6.732 0 1.192-.023 2.618.015 4.129.124 5.092.934 10.109 5.641 11.355 2.17.574 4.034.695 5.535.612 2.722-.15 4.25-.972 4.25-.972l-.09-1.975s-1.945.613-4.129.539c-2.165-.074-4.449-.233-4.799-2.891a5.499 5.499 0 0 1-.048-.745s2.125.52 4.817.643c1.646.075 3.19-.097 4.758-.283 3.007-.359 5.625-2.212 5.954-3.905.517-2.665.475-6.507.475-6.507zm-4.024 6.709h-2.497V8.469c0-1.29-.543-1.944-1.628-1.944-1.2 0-1.802.776-1.802 2.312v3.349h-2.483v-3.349c0-1.536-.602-2.312-1.802-2.312-1.085 0-1.628.655-1.628 1.944v6.119H4.832V8.284c0-1.289.328-2.313.987-3.07.68-.758 1.569-1.146 2.674-1.146 1.278 0 2.246.491 2.886 1.474L12 6.585l.622-1.043c.64-.983 1.608-1.474 2.886-1.474 1.104 0 1.994.388 2.674 1.146.658.757.986 1.781.986 3.07v6.304z"/></svg>'
+                            });
+                        }
+                    });
+                }
+
+                if (posseData.syndication_links.bluesky) {
+                    Object.entries(posseData.syndication_links.bluesky).forEach(([accountName, accountData]) => {
+                        if (accountData.post_url) {
+                            posts.push({
+                                platform: 'bluesky',
+                                account: accountName,
+                                url: convertAtUriToHttpsWm(accountData.post_url),
+                                icon: '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>'
+                            });
+                        }
+                    });
+                }
+            }
+
+            // Fallback to platforms data if syndication_links not available
+            if (posts.length === 0 && posseData.platforms) {
+                // Extract Mastodon posts
+                if (posseData.platforms.mastodon) {
+                    Object.entries(posseData.platforms.mastodon).forEach(([accountName, accountData]) => {
+                        if (accountData.post_url) {
+                            posts.push({
+                                platform: 'mastodon',
+                                account: accountName,
+                                url: convertAtUriToHttpsWm(accountData.post_url),
+                                icon: '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M23.193 7.879c0-5.206-3.411-6.732-3.411-6.732C18.062.357 15.108.025 12.041 0h-.076c-3.068.025-6.02.357-7.74 1.147 0 0-3.411 1.526-3.411 6.732 0 1.192-.023 2.618.015 4.129.124 5.092.934 10.109 5.641 11.355 2.17.574 4.034.695 5.535.612 2.722-.15 4.25-.972 4.25-.972l-.09-1.975s-1.945.613-4.129.539c-2.165-.074-4.449-.233-4.799-2.891a5.499 5.499 0 0 1-.048-.745s2.125.52 4.817.643c1.646.075 3.19-.097 4.758-.283 3.007-.359 5.625-2.212 5.954-3.905.517-2.665.475-6.507.475-6.507zm-4.024 6.709h-2.497V8.469c0-1.29-.543-1.944-1.628-1.944-1.2 0-1.802.776-1.802 2.312v3.349h-2.483v-3.349c0-1.536-.602-2.312-1.802-2.312-1.085 0-1.628.655-1.628 1.944v6.119H4.832V8.284c0-1.289.328-2.313.987-3.07.68-.758 1.569-1.146 2.674-1.146 1.278 0 2.246.491 2.886 1.474L12 6.585l.622-1.043c.64-.983 1.608-1.474 2.886-1.474 1.104 0 1.994.388 2.674 1.146.658.757.986 1.781.986 3.07v6.304z"/></svg>'
+                            });
+                        }
+                        // Also check split posts
+                        if (accountData.split_posts) {
+                            accountData.split_posts.forEach((splitPost, index) => {
+                                if (splitPost.post_url && index === 0) {
+                                    // Only add first split post if main post_url wasn't available
+                                    if (!accountData.post_url) {
+                                        posts.push({
+                                            platform: 'mastodon',
+                                            account: accountName,
+                                            url: convertAtUriToHttpsWm(splitPost.post_url),
+                                            icon: '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M23.193 7.879c0-5.206-3.411-6.732-3.411-6.732C18.062.357 15.108.025 12.041 0h-.076c-3.068.025-6.02.357-7.74 1.147 0 0-3.411 1.526-3.411 6.732 0 1.192-.023 2.618.015 4.129.124 5.092.934 10.109 5.641 11.355 2.17.574 4.034.695 5.535.612 2.722-.15 4.25-.972 4.25-.972l-.09-1.975s-1.945.613-4.129.539c-2.165-.074-4.449-.233-4.799-2.891a5.499 5.499 0 0 1-.048-.745s2.125.52 4.817.643c1.646.075 3.19-.097 4.758-.283 3.007-.359 5.625-2.212 5.954-3.905.517-2.665.475-6.507.475-6.507zm-4.024 6.709h-2.497V8.469c0-1.29-.543-1.944-1.628-1.944-1.2 0-1.802.776-1.802 2.312v3.349h-2.483v-3.349c0-1.536-.602-2.312-1.802-2.312-1.085 0-1.628.655-1.628 1.944v6.119H4.832V8.284c0-1.289.328-2.313.987-3.07.68-.758 1.569-1.146 2.674-1.146 1.278 0 2.246.491 2.886 1.474L12 6.585l.622-1.043c.64-.983 1.608-1.474 2.886-1.474 1.104 0 1.994.388 2.674 1.146.658.757.986 1.781.986 3.07v6.304z"/></svg>'
+                                        });
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+
+                // Extract Bluesky posts
+                if (posseData.platforms.bluesky) {
+                    Object.entries(posseData.platforms.bluesky).forEach(([accountName, accountData]) => {
+                        if (accountData.post_url) {
+                            posts.push({
+                                platform: 'bluesky',
+                                account: accountName,
+                                url: convertAtUriToHttpsWm(accountData.post_url),
+                                icon: '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>'
+                            });
+                        }
+                        // Also check split posts
+                        if (accountData.split_posts) {
+                            accountData.split_posts.forEach((splitPost, index) => {
+                                if (splitPost.post_url && index === 0) {
+                                    if (!accountData.post_url) {
+                                        posts.push({
+                                            platform: 'bluesky',
+                                            account: accountName,
+                                            url: convertAtUriToHttpsWm(splitPost.post_url),
+                                            icon: '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>'
+                                        });
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+
+            return posts;
+        }
+
+        // Render respond options in the empty state
+        function renderRespondOptions(posseData) {
+            const container = document.getElementById('webmentions-respond-options');
+            if (!container) return;
+
+            let html = '';
+            const syndicatedPosts = getSyndicatedPosts(posseData);
+
+            // Add syndicated post links
+            if (syndicatedPosts.length > 0) {
+                syndicatedPosts.forEach(post => {
+                    const platformName = post.platform === 'mastodon' ? 'Mastodon' : 'Bluesky';
+                    html += `<a href="${escapeHtmlWm(post.url)}" target="_blank" rel="noopener" class="respond-option respond-option-${post.platform}">`;
+                    html += post.icon;
+                    html += ` <span>Reply on ${platformName}</span>`;
+                    html += '</a>';
+                });
+            }
+
+            // Add webmention.io link
+            const webmentionFormUrl = `https://commentpara.de/?url=${encodeURIComponent(WM_CONFIG.target)}`;
+            html += `<a href="${webmentionFormUrl}" target="_blank" rel="noopener" class="respond-option respond-option-webmention">`;
+            html += '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
+            html += ' <span>Send a Webmention</span>';
+            html += '</a>';
+
+            container.innerHTML = html;
+        }
+
+        function formatTimestampWm(timestamp) {
+            if (!timestamp) return '';
+            try {
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diffMs = now - date;
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMs / 3600000);
+                const diffDays = Math.floor(diffMs / 86400000);
+
+                if (diffMins < 1) return 'just now';
+                if (diffMins < 60) return `${diffMins}m ago`;
+                if (diffHours < 24) return `${diffHours}h ago`;
+                if (diffDays < 7) return `${diffDays}d ago`;
+                return date.toLocaleDateString();
+            } catch (e) {
+                return '';
+            }
+        }
+
+        async function fetchWebmentions() {
+            try {
+                const url = `https://webmention.io/api/mentions.jf2?target=${encodeURIComponent(WM_CONFIG.target)}&per-page=100`;
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('Failed to fetch webmentions:', error);
+                return null;
+            }
+        }
+
+        function categorizeWebmentions(data) {
+            const categories = {
+                likes: [],
+                reposts: [],
+                comments: [],
+                mentions: []
+            };
+
+            if (!data || !data.children) return categories;
+
+            data.children.forEach(mention => {
+                const type = mention['wm-property'];
+                switch (type) {
+                    case 'like-of':
+                        categories.likes.push(mention);
+                        break;
+                    case 'repost-of':
+                        categories.reposts.push(mention);
+                        break;
+                    case 'in-reply-to':
+                        categories.comments.push(mention);
+                        break;
+                    case 'mention-of':
+                    case 'bookmark-of':
+                        categories.mentions.push(mention);
+                        break;
+                    default:
+                        categories.mentions.push(mention);
+                }
             });
-          });
-        }
-      });
-    }
 
-    // Collect Bluesky replies
-    if (data.platforms.bluesky) {
-      Object.entries(data.platforms.bluesky).forEach(([accountName, accountData]) => {
-        if (accountData.reply_previews) {
-          accountData.reply_previews.forEach(reply => {
-            replies.push({
-              ...reply,
-              platform: 'bluesky',
-              platform_account: accountName
+            return categories;
+        }
+
+        function renderFacepile(items, containerId, label) {
+            const container = document.getElementById(containerId);
+            if (!container || items.length === 0) {
+                if (container) container.style.display = 'none';
+                return;
+            }
+
+            let html = `<div class="facepile-group">`;
+            html += `<span class="facepile-label">${items.length} ${label}</span>`;
+            html += `<div class="facepile-avatars">`;
+
+            const displayItems = items.slice(0, 20);
+            displayItems.forEach(item => {
+                const author = item.author || {};
+                const name = escapeHtmlWm(author.name || 'Anonymous');
+                const photo = author.photo || '';
+                const url = author.url || item.url || '#';
+
+                if (photo) {
+                    html += `<a href="${escapeHtmlWm(url)}" target="_blank" rel="noopener" title="${name}">`;
+                    html += `<img src="${escapeHtmlWm(photo)}" alt="${name}" class="facepile-avatar" loading="lazy">`;
+                    html += `</a>`;
+                } else {
+                    html += `<a href="${escapeHtmlWm(url)}" target="_blank" rel="noopener" title="${name}" class="facepile-avatar facepile-avatar-placeholder">`;
+                    html += name.charAt(0).toUpperCase();
+                    html += `</a>`;
+                }
             });
-          });
+
+            if (items.length > 20) {
+                html += `<span class="facepile-more">+${items.length - 20}</span>`;
+            }
+
+            html += `</div></div>`;
+            container.innerHTML = html;
+            container.style.display = 'block';
         }
-      });
+
+        function renderWebmentionComments(comments) {
+            const container = document.getElementById('webmentions-comments');
+            if (!container || comments.length === 0) {
+                if (container) container.style.display = 'none';
+                return;
+            }
+
+            let html = '<h4>Comments & Replies</h4>';
+
+            comments.forEach(comment => {
+                const author = comment.author || {};
+                const name = escapeHtmlWm(author.name || 'Anonymous');
+                const photo = author.photo || '';
+                const authorUrl = author.url || '#';
+                const content = comment.content ? (comment.content.html || comment.content.text || '') : '';
+                const timestamp = comment.published || comment['wm-received'];
+                const sourceUrl = comment.url || comment['wm-source'] || '#';
+
+                html += `<div class="webmention-comment">`;
+                html += `<div class="webmention-comment-header">`;
+
+                if (photo) {
+                    html += `<img src="${escapeHtmlWm(photo)}" alt="${name}" class="webmention-avatar" loading="lazy">`;
+                } else {
+                    html += `<span class="webmention-avatar webmention-avatar-placeholder">${name.charAt(0).toUpperCase()}</span>`;
+                }
+
+                html += `<div class="webmention-meta">`;
+                html += `<a href="${escapeHtmlWm(authorUrl)}" target="_blank" rel="noopener" class="webmention-author">${name}</a>`;
+                html += ` <span class="webmention-time">${formatTimestampWm(timestamp)}</span>`;
+                html += `</div>`;
+                html += `</div>`;
+
+                if (content) {
+                    // Sanitize HTML content - only allow safe tags
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = content;
+                    // Remove script tags and event handlers
+                    tempDiv.querySelectorAll('script').forEach(el => el.remove());
+                    const sanitized = tempDiv.innerHTML;
+                    html += `<div class="webmention-content">${sanitized}</div>`;
+                }
+
+                html += `<a href="${escapeHtmlWm(sourceUrl)}" target="_blank" rel="noopener" class="webmention-source-link">View source →</a>`;
+                html += `</div>`;
+            });
+
+            container.innerHTML = html;
+            container.style.display = 'block';
+        }
+
+        function renderWebmentions(data) {
+            const categories = categorizeWebmentions(data);
+            const emptyContainer = document.getElementById('webmentions-empty');
+
+            const totalMentions = categories.likes.length + categories.reposts.length +
+                                  categories.comments.length + categories.mentions.length;
+
+            if (totalMentions === 0) {
+                if (emptyContainer) {
+                    emptyContainer.style.display = 'block';
+                    // Render respond options with current POSSE data
+                    renderRespondOptions(sharedPosseData);
+                }
+                return;
+            }
+
+            if (emptyContainer) emptyContainer.style.display = 'none';
+
+            renderFacepile(categories.likes, 'webmentions-likes', 'likes');
+            renderFacepile(categories.reposts, 'webmentions-reposts', 'reposts');
+            renderWebmentionComments([...categories.comments, ...categories.mentions]);
+        }
+
+        async function initWebmentions() {
+            console.log('Initializing Webmentions Widget');
+
+            if (!WM_CONFIG.target || WM_CONFIG.target === 'POST_URL') {
+                console.error('Webmentions Widget: Target URL not configured');
+                return;
+            }
+
+            const data = await fetchWebmentions();
+            if (data) {
+                renderWebmentions(data);
+            }
+
+            // Listen for POSSE data updates to refresh respond options
+            window.addEventListener('posseDataLoaded', (event) => {
+                const emptyContainer = document.getElementById('webmentions-empty');
+                if (emptyContainer && emptyContainer.style.display !== 'none') {
+                    renderRespondOptions(event.detail);
+                }
+            });
+
+            setInterval(async () => {
+                const data = await fetchWebmentions();
+                if (data) {
+                    renderWebmentions(data);
+                }
+            }, WM_CONFIG.refreshInterval);
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initWebmentions);
+        } else {
+            initWebmentions();
+        }
     }
-
-    // Sort by timestamp (chronological - oldest first)
-    replies.sort((a, b) => {
-      const dateA = new Date(a.created_at || 0);
-      const dateB = new Date(b.created_at || 0);
-      return dateA - dateB;  // Oldest first for chronological order
-    });
-
-    return replies;
-  }
-
-  // Render reply previews
-  function renderReplies(data) {
-    const replies = collectAllReplies(data);
-
-    if (replies.length === 0) {
-      return '';
-    }
-
-    let html = '<div class="replies-section">';
-    html += '<h4>Recent Comments</h4>';
-
-    const displayReplies = replies.slice(0, CONFIG.maxRepliesShown);
-
-    displayReplies.forEach(reply => {
-      const platformClass = reply.platform === 'mastodon' ? 'mastodon-reply' : 'bluesky-reply';
-
-      html += `<div class="reply-preview ${platformClass}">`;
-      html += '<div class="reply-header">';
-
-      if (reply.author_avatar) {
-        html += `<img src="${escapeHtml(reply.author_avatar)}" alt="${escapeHtml(reply.author)}" class="reply-avatar">`;
-      }
-
-      html += '<div class="reply-meta">';
-      html += `<a href="${escapeHtml(reply.author_url)}" target="_blank" rel="noopener" class="reply-author">${escapeHtml(reply.author)}</a>`;
-      html += ` <span class="reply-time">${formatTimestamp(reply.created_at)}</span>`;
-      html += '</div>';
-      html += '</div>';
-
-      html += `<div class="reply-content">${escapeHtml(reply.content)}</div>`;
-      html += `<a href="${escapeHtml(reply.url)}" target="_blank" rel="noopener" class="reply-link">View on ${reply.platform} →</a>`;
-      html += '</div>';
-    });
-
-    if (replies.length > CONFIG.maxRepliesShown) {
-      html += `<div class="more-replies">+ ${replies.length - CONFIG.maxRepliesShown} more comments</div>`;
-    }
-
-    html += '</div>';
-    return html;
-  }
-
-  // Render the complete widget
-  function renderWidget(data) {
-    const container = document.getElementById('social-interactions-widget');
-
-    if (!data || !data.platforms) {
-      container.style.display = 'none';
-      return;
-    }
-
-    // Calculate totals
-    const totals = calculateTotals(data);
-
-    // Don't show widget if no interactions
-    if (totals.likes === 0 && totals.reposts === 0 && totals.replies === 0) {
-      container.style.display = 'none';
-      return;
-    }
-
-    let html = '<div class="social-interactions-container">';
-    html += '<h3>Social Media Engagement</h3>';
-
-    // Summary stats
-    html += '<div class="engagement-summary">';
-    html += `<span class="stat"><span class="stat-number">${totals.likes}</span><span class="stat-label">likes</span></span>`;
-    html += `<span class="stat"><span class="stat-number">${totals.reposts}</span><span class="stat-label">reposts</span></span>`;
-    html += `<span class="stat"><span class="stat-number">${totals.replies}</span><span class="stat-label">replies</span></span>`;
-    html += '</div>';
-
-    // Platform sections
-    html += renderMastodonSection(data.platforms.mastodon);
-    html += renderBlueskySection(data.platforms.bluesky);
-
-    // Reply previews
-    html += renderReplies(data);
-
-    // Last updated
-    if (data.updated_at) {
-      html += `<div class="last-updated">Last updated: ${formatTimestamp(data.updated_at)}</div>`;
-    }
-
-    html += '</div>';
-
-    container.innerHTML = html;
-    container.style.display = 'block';
-  }
-
-  // Initialize widget
-  async function init() {
-    console.log('Initializing Social Interactions Widget');
-
-    if (!CONFIG.postId || CONFIG.postId === 'POST_ID') {
-      console.error('Social Interactions Widget: Post ID not configured');
-      return;
-    }
-
-    if (CONFIG.apiUrl.includes('POSSE_API_URL')) {
-      console.error('Social Interactions Widget: API URL not configured');
-      return;
-    }
-
-    // Initial fetch
-    const data = await fetchInteractions();
-    if (data) {
-      currentData = data;
-      renderWidget(data);
-    }
-
-    // Set up periodic refresh
-    setInterval(async () => {
-      const data = await fetchInteractions();
-      if (data) {
-        currentData = data;
-        renderWidget(data);
-      }
-    }, CONFIG.refreshInterval);
-  }
-
-  // Start when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
 })();
 </script>
 
 <style>
+/* Social Interactions Area */
+.social-interactions-area {
+    margin: 40px 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* POSSE Widget Styles */
 .social-interactions-container {
-  border: 1px solid #e1e8ed;
-  border-radius: 12px;
-  padding: 24px;
-  margin: 40px 0;
-  background: linear-gradient(to bottom, #ffffff, #f7f9fa);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    border: 1px solid var(--border-color, #e1e8ed);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    background: var(--card-bg, linear-gradient(to bottom, #ffffff, #f7f9fa));
 }
 
 .social-interactions-container h3 {
-  margin: 0 0 20px 0;
-  color: #14171a;
-  font-size: 1.5em;
-  font-weight: 700;
+    margin: 0 0 20px 0;
+    color: var(--text-color, #14171a);
+    font-size: 1.3em;
+    font-weight: 600;
 }
 
-/* Engagement Summary */
 .engagement-summary {
-  display: flex;
-  gap: 16px;
-  margin: 20px 0;
-  flex-wrap: wrap;
+    display: flex;
+    gap: 16px;
+    margin: 20px 0;
+    flex-wrap: wrap;
 }
 
 .engagement-summary .stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 16px 24px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  min-width: 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 24px;
+    background: var(--stat-bg, white);
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    min-width: 80px;
 }
 
 .engagement-summary .stat-number {
-  font-size: 2em;
-  font-weight: 700;
-  color: #1da1f2;
+    font-size: 2em;
+    font-weight: 700;
+    color: var(--accent-color, #1da1f2);
 }
 
 .engagement-summary .stat-label {
-  font-size: 0.9em;
-  color: #657786;
-  margin-top: 4px;
+    font-size: 0.9em;
+    color: var(--secondary-text, #657786);
+    margin-top: 4px;
 }
 
-/* Platform Sections */
-.platform-section {
-  margin: 20px 0;
-  padding: 16px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.platform-section h4 {
-  margin: 0 0 12px 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 1.1em;
-  font-weight: 600;
-  color: #14171a;
-}
-
-.platform-icon {
-  vertical-align: middle;
-}
-
-.mastodon-section h4 {
-  color: #563acc;
-}
-
-.mastodon-section .platform-icon {
-  color: #563acc;
-}
-
-.bluesky-section h4 {
-  color: #0085ff;
-}
-
-.bluesky-section .platform-icon {
-  color: #0085ff;
-}
-
-.account-stats {
-  margin: 8px 0;
-  color: #14171a;
-}
-
-.view-link {
-  color: #1da1f2;
-  text-decoration: none;
-  font-size: 0.95em;
-}
-
-.view-link:hover {
-  text-decoration: underline;
-}
-
-/* Split Post Indicator */
-.split-indicator {
-  display: inline-block;
-  font-size: 0.85em;
-  padding: 2px 6px;
-  background: linear-gradient(135deg, #f0f0f0, #e8e8e8);
-  border-radius: 4px;
-  margin-right: 4px;
-  cursor: help;
-}
-
-.mastodon-section .split-indicator {
-  background: linear-gradient(135deg, #ede7f6, #d1c4e9);
-  color: #563acc;
-}
-
-.bluesky-section .split-indicator {
-  background: linear-gradient(135deg, #e3f2fd, #bbdefb);
-  color: #0085ff;
-}
-
-/* Replies Section */
-.replies-section {
-  margin: 20px 0 0 0;
-}
-
-.replies-section h4 {
-  margin: 0 0 16px 0;
-  font-size: 1.1em;
-  font-weight: 600;
-  color: #14171a;
-}
-
-.reply-preview {
-  border-left: 3px solid #1da1f2;
-  padding: 12px 16px;
-  margin: 12px 0;
-  background: white;
-  border-radius: 4px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.reply-preview.mastodon-reply {
-  border-left-color: #563acc;
-}
-
-.reply-preview.bluesky-reply {
-  border-left-color: #0085ff;
-}
-
-.reply-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.reply-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.reply-meta {
-  display: flex;
-  flex-direction: column;
-}
-
-.reply-author {
-  font-weight: 600;
-  color: #1da1f2;
-  text-decoration: none;
-  font-size: 0.95em;
-}
-
-.reply-author:hover {
-  text-decoration: underline;
-}
-
-.reply-time {
-  font-size: 0.85em;
-  color: #657786;
-}
-
-.reply-content {
-  margin: 8px 0;
-  color: #14171a;
-  line-height: 1.5;
-  font-size: 0.95em;
-}
-
-.reply-link {
-  font-size: 0.85em;
-  color: #1da1f2;
-  text-decoration: none;
-  display: inline-block;
-  margin-top: 4px;
-}
-
-.reply-link:hover {
-  text-decoration: underline;
-}
-
-.more-replies {
-  text-align: center;
-  padding: 12px;
-  color: #657786;
-  font-size: 0.9em;
-  font-style: italic;
-}
-
-/* Last Updated */
 .last-updated {
-  text-align: center;
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid #e1e8ed;
-  color: #657786;
-  font-size: 0.85em;
+    text-align: center;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color, #e1e8ed);
+    color: var(--secondary-text, #657786);
+    font-size: 0.85em;
+}
+
+/* Webmentions Widget Styles */
+.webmentions-container {
+    border: 1px solid var(--border-color, #e1e8ed);
+    border-radius: 12px;
+    padding: 24px;
+    background: var(--card-bg, linear-gradient(to bottom, #ffffff, #f7f9fa));
+}
+
+.webmentions-title {
+    margin: 0 0 20px 0;
+    color: var(--text-color, #14171a);
+    font-size: 1.3em;
+    font-weight: 600;
+}
+
+/* Facepile Styles */
+.webmentions-facepile {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.facepile-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.facepile-label {
+    font-size: 0.9em;
+    color: var(--secondary-text, #657786);
+    font-weight: 500;
+}
+
+.facepile-avatars {
+    display: flex;
+    flex-wrap: wrap;
+    gap: -8px;
+}
+
+.facepile-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 2px solid var(--bg-color, white);
+    margin-left: -8px;
+    object-fit: cover;
+}
+
+.facepile-avatar:first-child {
+    margin-left: 0;
+}
+
+.facepile-avatar-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent-color, #1da1f2);
+    color: white;
+    font-size: 0.8em;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.facepile-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--secondary-bg, #e1e8ed);
+    color: var(--secondary-text, #657786);
+    font-size: 0.75em;
+    font-weight: 600;
+    margin-left: -8px;
+}
+
+/* Webmention Comments */
+.webmentions-comments h4 {
+    margin: 0 0 16px 0;
+    font-size: 1em;
+    font-weight: 600;
+    color: var(--text-color, #14171a);
+}
+
+.webmention-comment {
+    border-left: 3px solid var(--accent-color, #1da1f2);
+    padding: 12px 16px;
+    margin: 12px 0;
+    background: var(--comment-bg, white);
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.webmention-comment-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.webmention-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.webmention-avatar-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent-color, #1da1f2);
+    color: white;
+    font-size: 1em;
+    font-weight: 600;
+}
+
+.webmention-meta {
+    display: flex;
+    flex-direction: column;
+}
+
+.webmention-author {
+    font-weight: 600;
+    color: var(--accent-color, #1da1f2);
+    text-decoration: none;
+}
+
+.webmention-author:hover {
+    text-decoration: underline;
+}
+
+.webmention-time {
+    font-size: 0.85em;
+    color: var(--secondary-text, #657786);
+}
+
+.webmention-content {
+    margin: 8px 0;
+    color: var(--text-color, #14171a);
+    line-height: 1.5;
+}
+
+.webmention-source-link {
+    font-size: 0.85em;
+    color: var(--accent-color, #1da1f2);
+    text-decoration: none;
+}
+
+.webmention-source-link:hover {
+    text-decoration: underline;
+}
+
+/* Empty State */
+.webmentions-empty {
+    text-align: center;
+    padding: 20px;
+}
+
+.webmentions-empty-text {
+    color: var(--secondary-text, #657786);
+    margin-bottom: 20px;
+}
+
+.webmentions-respond {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+
+.webmentions-respond-label {
+    color: var(--secondary-text, #657786);
+    font-size: 0.95em;
+    margin: 0;
+}
+
+.webmentions-respond-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    max-width: 300px;
+}
+
+.respond-option {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: opacity 0.2s;
+}
+
+.respond-option:hover {
+    opacity: 0.9;
+}
+
+.respond-option-mastodon {
+    background: #563acc;
+    color: white;
+}
+
+.respond-option-bluesky {
+    background: #0085ff;
+    color: white;
+}
+
+.respond-option-webmention {
+    background: var(--secondary-bg, #e1e8ed);
+    color: var(--text-color, #14171a);
+}
+
+.respond-icon {
+    flex-shrink: 0;
+}
+
+.webmentions-info-link {
+    font-size: 0.85em;
+    color: var(--secondary-text, #657786);
+    text-decoration: none;
+    margin-top: 8px;
+}
+
+.webmentions-info-link:hover {
+    text-decoration: underline;
 }
 
 /* Responsive Design */
 @media (max-width: 600px) {
-  .social-interactions-container {
-    padding: 16px;
-    margin: 20px 0;
-  }
+    .social-interactions-container,
+    .webmentions-container {
+        padding: 16px;
+    }
 
-  .engagement-summary {
-    gap: 8px;
-  }
+    .engagement-summary {
+        gap: 8px;
+    }
 
-  .engagement-summary .stat {
-    padding: 12px 16px;
-    min-width: 70px;
-  }
+    .engagement-summary .stat {
+        padding: 12px 16px;
+        min-width: 70px;
+    }
 
-  .engagement-summary .stat-number {
-    font-size: 1.5em;
-  }
+    .engagement-summary .stat-number {
+        font-size: 1.5em;
+    }
 
-  .reply-avatar {
-    width: 28px;
-    height: 28px;
-  }
+    .facepile-avatar,
+    .webmention-avatar {
+        width: 28px;
+        height: 28px;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .social-interactions-container,
+    .webmentions-container {
+        background: var(--card-bg, #1a1a2e);
+        border-color: var(--border-color, #2d2d44);
+    }
+
+    .social-interactions-container h3,
+    .webmentions-title,
+    .webmentions-comments h4 {
+        color: var(--text-color, #e1e1e1);
+    }
+
+    .engagement-summary .stat {
+        background: var(--stat-bg, #2d2d44);
+    }
+
+    .engagement-summary .stat-label,
+    .facepile-label,
+    .webmention-time,
+    .last-updated,
+    .webmentions-empty-text,
+    .webmentions-respond-label {
+        color: var(--secondary-text, #a0a0a0);
+    }
+
+    .webmention-comment {
+        background: var(--comment-bg, #2d2d44);
+    }
+
+    .webmention-content {
+        color: var(--text-color, #e1e1e1);
+    }
+
+    .facepile-more {
+        background: var(--secondary-bg, #3d3d54);
+    }
+
+    .respond-option-webmention {
+        background: var(--secondary-bg, #3d3d54);
+        color: var(--text-color, #e1e1e1);
+    }
 }
 </style>
