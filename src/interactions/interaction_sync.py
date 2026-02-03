@@ -63,7 +63,8 @@ class InteractionSyncService:
         Sync interactions for a specific Ghost post.
 
         Retrieves interactions from all platforms where this post was syndicated
-        and stores the aggregated data.
+        and stores the aggregated data. Preserves existing interaction data for
+        platforms that fail to sync.
 
         Args:
             ghost_post_id: Ghost post ID to sync interactions for
@@ -101,17 +102,20 @@ class InteractionSyncService:
             logger.warning(f"No syndication mapping found for post: {ghost_post_id}")
             return self._empty_interaction_data(ghost_post_id)
 
-        # Initialize result structure
+        # Load existing interaction data to preserve data for platforms that fail to sync
+        existing_data = self._load_existing_interaction_data(ghost_post_id)
+
+        # Initialize result structure, preserving existing data as fallback
         interactions = {
             "ghost_post_id": ghost_post_id,
             "updated_at": datetime.now(ZoneInfo("UTC")).isoformat(),
             "syndication_links": {
-                "mastodon": {},
-                "bluesky": {}
+                "mastodon": existing_data.get("syndication_links", {}).get("mastodon", {}),
+                "bluesky": existing_data.get("syndication_links", {}).get("bluesky", {})
             },
             "platforms": {
-                "mastodon": {},
-                "bluesky": {}
+                "mastodon": existing_data.get("platforms", {}).get("mastodon", {}),
+                "bluesky": existing_data.get("platforms", {}).get("bluesky", {})
             }
         }
 
@@ -549,6 +553,31 @@ class InteractionSyncService:
         except Exception as e:
             logger.error(f"Failed to load mapping file {mapping_file}: {e}")
             return None
+
+    def _load_existing_interaction_data(self, ghost_post_id: str) -> Dict[str, Any]:
+        """
+        Load existing interaction data for a Ghost post.
+
+        This is used to preserve existing data when a sync fails for some platforms,
+        preventing data loss during partial sync failures.
+
+        Args:
+            ghost_post_id: Ghost post ID
+
+        Returns:
+            Existing interaction data dictionary, or empty structure if not found
+        """
+        interaction_file = os.path.join(self.storage_path, f"{ghost_post_id}.json")
+
+        if not os.path.exists(interaction_file):
+            return self._empty_interaction_data(ghost_post_id)
+
+        try:
+            with open(interaction_file, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load existing interaction data {interaction_file}: {e}")
+            return self._empty_interaction_data(ghost_post_id)
 
     def _store_interaction_data(self, ghost_post_id: str, data: Dict[str, Any]) -> None:
         """

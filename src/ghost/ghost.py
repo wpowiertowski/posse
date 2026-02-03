@@ -718,19 +718,6 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                 "details": str(e)
             }), 500
 
-    # Register backfill blueprint for legacy post syndication
-    from backfill.legacy_sync import create_backfill_blueprint
-    interactions_config = config.get("interactions", {}) if config else {}
-    cache_directory = interactions_config.get("cache_directory", "./data")
-    backfill_mappings_path = os.path.join(cache_directory, "syndication_mappings")
-    backfill_bp = create_backfill_blueprint(
-        mastodon_clients=mastodon_clients or [],
-        bluesky_clients=bluesky_clients or [],
-        mappings_path=backfill_mappings_path
-    )
-    app.register_blueprint(backfill_bp)
-    logger.info("Registered backfill blueprint at /api/backfill")
-
     return app
 
 
