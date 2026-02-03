@@ -231,10 +231,10 @@ class InteractionSyncService:
             status = client.api.status(status_id)
 
             # Get favourites (with pagination for accounts)
-            favourited_by = client.api.status_favourited_by(status_id, limit=100)
+            favourited_by = client.api.status_favourited_by(status_id)
 
             # Get reblogs (with pagination for accounts)
-            reblogged_by = client.api.status_reblogged_by(status_id, limit=100)
+            reblogged_by = client.api.status_reblogged_by(status_id)
 
             # Get context (replies)
             context = client.api.status_context(status_id)
