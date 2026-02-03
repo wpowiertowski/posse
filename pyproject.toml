@@ -13,7 +13,8 @@ packages = [
     { include = "social", from = "src" },
     { include = "llm", from = "src" },
     { include = "indieweb", from = "src" },
-    { include = "interactions", from = "src" }
+    { include = "interactions", from = "src" },
+    { include = "backfill", from = "src" }
 ]
 
 [tool.poetry.dependencies]
