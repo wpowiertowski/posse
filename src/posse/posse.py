@@ -938,7 +938,8 @@ def main(debug: bool = False) -> None:
         config=config,
         mastodon_clients=mastodon_clients,
         bluesky_clients=bluesky_clients,
-        llm_client=llm_client
+        llm_client=llm_client,
+        ghost_api_client=ghost_api_client
     )
 
     # Store interaction scheduler in app config for API endpoints

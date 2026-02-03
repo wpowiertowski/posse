@@ -420,10 +420,10 @@ class BlueskyClient(SocialMediaClient):
     
     def verify_credentials(self) -> Optional[Dict[str, Any]]:
         """Verify Bluesky credentials.
-        
+
         Returns:
             Dictionary with account info including handle and DID, or None if verification failed
-            
+
         Example:
             >>> account = client.verify_credentials()
             >>> if account:
@@ -432,7 +432,7 @@ class BlueskyClient(SocialMediaClient):
         if not self.enabled or not self.api:
             logger.warning(f"Cannot verify credentials for Bluesky '{self.account_name}': client not enabled")
             return None
-        
+
         try:
             # Get the authenticated user's DID
             if not self.api.me:
@@ -446,10 +446,10 @@ class BlueskyClient(SocialMediaClient):
                         error_msg
                     )
                 return None
-            
+
             # Get profile information
             profile = self.api.get_profile(actor=self.api.me.did)
-            
+
             logger.info(f"Verified credentials for Bluesky '{self.account_name}': @{profile.handle}")
             return {
                 "handle": profile.handle,
@@ -459,3 +459,74 @@ class BlueskyClient(SocialMediaClient):
         except Exception as e:
             logger.error(f"Failed to verify credentials for Bluesky '{self.account_name}': {e}")
             return None
+
+    def get_recent_posts(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get recent posts from the authenticated user's feed.
+
+        This method retrieves the user's own posts from their author feed.
+        Useful for discovering syndication mappings by searching for posts that
+        link back to Ghost posts.
+
+        Args:
+            limit: Maximum number of posts to retrieve (default: 50, max: 100)
+
+        Returns:
+            List of post dictionaries, each containing:
+                - uri: Post URI (AT Protocol URI)
+                - cid: Content identifier
+                - text: Plain text content
+                - created_at: Creation timestamp
+                - url: Web URL to the post
+
+        Example:
+            >>> posts = client.get_recent_posts(limit=30)
+            >>> for post in posts:
+            ...     print(f"Post {post['uri']}: {post.get('url', '')}")
+        """
+        if not self.enabled or not self.api:
+            logger.warning(f"Cannot get recent posts for Bluesky '{self.account_name}': client not enabled")
+            return []
+
+        try:
+            # Get the authenticated user's DID
+            if not self.api.me:
+                logger.error(f"No session for Bluesky '{self.account_name}'")
+                return []
+
+            # Get the user's author feed (their posts)
+            feed_response = self.api.app.bsky.feed.get_author_feed({
+                "actor": self.api.me.did,
+                "limit": min(limit, 100),  # API max is 100
+                "filter": "posts_no_replies"  # Only get original posts, not replies
+            })
+
+            posts = []
+            for feed_item in feed_response.feed:
+                if hasattr(feed_item, 'post'):
+                    post = feed_item.post
+                    author = post.author
+
+                    # Extract post URI parts to build web URL
+                    # URI format: at://did:plc:xxx/app.bsky.feed.post/yyy
+                    uri_parts = post.uri.split('/')
+                    if len(uri_parts) >= 2:
+                        post_id = uri_parts[-1]
+                        post_url = f"https://bsky.app/profile/{author.handle}/post/{post_id}"
+                    else:
+                        post_url = ""
+
+                    posts.append({
+                        "uri": post.uri,
+                        "cid": post.cid,
+                        "text": post.record.text if hasattr(post.record, 'text') else "",
+                        "created_at": post.record.created_at if hasattr(post.record, 'created_at') else "",
+                        "url": post_url,
+                        "author_handle": author.handle
+                    })
+
+            logger.debug(f"Retrieved {len(posts)} recent posts from Bluesky '{self.account_name}'")
+            return posts
+
+        except Exception as e:
+            logger.error(f"Failed to get recent posts from Bluesky '{self.account_name}': {e}")
+            return []

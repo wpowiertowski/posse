@@ -105,6 +105,16 @@ class InteractionSyncService:
         # Load existing interaction data to preserve data for platforms that fail to sync
         existing_data = self._load_existing_interaction_data(ghost_post_id)
 
+        # Check if we have existing data to preserve
+        has_existing_mastodon = bool(existing_data.get("platforms", {}).get("mastodon", {}))
+        has_existing_bluesky = bool(existing_data.get("platforms", {}).get("bluesky", {}))
+
+        if has_existing_mastodon or has_existing_bluesky:
+            logger.debug(
+                f"Preserving existing interaction data for post {ghost_post_id} "
+                f"(Mastodon: {has_existing_mastodon}, Bluesky: {has_existing_bluesky})"
+            )
+
         # Initialize result structure, preserving existing data as fallback
         interactions = {
             "ghost_post_id": ghost_post_id,
@@ -611,6 +621,235 @@ class InteractionSyncService:
             }
         }
 
+    def discover_syndication_mapping(
+        self,
+        ghost_post_id: str,
+        ghost_post_url: str,
+        max_posts_to_search: int = 50
+    ) -> bool:
+        """
+        Discover syndication mapping by searching recent posts for Ghost post URL.
+
+        This method searches through recent Mastodon and Bluesky posts to find
+        any that link back to the specified Ghost post. If found, it creates
+        a syndication mapping file for future use.
+
+        IMPORTANT: This method preserves existing mappings. If a mapping already
+        exists for an account, that account is skipped during discovery to avoid
+        unnecessary API calls and potential data overwrites.
+
+        Args:
+            ghost_post_id: Ghost post ID to discover mapping for
+            ghost_post_url: URL of the Ghost post to search for
+            max_posts_to_search: Maximum number of posts to search per account (default: 50)
+
+        Returns:
+            True if at least one mapping was discovered and stored, False otherwise
+
+        Example:
+            >>> service = InteractionSyncService(mastodon_clients, bluesky_clients)
+            >>> found = service.discover_syndication_mapping(
+            ...     "abc123",
+            ...     "https://blog.example.com/my-post/"
+            ... )
+            >>> if found:
+            ...     print("Mapping discovered!")
+        """
+        logger.info(
+            f"Searching for syndication mapping for Ghost post {ghost_post_id} "
+            f"(URL: {ghost_post_url})"
+        )
+
+        # Normalize the Ghost post URL for comparison (remove trailing slash, query params)
+        normalized_ghost_url = ghost_post_url.rstrip('/').split('?')[0].split('#')[0]
+
+        # Load existing mapping to avoid overwriting existing accounts
+        existing_mapping = self._load_syndication_mapping(ghost_post_id)
+        existing_mastodon_accounts = set()
+        existing_bluesky_accounts = set()
+
+        if existing_mapping:
+            logger.info(f"Found existing syndication mapping for post {ghost_post_id}")
+            if "mastodon" in existing_mapping.get("platforms", {}):
+                existing_mastodon_accounts = set(existing_mapping["platforms"]["mastodon"].keys())
+                logger.info(f"  - Existing Mastodon accounts: {', '.join(existing_mastodon_accounts)}")
+            if "bluesky" in existing_mapping.get("platforms", {}):
+                existing_bluesky_accounts = set(existing_mapping["platforms"]["bluesky"].keys())
+                logger.info(f"  - Existing Bluesky accounts: {', '.join(existing_bluesky_accounts)}")
+
+        mapping_found = False
+
+        # Search Mastodon posts
+        for client in self.mastodon_clients:
+            if not client.enabled:
+                continue
+
+            # Skip if this account already has a mapping (preserve existing data)
+            if client.account_name in existing_mastodon_accounts:
+                logger.debug(
+                    f"Skipping Mastodon account '{client.account_name}' - "
+                    f"mapping already exists (preserving existing data)"
+                )
+                continue
+
+            try:
+                posts = client.get_recent_posts(limit=max_posts_to_search)
+                logger.debug(
+                    f"Searching {len(posts)} recent Mastodon posts from "
+                    f"'{client.account_name}' for Ghost post URL"
+                )
+
+                for post in posts:
+                    # Extract URLs from post content (HTML)
+                    content = post.get('content', '')
+                    if not content:
+                        continue
+
+                    # Simple URL extraction from HTML (looks for href attributes)
+                    import re
+                    urls = re.findall(r'href=["\']([^"\']+)["\']', content)
+
+                    # Also check plain text content for URLs
+                    plain_text = self._strip_html(content)
+                    text_urls = re.findall(r'https?://[^\s]+', plain_text)
+                    urls.extend(text_urls)
+
+                    # Normalize and check each URL
+                    for url in urls:
+                        normalized_url = url.rstrip('/').split('?')[0].split('#')[0]
+                        if normalized_url == normalized_ghost_url:
+                            # Found a match! Store the syndication mapping
+                            logger.info(
+                                f"Found Mastodon post linking to Ghost post: "
+                                f"{post.get('url', post.get('id'))}"
+                            )
+
+                            post_data = {
+                                "status_id": str(post.get('id')),
+                                "post_url": post.get('url', '')
+                            }
+
+                            store_syndication_mapping(
+                                ghost_post_id=ghost_post_id,
+                                ghost_post_url=ghost_post_url,
+                                platform="mastodon",
+                                account_name=client.account_name,
+                                post_data=post_data,
+                                mappings_path=self.mappings_path
+                            )
+
+                            mapping_found = True
+                            break  # Found mapping for this account, move to next
+
+            except Exception as e:
+                logger.error(
+                    f"Error searching Mastodon posts from '{client.account_name}': {e}",
+                    exc_info=True
+                )
+
+        # Search Bluesky posts
+        for client in self.bluesky_clients:
+            if not client.enabled:
+                continue
+
+            # Skip if this account already has a mapping (preserve existing data)
+            if client.account_name in existing_bluesky_accounts:
+                logger.debug(
+                    f"Skipping Bluesky account '{client.account_name}' - "
+                    f"mapping already exists (preserving existing data)"
+                )
+                continue
+
+            try:
+                posts = client.get_recent_posts(limit=max_posts_to_search)
+                logger.debug(
+                    f"Searching {len(posts)} recent Bluesky posts from "
+                    f"'{client.account_name}' for Ghost post URL"
+                )
+
+                for post in posts:
+                    # Extract URLs from post text
+                    text = post.get('text', '')
+                    if not text:
+                        continue
+
+                    # Extract URLs from text
+                    import re
+                    urls = re.findall(r'https?://[^\s]+', text)
+
+                    # Normalize and check each URL
+                    for url in urls:
+                        # Clean up URL (remove trailing punctuation)
+                        url = url.rstrip('.,;!?)')
+                        normalized_url = url.rstrip('/').split('?')[0].split('#')[0]
+
+                        if normalized_url == normalized_ghost_url:
+                            # Found a match! Store the syndication mapping
+                            logger.info(
+                                f"Found Bluesky post linking to Ghost post: "
+                                f"{post.get('url', post.get('uri'))}"
+                            )
+
+                            post_data = {
+                                "post_uri": post.get('uri'),
+                                "post_url": post.get('url', '')
+                            }
+
+                            store_syndication_mapping(
+                                ghost_post_id=ghost_post_id,
+                                ghost_post_url=ghost_post_url,
+                                platform="bluesky",
+                                account_name=client.account_name,
+                                post_data=post_data,
+                                mappings_path=self.mappings_path
+                            )
+
+                            mapping_found = True
+                            break  # Found mapping for this account, move to next
+
+            except Exception as e:
+                logger.error(
+                    f"Error searching Bluesky posts from '{client.account_name}': {e}",
+                    exc_info=True
+                )
+
+        # Load final mapping to report on what was preserved and what was discovered
+        final_mapping = self._load_syndication_mapping(ghost_post_id)
+
+        if mapping_found:
+            logger.info(
+                f"Successfully discovered syndication mapping for Ghost post {ghost_post_id}"
+            )
+            # Log summary of preserved vs discovered
+            if final_mapping:
+                preserved_count = len(existing_mastodon_accounts) + len(existing_bluesky_accounts)
+                if preserved_count > 0:
+                    logger.info(
+                        f"  - Preserved {preserved_count} existing account mapping(s)"
+                    )
+                new_mastodon = set(final_mapping.get("platforms", {}).get("mastodon", {}).keys()) - existing_mastodon_accounts
+                new_bluesky = set(final_mapping.get("platforms", {}).get("bluesky", {}).keys()) - existing_bluesky_accounts
+                new_count = len(new_mastodon) + len(new_bluesky)
+                if new_count > 0:
+                    logger.info(f"  - Discovered {new_count} new account mapping(s)")
+                    if new_mastodon:
+                        logger.info(f"    • Mastodon: {', '.join(new_mastodon)}")
+                    if new_bluesky:
+                        logger.info(f"    • Bluesky: {', '.join(new_bluesky)}")
+        else:
+            if existing_mapping:
+                logger.info(
+                    f"No new syndication mappings discovered for Ghost post {ghost_post_id}, "
+                    f"but existing mappings were preserved"
+                )
+            else:
+                logger.info(
+                    f"No syndication mapping found for Ghost post {ghost_post_id} "
+                    f"in recent posts"
+                )
+
+        return mapping_found
+
     @staticmethod
     def _strip_html(html_content: str) -> str:
         """
@@ -648,6 +887,10 @@ def store_syndication_mapping(
     This function should be called after successfully posting to a social media platform.
     For split posts (multi-image posts split into individual posts), each split post
     is stored as a separate entry with split metadata.
+
+    IMPORTANT: This function preserves existing mappings. It only updates the specific
+    platform/account_name combination being added and does not modify or delete mappings
+    for other platforms or accounts.
 
     Args:
         ghost_post_id: Ghost post ID

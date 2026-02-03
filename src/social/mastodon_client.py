@@ -250,13 +250,13 @@ class MastodonClient(SocialMediaClient):
     
     def verify_credentials(self) -> Optional[Dict[str, Any]]:
         """Verify that the access token is valid and get account information.
-        
+
         This method tests the connection and credentials by fetching the
         authenticated user's account information.
-        
+
         Returns:
             Dictionary containing account information, or None if verification failed
-            
+
         Example:
             >>> account = client.verify_credentials()
             >>> if account:
@@ -265,7 +265,7 @@ class MastodonClient(SocialMediaClient):
         if not self.enabled or not self.api:
             logger.warning("Cannot verify credentials: client not enabled")
             return None
-        
+
         try:
             account = self.api.account_verify_credentials()
             logger.info(f"Verified credentials for @{account['username']}")
@@ -281,3 +281,49 @@ class MastodonClient(SocialMediaClient):
                     str(e)
                 )
             return None
+
+    def get_recent_posts(self, limit: int = 40) -> List[Dict[str, Any]]:
+        """Get recent posts from the authenticated user's timeline.
+
+        This method retrieves the user's own posts (statuses) from their timeline.
+        Useful for discovering syndication mappings by searching for posts that
+        link back to Ghost posts.
+
+        Args:
+            limit: Maximum number of posts to retrieve (default: 40, max: 40 per API call)
+
+        Returns:
+            List of status dictionaries, each containing:
+                - id: Status ID
+                - url: URL of the status
+                - content: HTML content of the status
+                - created_at: Creation timestamp
+
+        Example:
+            >>> posts = client.get_recent_posts(limit=20)
+            >>> for post in posts:
+            ...     print(f"Status {post['id']}: {post['url']}")
+        """
+        if not self.enabled or not self.api:
+            logger.warning(f"Cannot get recent posts for Mastodon '{self.account_name}': client not enabled")
+            return []
+
+        try:
+            # Get the authenticated user's account info
+            account = self.api.account_verify_credentials()
+            account_id = account['id']
+
+            # Get the user's statuses (limit max is 40 for Mastodon API)
+            statuses = self.api.account_statuses(
+                id=account_id,
+                limit=min(limit, 40),
+                exclude_replies=False,
+                exclude_reblogs=True  # Only get original posts, not reblogs
+            )
+
+            logger.debug(f"Retrieved {len(statuses)} recent posts from Mastodon '{self.account_name}'")
+            return statuses
+
+        except MastodonError as e:
+            logger.error(f"Failed to get recent posts from Mastodon '{self.account_name}': {e}")
+            return []

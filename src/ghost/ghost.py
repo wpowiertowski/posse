@@ -103,13 +103,13 @@ validator = Draft7Validator(GHOST_POST_SCHEMA)
 
 
 def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None, config: Optional[Dict[str, Any]] = None,
-               mastodon_clients: Optional[list] = None, bluesky_clients: Optional[list] = None, 
-               llm_client: Optional[Any] = None) -> Flask:
+               mastodon_clients: Optional[list] = None, bluesky_clients: Optional[list] = None,
+               llm_client: Optional[Any] = None, ghost_api_client: Optional[Any] = None) -> Flask:
     """Factory function to create and configure the Flask application.
-    
+
     This factory pattern allows dependency injection of the events_queue, notifier,
     and config, avoiding circular imports and making the app easier to test.
-    
+
     Args:
         events_queue: Thread-safe Queue instance for validated Ghost posts
         notifier: Optional PushoverNotifier instance (if None, will be created from config)
@@ -117,10 +117,11 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         mastodon_clients: Optional list of MastodonClient instances
         bluesky_clients: Optional list of BlueskyClient instances
         llm_client: Optional LLMClient instance
-        
+        ghost_api_client: Optional Ghost Content API client instance
+
     Returns:
         Configured Flask application instance with webhook and health endpoints
-        
+
     Example:
         >>> from queue import Queue
         >>> queue = Queue()
@@ -152,11 +153,12 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     if notifier is None:
         notifier = PushoverNotifier.from_config(config)
     app.config["PUSHOVER_NOTIFIER"] = notifier
-    
-    # Store service clients for healthcheck endpoint
+
+    # Store service clients for healthcheck endpoint and interaction discovery
     app.config["MASTODON_CLIENTS"] = mastodon_clients or []
     app.config["BLUESKY_CLIENTS"] = bluesky_clients or []
     app.config["LLM_CLIENT"] = llm_client
+    app.config["GHOST_API_CLIENT"] = ghost_api_client
     
     @app.route("/webhook/ghost", methods=["POST"])
     def receive_ghost_post():
@@ -520,6 +522,9 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         This endpoint returns the cached interaction data for a Ghost post,
         including comments, likes, and reposts from Mastodon and Bluesky.
 
+        If no syndication mapping exists, the endpoint will attempt to discover
+        the mapping by searching recent social media posts for links to the Ghost post.
+
         Args:
             ghost_post_id: Ghost post ID
 
@@ -650,8 +655,59 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     "details": str(e)
                 }), 500
 
-        # Neither interaction file nor mapping file exists
-        logger.warning(f"No interaction data or syndication mapping found for post: {ghost_post_id}")
+        # Neither interaction file nor mapping file exists - try to discover mapping
+        logger.info(f"No interaction data or syndication mapping found for post: {ghost_post_id}, attempting discovery")
+
+        # Get Ghost API client and social media clients
+        ghost_api_client = current_app.config.get("GHOST_API_CLIENT")
+        mastodon_clients = current_app.config.get("MASTODON_CLIENTS", [])
+        bluesky_clients = current_app.config.get("BLUESKY_CLIENTS", [])
+
+        # Try to get the Ghost post URL
+        ghost_post_url = None
+        if ghost_api_client and ghost_api_client.enabled:
+            try:
+                post = ghost_api_client.get_post_by_id(ghost_post_id)
+                if post:
+                    ghost_post_url = post.get("url")
+                    logger.debug(f"Retrieved Ghost post URL from API: {ghost_post_url}")
+            except Exception as e:
+                logger.error(f"Failed to retrieve Ghost post from API: {e}")
+
+        # If we have the Ghost post URL, try to discover the mapping
+        if ghost_post_url and (mastodon_clients or bluesky_clients):
+            try:
+                # Create a temporary InteractionSyncService for discovery
+                sync_service = InteractionSyncService(
+                    mastodon_clients=mastodon_clients,
+                    bluesky_clients=bluesky_clients,
+                    storage_path=storage_path,
+                    mappings_path=mappings_path
+                )
+
+                # Attempt to discover syndication mapping
+                mapping_discovered = sync_service.discover_syndication_mapping(
+                    ghost_post_id=ghost_post_id,
+                    ghost_post_url=ghost_post_url,
+                    max_posts_to_search=50
+                )
+
+                if mapping_discovered:
+                    # Mapping was discovered! Now try to sync interactions
+                    logger.info(f"Syndication mapping discovered for post {ghost_post_id}, syncing interactions")
+                    try:
+                        interactions = sync_service.sync_post_interactions(ghost_post_id)
+                        logger.debug(f"Successfully synced interactions after discovery for post: {ghost_post_id}")
+                        return jsonify(interactions), 200
+                    except Exception as e:
+                        logger.error(f"Failed to sync interactions after discovery for {ghost_post_id}: {e}")
+                        # Fall through to 404 response
+
+            except Exception as e:
+                logger.error(f"Error during syndication mapping discovery for {ghost_post_id}: {e}", exc_info=True)
+
+        # No mapping found or discovered
+        logger.warning(f"No syndication mapping found or discovered for post: {ghost_post_id}")
         return jsonify({
             "ghost_post_id": ghost_post_id,
             "updated_at": None,
