@@ -7,6 +7,7 @@ posts on Mastodon and Bluesky and stores them for display in Ghost widgets.
 import logging
 import json
 import os
+import re
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -236,7 +237,7 @@ class InteractionSyncService:
             Dictionary with Mastodon interaction data or None if failed
         """
         # Find the matching client
-        client = self._find_mastodon_client(account_name)
+        client = self._find_client(self.mastodon_clients, account_name)
         if not client or not client.enabled or not client.api:
             logger.warning(f"Mastodon client '{account_name}' not available")
             return None
@@ -398,7 +399,7 @@ class InteractionSyncService:
             Dictionary with Bluesky interaction data or None if failed
         """
         # Find the matching client
-        client = self._find_bluesky_client(account_name)
+        client = self._find_client(self.bluesky_clients, account_name)
         if not client or not client.enabled or not client.api:
             logger.warning(f"Bluesky client '{account_name}' not available")
             return None
@@ -544,16 +545,17 @@ class InteractionSyncService:
             "updated_at": datetime.now(ZoneInfo("UTC")).isoformat()
         }
 
-    def _find_mastodon_client(self, account_name: str) -> Optional[Any]:
-        """Find Mastodon client by account name."""
-        for client in self.mastodon_clients:
-            if client.account_name == account_name:
-                return client
-        return None
+    def _find_client(self, clients: List[Any], account_name: str) -> Optional[Any]:
+        """Find client by account name from a list of clients.
 
-    def _find_bluesky_client(self, account_name: str) -> Optional[Any]:
-        """Find Bluesky client by account name."""
-        for client in self.bluesky_clients:
+        Args:
+            clients: List of social media client instances
+            account_name: Name of the account to find
+
+        Returns:
+            Matching client or None if not found
+        """
+        for client in clients:
             if client.account_name == account_name:
                 return client
         return None
@@ -722,7 +724,6 @@ class InteractionSyncService:
                         continue
 
                     # Simple URL extraction from HTML (looks for href attributes)
-                    import re
                     urls = re.findall(r'href=["\']([^"\']+)["\']', content)
 
                     # Also check plain text content for URLs
@@ -790,7 +791,6 @@ class InteractionSyncService:
                         continue
 
                     # Extract URLs from text
-                    import re
                     urls = re.findall(r'https?://[^\s]+', text)
 
                     # Normalize and check each URL
@@ -879,7 +879,6 @@ class InteractionSyncService:
         Returns:
             Plain text with HTML tags removed
         """
-        import re
         # Remove HTML tags
         text = re.sub(r'<[^>]+>', '', html_content)
         # Decode HTML entities

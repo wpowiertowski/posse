@@ -594,46 +594,21 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     mapping = json.load(f)
 
                 # Build syndication_links from mapping
-                syndication_links = {
-                    "mastodon": {},
-                    "bluesky": {}
-                }
+                syndication_links = {"mastodon": {}, "bluesky": {}}
 
-                # Extract Mastodon links
-                if "mastodon" in mapping.get("platforms", {}):
-                    for account_name, account_data in mapping["platforms"]["mastodon"].items():
-                        if isinstance(account_data, list):
-                            # Split posts
-                            syndication_links["mastodon"][account_name] = [
-                                {
-                                    "post_url": entry.get("post_url"),
-                                    "split_index": entry.get("split_index")
-                                }
-                                for entry in account_data
-                            ]
-                        else:
-                            # Single post
-                            syndication_links["mastodon"][account_name] = {
-                                "post_url": account_data.get("post_url")
-                            }
-
-                # Extract Bluesky links
-                if "bluesky" in mapping.get("platforms", {}):
-                    for account_name, account_data in mapping["platforms"]["bluesky"].items():
-                        if isinstance(account_data, list):
-                            # Split posts
-                            syndication_links["bluesky"][account_name] = [
-                                {
-                                    "post_url": entry.get("post_url"),
-                                    "split_index": entry.get("split_index")
-                                }
-                                for entry in account_data
-                            ]
-                        else:
-                            # Single post
-                            syndication_links["bluesky"][account_name] = {
-                                "post_url": account_data.get("post_url")
-                            }
+                # Extract links for each platform
+                for platform in ["mastodon", "bluesky"]:
+                    if platform in mapping.get("platforms", {}):
+                        for account_name, account_data in mapping["platforms"][platform].items():
+                            if isinstance(account_data, list):
+                                # Split posts
+                                syndication_links[platform][account_name] = [
+                                    {"post_url": entry.get("post_url"), "split_index": entry.get("split_index")}
+                                    for entry in account_data
+                                ]
+                            else:
+                                # Single post
+                                syndication_links[platform][account_name] = {"post_url": account_data.get("post_url")}
 
                 logger.debug(f"Retrieved syndication links for post: {ghost_post_id}")
                 return jsonify({
