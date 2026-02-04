@@ -8,15 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.1.0] - 2026-02-03
+
+### Major Feature: Social Interaction Syncing
+
+This release introduces **syndication interaction syncing** - a system that fetches engagement metrics (likes, reposts, replies) from your syndicated posts on Mastodon and Bluesky and syncs them back to your Ghost blog. Combined with a new embeddable widget, readers can now see social engagement directly on your blog posts.
+
+Key capabilities:
+- Automatic polling of Mastodon and Bluesky APIs for interaction data
+- Reply preview extraction with author metadata
+- Scheduled background sync with configurable intervals
+- REST API endpoint for fetching interaction data per post
+- Ghost theme widget for displaying social engagement and webmentions
+
 ### Added
 
-- Automatic syndication mapping discovery for older posts - syncs interactions for posts syndicated before interaction sync was enabled (#71)
-- Webmentions support in social interactions widget - display likes, reposts, and comments from webmention.io (#73)
-- Ghost REST API integration for fetching post metadata during interaction sync (#72)
-- CORS support with configuration-based allowed origins for cross-origin API requests
-- Syndication links summary field in interactions API response for easier widget integration
-- IndieWeb News syndication support via webmention when posts are tagged appropriately (#66)
-- Timeout handling for Mastodon API requests to prevent sync failures
+- **Social interaction sync engine** - fetches likes, reposts, and replies from Mastodon and Bluesky (#64)
+- **Social interactions widget** for Ghost themes - displays POSSE engagement, webmentions, and optional Disqus comments
+- **Webmentions integration** in widget - fetches and displays likes, reposts, and comments from webmention.io (#73)
+- **Automatic syndication mapping discovery** for older posts - enables interaction sync for posts syndicated before this feature existed (#71)
+- **Legacy post backfill endpoint** - manually trigger syndication discovery for historical posts
+- **Ghost REST API integration** for fetching post metadata during interaction sync (#72)
+- **CORS support** with configuration-based allowed origins for cross-origin widget API requests
+- **Syndication links summary** in interactions API response for widget reply buttons
+- **IndieWeb News syndication** via webmention when posts are tagged appropriately (#66)
+- **Timeout handling** for Mastodon API requests to prevent sync failures
 
 ### Changed
 
@@ -117,7 +134,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secure credential management using Docker secrets
 - JSON schema validation for all webhook payloads
 
-[Unreleased]: https://github.com/wpowiertowski/posse/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/wpowiertowski/posse/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/wpowiertowski/posse/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.3
 [1.0.2]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.2
 [1.0.1]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.1
