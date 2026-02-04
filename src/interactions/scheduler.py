@@ -150,11 +150,16 @@ class InteractionScheduler:
             logger.debug(f"Mappings directory does not exist: {mappings_path}")
             return
 
-        # Get all mapping files
-        mapping_files = [
-            f for f in os.listdir(mappings_path)
-            if f.endswith('.json')
-        ]
+        # Get all mapping files with error handling to ensure file system issues
+        # don't crash the scheduler
+        try:
+            mapping_files = [
+                f for f in os.listdir(mappings_path)
+                if f.endswith('.json')
+            ]
+        except OSError as e:
+            logger.error(f"Failed to list mappings directory {mappings_path}: {e}")
+            return
 
         if not mapping_files:
             logger.debug("No syndication mappings found")
