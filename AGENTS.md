@@ -234,6 +234,28 @@ implementation approach.
 
 ---
 
+## Testing
+
+### Running Tests
+
+**Inside Docker (recommended for CI-like environment):**
+```bash
+make test              # Run all tests
+make test-verbose      # Run tests with verbose output
+```
+
+**Outside Docker (local development with Poetry):**
+```bash
+poetry run pytest                          # Run all tests
+poetry run pytest tests/test_bluesky.py    # Run specific test file
+poetry run pytest -v                       # Verbose output
+poetry run pytest -k "test_post"           # Run tests matching pattern
+```
+
+The test configuration is defined in `pyproject.toml` under `[tool.pytest.ini_options]`.
+
+---
+
 ## Git Workflow
 
 ### Creating Commits

@@ -922,45 +922,149 @@ class TestBlueskyClient(unittest.TestCase):
         # Setup mock API
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
-        
+
         # Mock send_post result
         mock_result = MagicMock()
         mock_result.uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789"
         mock_result.cid = "bafyreiabc123"
         mock_client.send_post.return_value = mock_result
-        
+
         # Create client
         client = BlueskyClient(
             instance_url="https://bsky.social",
             handle="user.bsky.social",
             app_password="test_password"
         )
-        
+
         # Post with URL ending with period
         content = "Visit https://example.com."
         result = client.post(content)
-        
+
         # Verify send_post was called
         mock_client.send_post.assert_called_once()
-        
+
         # Get the TextBuilder argument
         text_builder_arg = mock_client.send_post.call_args[0][0]
-        
+
         # Verify the text is correct (should include the period after the URL)
         self.assertEqual(text_builder_arg.build_text(), content)
-        
+
         # Verify that facets were created
         facets = text_builder_arg.build_facets()
         self.assertEqual(len(facets), 1, "Expected one facet for the URL")
-        
+
         # Verify the URL doesn't include the trailing period
         self.assertIsInstance(facets[0].features[0], models.AppBskyRichtextFacet.Link)
         # The link text should be the URL without the trailing period
         link_text = content.encode('UTF-8')[facets[0].index.byte_start:facets[0].index.byte_end].decode('UTF-8')
         self.assertEqual(link_text, "https://example.com", "URL should not include trailing period")
-        
+
         # Verify result
         self.assertIsNotNone(result)
+
+    @patch("social.bluesky_client.Client")
+    def test_post_re_authenticates_before_posting(self, mock_client_class):
+        """Test that post() re-authenticates before each post to avoid ExpiredToken errors."""
+        # Setup mock API
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        # Mock send_post result
+        mock_result = MagicMock()
+        mock_result.uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789"
+        mock_result.cid = "bafyreiabc123"
+        mock_client.send_post.return_value = mock_result
+
+        # Create client
+        client = BlueskyClient(
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
+        )
+
+        # Reset login call count after initial setup
+        initial_login_count = mock_client.login.call_count
+
+        # Post content
+        result = client.post("Hello Bluesky!")
+
+        # Verify login was called again during re-authentication
+        self.assertEqual(
+            mock_client.login.call_count,
+            initial_login_count + 1,
+            "Expected login to be called during re-authentication before post"
+        )
+
+        # Verify login was called with correct credentials
+        mock_client.login.assert_called_with(
+            login="user.bsky.social",
+            password="test_password"
+        )
+
+        # Verify result
+        self.assertIsNotNone(result)
+        self.assertEqual(result["uri"], "at://did:plc:abc123/app.bsky.feed.post/xyz789")
+
+    @patch("social.bluesky_client.Client")
+    def test_post_fails_when_re_authentication_fails(self, mock_client_class):
+        """Test that post() returns None when re-authentication fails."""
+        # Setup mock API for initial setup
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        # Create client (initial login succeeds)
+        client = BlueskyClient(
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
+        )
+
+        # Make login fail for re-authentication
+        mock_client.login.side_effect = Exception("Auth failed - token revoked")
+
+        # Attempt to post
+        result = client.post("Test post")
+
+        # Verify result is None because re-authentication failed
+        self.assertIsNone(result)
+
+        # Verify send_post was NOT called (we should fail before attempting to post)
+        mock_client.send_post.assert_not_called()
+
+    @patch("social.bluesky_client.Client")
+    def test_multiple_posts_re_authenticate_each_time(self, mock_client_class):
+        """Test that each post call re-authenticates to ensure fresh tokens."""
+        # Setup mock API
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        # Mock send_post result
+        mock_result = MagicMock()
+        mock_result.uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789"
+        mock_result.cid = "bafyreiabc123"
+        mock_client.send_post.return_value = mock_result
+
+        # Create client
+        client = BlueskyClient(
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
+        )
+
+        # Reset login call count after initial setup
+        initial_login_count = mock_client.login.call_count
+
+        # Post multiple times
+        client.post("First post")
+        client.post("Second post")
+        client.post("Third post")
+
+        # Verify login was called for each post (3 re-authentications)
+        self.assertEqual(
+            mock_client.login.call_count,
+            initial_login_count + 3,
+            "Expected login to be called once per post for re-authentication"
+        )
 
 
 if __name__ == "__main__":
