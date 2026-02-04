@@ -137,91 +137,99 @@ class InteractionSyncService:
         bluesky_accounts_to_sync = 0
         bluesky_accounts_synced = 0
 
-        # Sync Mastodon interactions
-        if "mastodon" in mapping.get("platforms", {}):
-            mastodon_accounts_to_sync = len(mapping["platforms"]["mastodon"])
-            for account_name, account_data in mapping["platforms"]["mastodon"].items():
-                try:
-                    # Handle split posts (account_data is a list) or single posts (account_data is dict)
-                    if isinstance(account_data, list):
-                        # Split posts - aggregate interactions from all split entries
-                        mastodon_data = self._sync_mastodon_split_interactions(
-                            account_name=account_name,
-                            split_entries=account_data
-                        )
-                    else:
-                        # Single post
-                        mastodon_data = self._sync_mastodon_interactions(
-                            account_name=account_name,
-                            status_id=account_data["status_id"],
-                            post_url=account_data["post_url"]
-                        )
-                    if mastodon_data:
-                        mastodon_accounts_synced += 1
-                        interactions["platforms"]["mastodon"][account_name] = mastodon_data
-                        # Add to syndication_links summary
-                        if "is_split" in mastodon_data and mastodon_data["is_split"]:
-                            # For split posts, include all split post URLs
-                            interactions["syndication_links"]["mastodon"][account_name] = [
-                                {
-                                    "post_url": split["post_url"],
-                                    "split_index": split["split_index"]
-                                }
-                                for split in mastodon_data.get("split_posts", [])
-                            ]
+        # Sync Mastodon interactions - wrapped to ensure Bluesky sync runs even if
+        # Mastodon sync encounters an unexpected error
+        try:
+            if "mastodon" in mapping.get("platforms", {}):
+                mastodon_accounts_to_sync = len(mapping["platforms"]["mastodon"])
+                for account_name, account_data in mapping["platforms"]["mastodon"].items():
+                    try:
+                        # Handle split posts (account_data is a list) or single posts (account_data is dict)
+                        if isinstance(account_data, list):
+                            # Split posts - aggregate interactions from all split entries
+                            mastodon_data = self._sync_mastodon_split_interactions(
+                                account_name=account_name,
+                                split_entries=account_data
+                            )
                         else:
-                            # For single posts, just include the post URL
-                            interactions["syndication_links"]["mastodon"][account_name] = {
-                                "post_url": mastodon_data.get("post_url")
-                            }
-                except Exception as e:
-                    logger.error(
-                        f"Failed to sync Mastodon interactions for {account_name}: {e}",
-                        exc_info=True
-                    )
+                            # Single post
+                            mastodon_data = self._sync_mastodon_interactions(
+                                account_name=account_name,
+                                status_id=account_data["status_id"],
+                                post_url=account_data["post_url"]
+                            )
+                        if mastodon_data:
+                            mastodon_accounts_synced += 1
+                            interactions["platforms"]["mastodon"][account_name] = mastodon_data
+                            # Add to syndication_links summary
+                            if "is_split" in mastodon_data and mastodon_data["is_split"]:
+                                # For split posts, include all split post URLs
+                                interactions["syndication_links"]["mastodon"][account_name] = [
+                                    {
+                                        "post_url": split["post_url"],
+                                        "split_index": split["split_index"]
+                                    }
+                                    for split in mastodon_data.get("split_posts", [])
+                                ]
+                            else:
+                                # For single posts, just include the post URL
+                                interactions["syndication_links"]["mastodon"][account_name] = {
+                                    "post_url": mastodon_data.get("post_url")
+                                }
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to sync Mastodon interactions for {account_name}: {e}",
+                            exc_info=True
+                        )
+        except Exception as e:
+            logger.error(f"Unexpected error during Mastodon interaction sync: {e}", exc_info=True)
 
-        # Sync Bluesky interactions
-        if "bluesky" in mapping.get("platforms", {}):
-            bluesky_accounts_to_sync = len(mapping["platforms"]["bluesky"])
-            for account_name, account_data in mapping["platforms"]["bluesky"].items():
-                try:
-                    # Handle split posts (account_data is a list) or single posts (account_data is dict)
-                    if isinstance(account_data, list):
-                        # Split posts - aggregate interactions from all split entries
-                        bluesky_data = self._sync_bluesky_split_interactions(
-                            account_name=account_name,
-                            split_entries=account_data
-                        )
-                    else:
-                        # Single post
-                        bluesky_data = self._sync_bluesky_interactions(
-                            account_name=account_name,
-                            post_uri=account_data["post_uri"],
-                            post_url=account_data["post_url"]
-                        )
-                    if bluesky_data:
-                        bluesky_accounts_synced += 1
-                        interactions["platforms"]["bluesky"][account_name] = bluesky_data
-                        # Add to syndication_links summary
-                        if "is_split" in bluesky_data and bluesky_data["is_split"]:
-                            # For split posts, include all split post URLs
-                            interactions["syndication_links"]["bluesky"][account_name] = [
-                                {
-                                    "post_url": split["post_url"],
-                                    "split_index": split["split_index"]
-                                }
-                                for split in bluesky_data.get("split_posts", [])
-                            ]
+        # Sync Bluesky interactions - wrapped to ensure one platform's failure doesn't
+        # prevent the other from syncing
+        try:
+            if "bluesky" in mapping.get("platforms", {}):
+                bluesky_accounts_to_sync = len(mapping["platforms"]["bluesky"])
+                for account_name, account_data in mapping["platforms"]["bluesky"].items():
+                    try:
+                        # Handle split posts (account_data is a list) or single posts (account_data is dict)
+                        if isinstance(account_data, list):
+                            # Split posts - aggregate interactions from all split entries
+                            bluesky_data = self._sync_bluesky_split_interactions(
+                                account_name=account_name,
+                                split_entries=account_data
+                            )
                         else:
-                            # For single posts, just include the post URL
-                            interactions["syndication_links"]["bluesky"][account_name] = {
-                                "post_url": bluesky_data.get("post_url")
-                            }
-                except Exception as e:
-                    logger.error(
-                        f"Failed to sync Bluesky interactions for {account_name}: {e}",
-                        exc_info=True
-                    )
+                            # Single post
+                            bluesky_data = self._sync_bluesky_interactions(
+                                account_name=account_name,
+                                post_uri=account_data["post_uri"],
+                                post_url=account_data["post_url"]
+                            )
+                        if bluesky_data:
+                            bluesky_accounts_synced += 1
+                            interactions["platforms"]["bluesky"][account_name] = bluesky_data
+                            # Add to syndication_links summary
+                            if "is_split" in bluesky_data and bluesky_data["is_split"]:
+                                # For split posts, include all split post URLs
+                                interactions["syndication_links"]["bluesky"][account_name] = [
+                                    {
+                                        "post_url": split["post_url"],
+                                        "split_index": split["split_index"]
+                                    }
+                                    for split in bluesky_data.get("split_posts", [])
+                                ]
+                            else:
+                                # For single posts, just include the post URL
+                                interactions["syndication_links"]["bluesky"][account_name] = {
+                                    "post_url": bluesky_data.get("post_url")
+                                }
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to sync Bluesky interactions for {account_name}: {e}",
+                            exc_info=True
+                        )
+        except Exception as e:
+            logger.error(f"Unexpected error during Bluesky interaction sync: {e}", exc_info=True)
 
         # Store the interaction data
         self._store_interaction_data(ghost_post_id, interactions)
@@ -751,137 +759,145 @@ class InteractionSyncService:
 
         mapping_found = False
 
-        # Search Mastodon posts
-        for client in self.mastodon_clients:
-            if not client.enabled:
-                continue
+        # Search Mastodon posts - wrapped in try-catch to ensure Bluesky discovery
+        # continues even if Mastodon processing fails unexpectedly
+        try:
+            for client in self.mastodon_clients:
+                if not client.enabled:
+                    continue
 
-            # Skip if this account already has a mapping (preserve existing data)
-            if client.account_name in existing_mastodon_accounts:
-                logger.debug(
-                    f"Skipping Mastodon account '{client.account_name}' - "
-                    f"mapping already exists (preserving existing data)"
-                )
-                continue
+                # Skip if this account already has a mapping (preserve existing data)
+                if client.account_name in existing_mastodon_accounts:
+                    logger.debug(
+                        f"Skipping Mastodon account '{client.account_name}' - "
+                        f"mapping already exists (preserving existing data)"
+                    )
+                    continue
 
-            try:
-                posts = client.get_recent_posts(limit=max_posts_to_search)
-                logger.debug(
-                    f"Searching {len(posts)} recent Mastodon posts from "
-                    f"'{client.account_name}' for Ghost post URL"
-                )
+                try:
+                    posts = client.get_recent_posts(limit=max_posts_to_search)
+                    logger.debug(
+                        f"Searching {len(posts)} recent Mastodon posts from "
+                        f"'{client.account_name}' for Ghost post URL"
+                    )
 
-                for post in posts:
-                    # Extract URLs from post content (HTML)
-                    content = post.get('content', '')
-                    if not content:
-                        continue
+                    for post in posts:
+                        # Extract URLs from post content (HTML)
+                        content = post.get('content', '')
+                        if not content:
+                            continue
 
-                    # Simple URL extraction from HTML (looks for href attributes)
-                    urls = re.findall(r'href=["\']([^"\']+)["\']', content)
+                        # Simple URL extraction from HTML (looks for href attributes)
+                        urls = re.findall(r'href=["\']([^"\']+)["\']', content)
 
-                    # Also check plain text content for URLs
-                    plain_text = self._strip_html(content)
-                    text_urls = re.findall(r'https?://[^\s]+', plain_text)
-                    urls.extend(text_urls)
+                        # Also check plain text content for URLs
+                        plain_text = self._strip_html(content)
+                        text_urls = re.findall(r'https?://[^\s]+', plain_text)
+                        urls.extend(text_urls)
 
-                    # Normalize and check each URL
-                    for url in urls:
-                        normalized_url = url.rstrip('/').split('?')[0].split('#')[0]
-                        if normalized_url == normalized_ghost_url:
-                            # Found a match! Store the syndication mapping
-                            logger.info(
-                                f"Found Mastodon post linking to Ghost post: "
-                                f"{post.get('url', post.get('id'))}"
-                            )
+                        # Normalize and check each URL
+                        for url in urls:
+                            normalized_url = url.rstrip('/').split('?')[0].split('#')[0]
+                            if normalized_url == normalized_ghost_url:
+                                # Found a match! Store the syndication mapping
+                                logger.info(
+                                    f"Found Mastodon post linking to Ghost post: "
+                                    f"{post.get('url', post.get('id'))}"
+                                )
 
-                            post_data = {
-                                "status_id": str(post.get('id')),
-                                "post_url": post.get('url', '')
-                            }
+                                post_data = {
+                                    "status_id": str(post.get('id')),
+                                    "post_url": post.get('url', '')
+                                }
 
-                            store_syndication_mapping(
-                                ghost_post_id=ghost_post_id,
-                                ghost_post_url=ghost_post_url,
-                                platform="mastodon",
-                                account_name=client.account_name,
-                                post_data=post_data,
-                                mappings_path=self.mappings_path
-                            )
+                                store_syndication_mapping(
+                                    ghost_post_id=ghost_post_id,
+                                    ghost_post_url=ghost_post_url,
+                                    platform="mastodon",
+                                    account_name=client.account_name,
+                                    post_data=post_data,
+                                    mappings_path=self.mappings_path
+                                )
 
-                            mapping_found = True
-                            break  # Found mapping for this account, move to next
+                                mapping_found = True
+                                break  # Found mapping for this account, move to next
 
-            except Exception as e:
-                logger.error(
-                    f"Error searching Mastodon posts from '{client.account_name}': {e}",
-                    exc_info=True
-                )
+                except Exception as e:
+                    logger.error(
+                        f"Error searching Mastodon posts from '{client.account_name}': {e}",
+                        exc_info=True
+                    )
+        except Exception as e:
+            logger.error(f"Unexpected error during Mastodon discovery: {e}", exc_info=True)
 
-        # Search Bluesky posts
-        for client in self.bluesky_clients:
-            if not client.enabled:
-                continue
+        # Search Bluesky posts - wrapped in try-catch to ensure one platform's failure
+        # doesn't affect the other
+        try:
+            for client in self.bluesky_clients:
+                if not client.enabled:
+                    continue
 
-            # Skip if this account already has a mapping (preserve existing data)
-            if client.account_name in existing_bluesky_accounts:
-                logger.debug(
-                    f"Skipping Bluesky account '{client.account_name}' - "
-                    f"mapping already exists (preserving existing data)"
-                )
-                continue
+                # Skip if this account already has a mapping (preserve existing data)
+                if client.account_name in existing_bluesky_accounts:
+                    logger.debug(
+                        f"Skipping Bluesky account '{client.account_name}' - "
+                        f"mapping already exists (preserving existing data)"
+                    )
+                    continue
 
-            try:
-                posts = client.get_recent_posts(limit=max_posts_to_search)
-                logger.debug(
-                    f"Searching {len(posts)} recent Bluesky posts from "
-                    f"'{client.account_name}' for Ghost post URL"
-                )
+                try:
+                    posts = client.get_recent_posts(limit=max_posts_to_search)
+                    logger.debug(
+                        f"Searching {len(posts)} recent Bluesky posts from "
+                        f"'{client.account_name}' for Ghost post URL"
+                    )
 
-                for post in posts:
-                    # Extract URLs from post text
-                    text = post.get('text', '')
-                    if not text:
-                        continue
+                    for post in posts:
+                        # Extract URLs from post text
+                        text = post.get('text', '')
+                        if not text:
+                            continue
 
-                    # Extract URLs from text
-                    urls = re.findall(r'https?://[^\s]+', text)
+                        # Extract URLs from text
+                        urls = re.findall(r'https?://[^\s]+', text)
 
-                    # Normalize and check each URL
-                    for url in urls:
-                        # Clean up URL (remove trailing punctuation)
-                        url = url.rstrip('.,;!?)')
-                        normalized_url = url.rstrip('/').split('?')[0].split('#')[0]
+                        # Normalize and check each URL
+                        for url in urls:
+                            # Clean up URL (remove trailing punctuation)
+                            url = url.rstrip('.,;!?)')
+                            normalized_url = url.rstrip('/').split('?')[0].split('#')[0]
 
-                        if normalized_url == normalized_ghost_url:
-                            # Found a match! Store the syndication mapping
-                            logger.info(
-                                f"Found Bluesky post linking to Ghost post: "
-                                f"{post.get('url', post.get('uri'))}"
-                            )
+                            if normalized_url == normalized_ghost_url:
+                                # Found a match! Store the syndication mapping
+                                logger.info(
+                                    f"Found Bluesky post linking to Ghost post: "
+                                    f"{post.get('url', post.get('uri'))}"
+                                )
 
-                            post_data = {
-                                "post_uri": post.get('uri'),
-                                "post_url": post.get('url', '')
-                            }
+                                post_data = {
+                                    "post_uri": post.get('uri'),
+                                    "post_url": post.get('url', '')
+                                }
 
-                            store_syndication_mapping(
-                                ghost_post_id=ghost_post_id,
-                                ghost_post_url=ghost_post_url,
-                                platform="bluesky",
-                                account_name=client.account_name,
-                                post_data=post_data,
-                                mappings_path=self.mappings_path
-                            )
+                                store_syndication_mapping(
+                                    ghost_post_id=ghost_post_id,
+                                    ghost_post_url=ghost_post_url,
+                                    platform="bluesky",
+                                    account_name=client.account_name,
+                                    post_data=post_data,
+                                    mappings_path=self.mappings_path
+                                )
 
-                            mapping_found = True
-                            break  # Found mapping for this account, move to next
+                                mapping_found = True
+                                break  # Found mapping for this account, move to next
 
-            except Exception as e:
-                logger.error(
-                    f"Error searching Bluesky posts from '{client.account_name}': {e}",
-                    exc_info=True
-                )
+                except Exception as e:
+                    logger.error(
+                        f"Error searching Bluesky posts from '{client.account_name}': {e}",
+                        exc_info=True
+                    )
+        except Exception as e:
+            logger.error(f"Unexpected error during Bluesky discovery: {e}", exc_info=True)
 
         # Load final mapping to report on what was preserved and what was discovered
         final_mapping = self._load_syndication_mapping(ghost_post_id)

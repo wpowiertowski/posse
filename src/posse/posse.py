@@ -489,19 +489,32 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
             # Pre-download images if we have any and LLM is enabled for alt text generation
             if images and llm_client.enabled:
                 logger.info(f"Pre-downloading {len(images)} images for alt text generation")
-                # Use the first available client to download images
-                download_client = None
+                # Try to download images using available clients, with fallback
+                download_success = False
+                download_errors = []
+
                 if filtered_clients:
-                    download_client = filtered_clients[0][1]
-                
-                if download_client:
-                    # Download all images to cache
-                    for image_url in images:
-                        download_client._download_image(image_url)
-                    
+                    for platform, client in filtered_clients:
+                        try:
+                            # Download all images to cache using this client
+                            for image_url in images:
+                                client._download_image(image_url)
+                            download_success = True
+                            logger.debug(f"Successfully pre-downloaded images using {platform} client '{client.account_name}'")
+                            break  # Success - no need to try other clients
+                        except Exception as e:
+                            error_msg = f"{platform} client '{client.account_name}': {e}"
+                            download_errors.append(error_msg)
+                            logger.warning(f"Failed to download images with {error_msg}, trying next client...")
+                            continue
+
+                    if not download_success:
+                        logger.warning(f"All clients failed to download images for alt text generation: {download_errors}")
+
+                if download_success:
                     # Generate missing alt text
                     media_descriptions = _generate_missing_alt_text(images, media_descriptions, llm_client)
-                else:
+                elif not filtered_clients:
                     logger.warning("No clients available to download images for alt text generation")
             
             # Post to all accounts in parallel using thread pool
@@ -668,10 +681,14 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
             if images:
                 logger.debug(f"Cleaning up {len(images)} cached images")
                 # Use any client to clean up (they all share the same cache)
-                if mastodon_clients:
-                    mastodon_clients[0]._remove_images(images)
-                elif bluesky_clients:
-                    bluesky_clients[0]._remove_images(images)
+                # Wrap in try-catch to ensure cleanup failure doesn't affect overall flow
+                try:
+                    if mastodon_clients:
+                        mastodon_clients[0]._remove_images(images)
+                    elif bluesky_clients:
+                        bluesky_clients[0]._remove_images(images)
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to clean up cached images: {cleanup_error}")
 
             # IndieWeb News submission
             # Check if post has indiewebnews tag and config is enabled
