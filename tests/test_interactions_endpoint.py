@@ -59,7 +59,7 @@ def app_with_discovery(test_dirs):
     mock_ghost_api = MagicMock()
     mock_ghost_api.enabled = True
     mock_ghost_api.get_post_by_id.return_value = {
-        "id": "test123",
+        "id": "507f1f77bcf86cd799439008",
         "url": "https://blog.example.com/test-post/"
     }
 
@@ -96,7 +96,7 @@ def test_get_interactions_with_existing_data(app_with_discovery):
 
     # Create existing interaction data
     interaction_data = {
-        "ghost_post_id": "exists123",
+        "ghost_post_id": "507f1f77bcf86cd799439001",
         "updated_at": "2026-02-01T10:00:00Z",
         "syndication_links": {
             "mastodon": {
@@ -118,17 +118,17 @@ def test_get_interactions_with_existing_data(app_with_discovery):
         }
     }
 
-    interaction_file = os.path.join(test_dirs["storage_path"], "exists123.json")
+    interaction_file = os.path.join(test_dirs["storage_path"], "507f1f77bcf86cd799439001.json")
     with open(interaction_file, 'w') as f:
         json.dump(interaction_data, f)
 
     # Test endpoint
     with app.test_client() as client:
-        response = client.get("/api/interactions/exists123")
+        response = client.get("/api/interactions/507f1f77bcf86cd799439001")
 
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert data["ghost_post_id"] == "exists123"
+        assert data["ghost_post_id"] == "507f1f77bcf86cd799439001"
         assert data["platforms"]["mastodon"]["personal"]["favorites"] == 5
 
 
@@ -138,7 +138,7 @@ def test_get_interactions_with_mapping_only(app_with_discovery):
 
     # Create syndication mapping without interaction data
     mapping_data = {
-        "ghost_post_id": "mapped123",
+        "ghost_post_id": "507f1f77bcf86cd799439002",
         "ghost_post_url": "https://blog.example.com/test/",
         "syndicated_at": "2026-01-01T00:00:00Z",
         "platforms": {
@@ -151,17 +151,17 @@ def test_get_interactions_with_mapping_only(app_with_discovery):
         }
     }
 
-    mapping_file = os.path.join(test_dirs["mappings_path"], "mapped123.json")
+    mapping_file = os.path.join(test_dirs["mappings_path"], "507f1f77bcf86cd799439002.json")
     with open(mapping_file, 'w') as f:
         json.dump(mapping_data, f)
 
     # Test endpoint
     with app.test_client() as client:
-        response = client.get("/api/interactions/mapped123")
+        response = client.get("/api/interactions/507f1f77bcf86cd799439002")
 
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert data["ghost_post_id"] == "mapped123"
+        assert data["ghost_post_id"] == "507f1f77bcf86cd799439002"
         assert "Syndication links available" in data["message"]
         assert data["syndication_links"]["mastodon"]["personal"]["post_url"] == "https://mastodon.social/@user/222"
 
@@ -172,7 +172,7 @@ def test_get_interactions_discovers_mastodon_mapping(app_with_discovery):
 
     # Configure Ghost API mock to return post URL
     mock_ghost_api.get_post_by_id.return_value = {
-        "id": "discover123",
+        "id": "507f1f77bcf86cd799439003",
         "url": "https://blog.example.com/discovered-post/"
     }
 
@@ -189,7 +189,7 @@ def test_get_interactions_discovers_mastodon_mapping(app_with_discovery):
     # Mock the sync service to avoid actual API calls during sync
     with patch('interactions.interaction_sync.InteractionSyncService.sync_post_interactions') as mock_sync:
         mock_sync.return_value = {
-            "ghost_post_id": "discover123",
+            "ghost_post_id": "507f1f77bcf86cd799439003",
             "updated_at": "2026-02-01T12:00:00Z",
             "syndication_links": {
                 "mastodon": {
@@ -213,16 +213,16 @@ def test_get_interactions_discovers_mastodon_mapping(app_with_discovery):
 
         # Test endpoint
         with app.test_client() as client:
-            response = client.get("/api/interactions/discover123")
+            response = client.get("/api/interactions/507f1f77bcf86cd799439003")
 
             # Verify discovery succeeded
             assert response.status_code == 200
             data = json.loads(response.data)
-            assert data["ghost_post_id"] == "discover123"
+            assert data["ghost_post_id"] == "507f1f77bcf86cd799439003"
             assert "personal" in data["platforms"]["mastodon"]
 
             # Verify mapping file was created
-            mapping_file = os.path.join(test_dirs["mappings_path"], "discover123.json")
+            mapping_file = os.path.join(test_dirs["mappings_path"], "507f1f77bcf86cd799439003.json")
             assert os.path.exists(mapping_file)
 
             with open(mapping_file, 'r') as f:
@@ -236,7 +236,7 @@ def test_get_interactions_discovers_bluesky_mapping(app_with_discovery):
 
     # Configure Ghost API mock
     mock_ghost_api.get_post_by_id.return_value = {
-        "id": "bluesky456",
+        "id": "507f1f77bcf86cd799439004",
         "url": "https://blog.example.com/bluesky-post/"
     }
 
@@ -254,7 +254,7 @@ def test_get_interactions_discovers_bluesky_mapping(app_with_discovery):
     # Mock the sync service
     with patch('interactions.interaction_sync.InteractionSyncService.sync_post_interactions') as mock_sync:
         mock_sync.return_value = {
-            "ghost_post_id": "bluesky456",
+            "ghost_post_id": "507f1f77bcf86cd799439004",
             "updated_at": "2026-02-01T12:00:00Z",
             "syndication_links": {
                 "mastodon": {},
@@ -278,11 +278,11 @@ def test_get_interactions_discovers_bluesky_mapping(app_with_discovery):
 
         # Test endpoint
         with app.test_client() as client:
-            response = client.get("/api/interactions/bluesky456")
+            response = client.get("/api/interactions/507f1f77bcf86cd799439004")
 
             assert response.status_code == 200
             data = json.loads(response.data)
-            assert data["ghost_post_id"] == "bluesky456"
+            assert data["ghost_post_id"] == "507f1f77bcf86cd799439004"
             assert "main" in data["platforms"]["bluesky"]
 
 
@@ -292,7 +292,7 @@ def test_get_interactions_discovery_not_found(app_with_discovery):
 
     # Configure mocks to return post URL but no matching social posts
     mock_ghost_api.get_post_by_id.return_value = {
-        "id": "notfound789",
+        "id": "507f1f77bcf86cd799439005",
         "url": "https://blog.example.com/not-found/"
     }
 
@@ -315,12 +315,12 @@ def test_get_interactions_discovery_not_found(app_with_discovery):
 
     # Test endpoint
     with app.test_client() as client:
-        response = client.get("/api/interactions/notfound789")
+        response = client.get("/api/interactions/507f1f77bcf86cd799439005")
 
         # Verify 404 returned
         assert response.status_code == 404
         data = json.loads(response.data)
-        assert data["ghost_post_id"] == "notfound789"
+        assert data["ghost_post_id"] == "507f1f77bcf86cd799439005"
         assert "No syndication or interaction data available" in data["message"]
 
 
@@ -330,7 +330,7 @@ def test_get_interactions_with_existing_mapping_returns_links(app_with_discovery
 
     # Create existing mapping with one Mastodon account (no interaction data)
     existing_mapping = {
-        "ghost_post_id": "preserve123",
+        "ghost_post_id": "507f1f77bcf86cd799439006",
         "ghost_post_url": "https://blog.example.com/preserve/",
         "syndicated_at": "2026-01-01T00:00:00Z",
         "platforms": {
@@ -343,13 +343,13 @@ def test_get_interactions_with_existing_mapping_returns_links(app_with_discovery
         }
     }
 
-    mapping_file = os.path.join(test_dirs["mappings_path"], "preserve123.json")
+    mapping_file = os.path.join(test_dirs["mappings_path"], "507f1f77bcf86cd799439006.json")
     with open(mapping_file, 'w') as f:
         json.dump(existing_mapping, f)
 
     # Test endpoint - should return existing mapping without triggering discovery
     with app.test_client() as client:
-        response = client.get("/api/interactions/preserve123")
+        response = client.get("/api/interactions/507f1f77bcf86cd799439006")
 
         # Should return 200 with syndication links
         assert response.status_code == 200
@@ -373,7 +373,7 @@ def test_get_interactions_no_ghost_api(app_with_discovery):
 
     # Test endpoint
     with app.test_client() as client:
-        response = client.get("/api/interactions/noapi123")
+        response = client.get("/api/interactions/507f1f77bcf86cd799439007")
 
         # Should return 404 since discovery can't run without Ghost API
         assert response.status_code == 404
