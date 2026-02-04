@@ -195,15 +195,16 @@ def record_discovery_attempt(post_id: str) -> None:
     Args:
         post_id: The Ghost post ID that was attempted
     """
-    global _discovery_cooldown_cache
-
     # Clean up old entries if cache is getting large
+    # Use in-place modification to preserve references from other modules
     if len(_discovery_cooldown_cache) > MAX_COOLDOWN_CACHE_SIZE:
         current_time = time.time()
-        _discovery_cooldown_cache = {
-            pid: ts for pid, ts in _discovery_cooldown_cache.items()
-            if (current_time - ts) < DISCOVERY_COOLDOWN_SECONDS
-        }
+        expired_keys = [
+            pid for pid, ts in _discovery_cooldown_cache.items()
+            if (current_time - ts) >= DISCOVERY_COOLDOWN_SECONDS
+        ]
+        for key in expired_keys:
+            del _discovery_cooldown_cache[key]
 
     _discovery_cooldown_cache[post_id] = time.time()
 
