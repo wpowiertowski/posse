@@ -418,6 +418,43 @@ class BlueskyClient(SocialMediaClient):
                 )
             return None
     
+    def re_authenticate(self) -> bool:
+        """Re-authenticate the client by logging in again.
+
+        This method should be called when the token has expired or been revoked.
+        It will create a new API client and attempt to login with the stored credentials.
+
+        Returns:
+            True if re-authentication succeeded, False otherwise
+
+        Example:
+            >>> if "ExpiredToken" in error_message:
+            ...     if client.re_authenticate():
+            ...         # Retry the operation
+            ...         client.post(content)
+        """
+        if not self.handle or not self.app_password:
+            logger.error(f"Cannot re-authenticate Bluesky '{self.account_name}': missing credentials")
+            return False
+
+        try:
+            logger.info(f"Re-authenticating Bluesky '{self.account_name}'")
+            # Create a new client and login
+            self.api = Client(base_url=self.instance_url)
+            self.api.login(login=self.handle, password=self.app_password)
+            logger.info(f"Successfully re-authenticated Bluesky '{self.account_name}'")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to re-authenticate Bluesky '{self.account_name}': {e}")
+            if self.notifier:
+                self.notifier.notify_post_failure(
+                    "Re-authentication Failed",
+                    self.account_name,
+                    "Bluesky",
+                    str(e)
+                )
+            return False
+
     def verify_credentials(self) -> Optional[Dict[str, Any]]:
         """Verify Bluesky credentials.
 

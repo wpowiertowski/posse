@@ -131,8 +131,15 @@ class InteractionSyncService:
             }
         }
 
+        # Track sync success/failure
+        mastodon_accounts_to_sync = 0
+        mastodon_accounts_synced = 0
+        bluesky_accounts_to_sync = 0
+        bluesky_accounts_synced = 0
+
         # Sync Mastodon interactions
         if "mastodon" in mapping.get("platforms", {}):
+            mastodon_accounts_to_sync = len(mapping["platforms"]["mastodon"])
             for account_name, account_data in mapping["platforms"]["mastodon"].items():
                 try:
                     # Handle split posts (account_data is a list) or single posts (account_data is dict)
@@ -150,6 +157,7 @@ class InteractionSyncService:
                             post_url=account_data["post_url"]
                         )
                     if mastodon_data:
+                        mastodon_accounts_synced += 1
                         interactions["platforms"]["mastodon"][account_name] = mastodon_data
                         # Add to syndication_links summary
                         if "is_split" in mastodon_data and mastodon_data["is_split"]:
@@ -174,6 +182,7 @@ class InteractionSyncService:
 
         # Sync Bluesky interactions
         if "bluesky" in mapping.get("platforms", {}):
+            bluesky_accounts_to_sync = len(mapping["platforms"]["bluesky"])
             for account_name, account_data in mapping["platforms"]["bluesky"].items():
                 try:
                     # Handle split posts (account_data is a list) or single posts (account_data is dict)
@@ -191,6 +200,7 @@ class InteractionSyncService:
                             post_url=account_data["post_url"]
                         )
                     if bluesky_data:
+                        bluesky_accounts_synced += 1
                         interactions["platforms"]["bluesky"][account_name] = bluesky_data
                         # Add to syndication_links summary
                         if "is_split" in bluesky_data and bluesky_data["is_split"]:
@@ -216,7 +226,30 @@ class InteractionSyncService:
         # Store the interaction data
         self._store_interaction_data(ghost_post_id, interactions)
 
-        logger.info(f"Successfully synced interactions for post: {ghost_post_id}")
+        # Log appropriate message based on sync results
+        total_to_sync = mastodon_accounts_to_sync + bluesky_accounts_to_sync
+        total_synced = mastodon_accounts_synced + bluesky_accounts_synced
+
+        if total_synced == 0 and total_to_sync > 0:
+            logger.warning(
+                f"Failed to sync any interactions for post {ghost_post_id} "
+                f"(0/{total_to_sync} accounts)"
+            )
+        elif total_synced < total_to_sync:
+            logger.warning(
+                f"Partially synced interactions for post {ghost_post_id} "
+                f"({total_synced}/{total_to_sync} accounts: "
+                f"Mastodon {mastodon_accounts_synced}/{mastodon_accounts_to_sync}, "
+                f"Bluesky {bluesky_accounts_synced}/{bluesky_accounts_to_sync})"
+            )
+        else:
+            logger.info(
+                f"Successfully synced interactions for post {ghost_post_id} "
+                f"({total_synced} accounts: "
+                f"Mastodon {mastodon_accounts_synced}, "
+                f"Bluesky {bluesky_accounts_synced})"
+            )
+
         return interactions
 
     def _sync_mastodon_interactions(
@@ -248,16 +281,16 @@ class InteractionSyncService:
 
             # Get favourites (with pagination for accounts) - limit to avoid timeouts
             try:
-                favourited_by = client.api.status_favourited_by(status_id, limit=80)
-            except (Timeout, RequestException) as e:
-                logger.warning(f"Timeout fetching favourites for status {status_id}: {e}")
+                favourited_by = client.api.status_favourited_by(status_id)
+            except (Timeout, RequestException, TypeError) as e:
+                logger.warning(f"Error fetching favourites for status {status_id}: {e}")
                 favourited_by = []
 
             # Get reblogs (with pagination for accounts) - limit to avoid timeouts
             try:
-                reblogged_by = client.api.status_reblogged_by(status_id, limit=80)
-            except (Timeout, RequestException) as e:
-                logger.warning(f"Timeout fetching reblogs for status {status_id}: {e}")
+                reblogged_by = client.api.status_reblogged_by(status_id)
+            except (Timeout, RequestException, TypeError) as e:
+                logger.warning(f"Error fetching reblogs for status {status_id}: {e}")
                 reblogged_by = []
 
             # Get context (replies)
@@ -272,12 +305,17 @@ class InteractionSyncService:
             for reply in context.get("descendants", [])[:10]:
                 # Only include direct replies, not replies to replies
                 if reply.get("in_reply_to_id") == status_id:
+                    # Convert datetime to ISO format string if needed
+                    created_at = reply.get("created_at", "")
+                    if hasattr(created_at, 'isoformat'):
+                        created_at = created_at.isoformat()
+
                     reply_previews.append({
                         "author": f"@{reply['account']['acct']}",
                         "author_url": reply['account']['url'],
                         "author_avatar": reply['account']['avatar'],
                         "content": self._strip_html(reply.get("content", "")),
-                        "created_at": reply.get("created_at", ""),
+                        "created_at": created_at,
                         "url": reply.get("url", "")
                     })
 
@@ -404,63 +442,79 @@ class InteractionSyncService:
             logger.warning(f"Bluesky client '{account_name}' not available")
             return None
 
-        try:
-            # Get post thread (includes the post and replies)
-            thread_response = client.api.app.bsky.feed.get_post_thread({"uri": post_uri})
-            thread = thread_response.thread
+        # Try to sync, with one retry if token is expired
+        for attempt in range(2):
+            try:
+                # Get post thread (includes the post and replies)
+                thread_response = client.api.app.bsky.feed.get_post_thread({"uri": post_uri})
+                thread = thread_response.thread
 
-            # Get likes
-            likes_response = client.api.app.bsky.feed.get_likes({
-                "uri": post_uri,
-                "limit": 100
-            })
+                # Get likes
+                likes_response = client.api.app.bsky.feed.get_likes({
+                    "uri": post_uri,
+                    "limit": 100
+                })
 
-            # Get reposts
-            reposts_response = client.api.app.bsky.feed.get_reposted_by({
-                "uri": post_uri,
-                "limit": 100
-            })
+                # Get reposts
+                reposts_response = client.api.app.bsky.feed.get_reposted_by({
+                    "uri": post_uri,
+                    "limit": 100
+                })
 
-            # Extract reply previews from thread
-            reply_previews = []
-            if hasattr(thread, 'replies') and thread.replies:
-                for reply in thread.replies[:10]:  # Limit to 10 most recent
-                    if hasattr(reply, 'post'):
-                        post = reply.post
-                        author = post.author
-                        reply_previews.append({
-                            "author": f"@{author.handle}",
-                            "author_url": f"https://bsky.app/profile/{author.handle}",
-                            "author_avatar": author.avatar if hasattr(author, 'avatar') else None,
-                            "content": post.record.text if hasattr(post.record, 'text') else "",
-                            "created_at": post.record.created_at if hasattr(post.record, 'created_at') else "",
-                            "url": f"https://bsky.app/profile/{author.handle}/post/{post.uri.split('/')[-1]}"
-                        })
+                # Extract reply previews from thread
+                reply_previews = []
+                if hasattr(thread, 'replies') and thread.replies:
+                    for reply in thread.replies[:10]:  # Limit to 10 most recent
+                        if hasattr(reply, 'post'):
+                            post = reply.post
+                            author = post.author
+                            reply_previews.append({
+                                "author": f"@{author.handle}",
+                                "author_url": f"https://bsky.app/profile/{author.handle}",
+                                "author_avatar": author.avatar if hasattr(author, 'avatar') else None,
+                                "content": post.record.text if hasattr(post.record, 'text') else "",
+                                "created_at": post.record.created_at if hasattr(post.record, 'created_at') else "",
+                                "url": f"https://bsky.app/profile/{author.handle}/post/{post.uri.split('/')[-1]}"
+                            })
 
-            # Count interactions
-            like_count = len(likes_response.likes) if hasattr(likes_response, 'likes') else 0
-            repost_count = len(reposts_response.reposted_by) if hasattr(reposts_response, 'reposted_by') else 0
+                # Count interactions
+                like_count = len(likes_response.likes) if hasattr(likes_response, 'likes') else 0
+                repost_count = len(reposts_response.reposted_by) if hasattr(reposts_response, 'reposted_by') else 0
 
-            # Get reply count from thread post
-            reply_count = 0
-            if hasattr(thread, 'post') and hasattr(thread.post, 'reply_count'):
-                reply_count = thread.post.reply_count
-            elif hasattr(thread, 'replies'):
-                reply_count = len(thread.replies)
+                # Get reply count from thread post
+                reply_count = 0
+                if hasattr(thread, 'post') and hasattr(thread.post, 'reply_count'):
+                    reply_count = thread.post.reply_count
+                elif hasattr(thread, 'replies'):
+                    reply_count = len(thread.replies)
 
-            return {
-                "post_uri": post_uri,
-                "post_url": post_url,
-                "likes": like_count,
-                "reposts": repost_count,
-                "replies": reply_count,
-                "reply_previews": reply_previews,
-                "updated_at": datetime.now(ZoneInfo("UTC")).isoformat()
-            }
+                return {
+                    "post_uri": post_uri,
+                    "post_url": post_url,
+                    "likes": like_count,
+                    "reposts": repost_count,
+                    "replies": reply_count,
+                    "reply_previews": reply_previews,
+                    "updated_at": datetime.now(ZoneInfo("UTC")).isoformat()
+                }
 
-        except Exception as e:
-            logger.error(f"Error syncing Bluesky post {post_uri}: {e}")
-            return None
+            except Exception as e:
+                error_str = str(e)
+                # Check if this is an expired token error
+                if attempt == 0 and ("ExpiredToken" in error_str or "Token has been revoked" in error_str):
+                    logger.warning(f"Bluesky token expired for '{account_name}', attempting to re-authenticate")
+                    if hasattr(client, 're_authenticate') and client.re_authenticate():
+                        logger.info(f"Re-authentication successful, retrying sync for {post_uri}")
+                        continue  # Retry the operation
+                    else:
+                        logger.error(f"Re-authentication failed for '{account_name}'")
+
+                # Either not a token error, or retry failed
+                logger.error(f"Error syncing Bluesky post {post_uri}: {e}")
+                return None
+
+        # Should not reach here, but return None if we do
+        return None
 
     def _sync_bluesky_split_interactions(
         self,
