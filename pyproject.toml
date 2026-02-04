@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "posse"
-version = "1.0.3"
+version = "1.1.0"
 description = "POSSE (Publish Own Site, Syndicate Elsewhere) is a simple python based docker image that synchronizes ghost blog with mastodon and bluesky profiles. Blog posts can be categorized by tags and posted to different profiles across either services."
 authors = ["Wojtek Powiertowski <wojtek@powiertowski.com>"]
 readme = "README.md"

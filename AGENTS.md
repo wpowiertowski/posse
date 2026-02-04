@@ -263,6 +263,14 @@ When asked to create a PR:
 4. Create PR with `gh pr create`
 5. Return the PR URL
 
+### Creating Releases / Tags
+
+When asked to make a new release / tag:
+1. Update CHANGELOG.md with summary of current state of the repo compared to previous release
+2. Update project version in pyproject.toml
+3. Create a commit and tag it appropriately
+4. Push commit / tag to origin
+
 ---
 
 ## Security Guidelines
