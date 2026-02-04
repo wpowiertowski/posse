@@ -330,7 +330,13 @@ class BlueskyClient(SocialMediaClient):
         if not self.enabled or not self.api:
             logger.warning(f"Cannot post to Bluesky '{self.account_name}': client not enabled")
             return None
-        
+
+        # Re-authenticate before each post to avoid ExpiredToken errors
+        # Bluesky tokens can expire between posts, especially for queued syndication
+        if not self.re_authenticate():
+            logger.error(f"Failed to re-authenticate before posting to Bluesky '{self.account_name}'")
+            return None
+
         try:
             # Build rich text with proper formatting for links and hashtags
             text_builder = self._build_rich_text(content)
