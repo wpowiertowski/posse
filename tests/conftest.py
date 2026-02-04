@@ -85,18 +85,19 @@ def clear_discovery_cooldown_cache():
     the discovery rate limiting cache. The cache is module-level in ghost.py
     and persists across test runs, so we need to clear it before each test.
     """
+    # Clear before test
     try:
         from ghost.ghost import _discovery_cooldown_cache
         _discovery_cooldown_cache.clear()
-    except ImportError:
-        # Module not available in all test contexts
+    except Exception:
+        # Module not available or other import issues - skip silently
         pass
 
     yield
 
-    # Clear again after test for good measure
+    # Clear after test for good measure
     try:
         from ghost.ghost import _discovery_cooldown_cache
         _discovery_cooldown_cache.clear()
-    except ImportError:
+    except Exception:
         pass
