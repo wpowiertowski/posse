@@ -528,3 +528,168 @@ def test_pushover_notification_on_validation_error(client):
         # 0 calls if disabled, 1 call if enabled
         assert mock_post.call_count in [0, 1], \
             "Should send 0 notifications (disabled) or 1 error notification (enabled)"
+
+
+# =============================================================================
+# Security Tests
+# =============================================================================
+
+class TestSecurityInputValidation:
+    """Tests for security input validation on the interactions endpoint."""
+
+    def test_valid_post_id_format_accepted(self, client):
+        """Test that valid 24-char hex post IDs are accepted."""
+        # Valid MongoDB ObjectID format
+        valid_id = "507f1f77bcf86cd799439011"
+        response = client.get(f"/api/interactions/{valid_id}")
+
+        # Should not return 400 (invalid format)
+        # May return 404 (not found) which is fine
+        assert response.status_code != 400, \
+            "Valid post ID format should not return 400"
+
+    def test_invalid_post_id_rejected_short(self, client):
+        """Test that short post IDs are rejected."""
+        invalid_id = "abc123"  # Too short
+        response = client.get(f"/api/interactions/{invalid_id}")
+
+        assert response.status_code == 400, \
+            "Short post ID should be rejected with 400"
+        data = response.get_json()
+        assert data["message"] == "Invalid post ID format"
+
+    def test_invalid_post_id_rejected_long(self, client):
+        """Test that overly long post IDs are rejected."""
+        invalid_id = "a" * 100  # Too long
+        response = client.get(f"/api/interactions/{invalid_id}")
+
+        assert response.status_code == 400, \
+            "Long post ID should be rejected with 400"
+
+    def test_path_traversal_attempt_rejected(self, client):
+        """Test that path traversal attempts are rejected."""
+        # Various path traversal patterns
+        traversal_patterns = [
+            "../../../etc/passwd",
+            "..%2F..%2F..%2Fetc%2Fpasswd",
+            "....//....//....//etc/passwd",
+            "/etc/passwd",
+            "..\\..\\..\\windows\\system32\\config\\sam",
+        ]
+
+        for pattern in traversal_patterns:
+            response = client.get(f"/api/interactions/{pattern}")
+            assert response.status_code == 400, \
+                f"Path traversal pattern '{pattern}' should be rejected with 400"
+
+    def test_invalid_characters_rejected(self, client):
+        """Test that post IDs with invalid characters are rejected."""
+        invalid_ids = [
+            "507f1f77bcf86cd79943901g",  # Contains 'g' (not hex)
+            "507f1f77bcf86cd79943901G",  # Contains 'G' (uppercase)
+            "507f1f77bcf86cd79943901!",  # Contains special char
+            "507f1f77bcf86cd79943901 ",  # Contains space
+            "507f1f77bcf86cd79943901\n",  # Contains newline
+        ]
+
+        for invalid_id in invalid_ids:
+            response = client.get(f"/api/interactions/{invalid_id}")
+            assert response.status_code == 400, \
+                f"Post ID with invalid chars '{repr(invalid_id)}' should be rejected"
+
+    def test_sync_endpoint_validates_post_id(self, client):
+        """Test that the sync endpoint also validates post IDs."""
+        invalid_id = "../../../etc/passwd"
+        response = client.post(f"/api/interactions/{invalid_id}/sync")
+
+        assert response.status_code == 400, \
+            "Sync endpoint should reject invalid post IDs"
+        data = response.get_json()
+        assert data["message"] == "Invalid post ID format"
+
+
+class TestSecurityErrorSanitization:
+    """Tests for error message sanitization."""
+
+    def test_error_response_no_internal_details(self, client):
+        """Test that error responses don't leak internal details."""
+        # Request with invalid ID - should get sanitized error
+        response = client.get("/api/interactions/invalid")
+
+        data = response.get_json()
+
+        # Should NOT contain internal details like file paths, stack traces, etc.
+        response_str = json.dumps(data)
+        assert "/home" not in response_str, "Error should not contain file paths"
+        assert "Traceback" not in response_str, "Error should not contain stack traces"
+        assert ".py" not in response_str, "Error should not contain Python file references"
+
+
+class TestSecurityDiscoveryCooldown:
+    """Tests for discovery rate limiting."""
+
+    def test_discovery_cooldown_functions(self):
+        """Test the discovery cooldown helper functions."""
+        from ghost.ghost import (
+            check_discovery_cooldown,
+            record_discovery_attempt,
+            _discovery_cooldown_cache,
+            DISCOVERY_COOLDOWN_SECONDS
+        )
+        import time
+
+        test_id = "507f1f77bcf86cd799439099"
+
+        # Clear any existing entry
+        if test_id in _discovery_cooldown_cache:
+            del _discovery_cooldown_cache[test_id]
+
+        # Should not be in cooldown initially
+        assert not check_discovery_cooldown(test_id), \
+            "New post ID should not be in cooldown"
+
+        # Record a discovery attempt
+        record_discovery_attempt(test_id)
+
+        # Should now be in cooldown
+        assert check_discovery_cooldown(test_id), \
+            "Post ID should be in cooldown after discovery attempt"
+
+        # Clean up
+        del _discovery_cooldown_cache[test_id]
+
+    def test_validate_ghost_post_id_function(self):
+        """Test the validate_ghost_post_id helper function."""
+        from ghost.ghost import validate_ghost_post_id
+
+        # Valid IDs
+        assert validate_ghost_post_id("507f1f77bcf86cd799439011") is True
+        assert validate_ghost_post_id("abcdef1234567890abcdef12") is True
+        assert validate_ghost_post_id("000000000000000000000000") is True
+
+        # Invalid IDs
+        assert validate_ghost_post_id("") is False
+        assert validate_ghost_post_id(None) is False
+        assert validate_ghost_post_id("short") is False
+        assert validate_ghost_post_id("too_long_" * 10) is False
+        assert validate_ghost_post_id("../../../etc/passwd") is False
+        assert validate_ghost_post_id("507f1f77bcf86cd79943901G") is False  # uppercase
+        assert validate_ghost_post_id("507f1f77bcf86cd79943901!") is False  # special char
+
+    def test_is_safe_path_function(self):
+        """Test the is_safe_path helper function."""
+        from ghost.ghost import is_safe_path
+        import tempfile
+        import os
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Safe paths
+            safe_file = os.path.join(tmpdir, "test.json")
+            assert is_safe_path(tmpdir, safe_file) is True
+
+            # Unsafe paths (traversal)
+            unsafe_file = os.path.join(tmpdir, "..", "etc", "passwd")
+            assert is_safe_path(tmpdir, unsafe_file) is False
+
+            # Absolute path outside base
+            assert is_safe_path(tmpdir, "/etc/passwd") is False
