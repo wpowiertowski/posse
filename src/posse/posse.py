@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from social.mastodon_client import MastodonClient
     from social.bluesky_client import BlueskyClient
 
-from notifications.pushover import PushoverNotifier
+from notifications.pushover import PushoverNotifier, PushoverLoggingHandler
 
 # Create a thread-safe events queue for validated Ghost posts
 # This queue will receive posts from the Ghost webhook receiver (ghost.py)
@@ -861,7 +861,15 @@ def main(debug: bool = False) -> None:
     
     # Initialize Pushover notifier
     notifier = PushoverNotifier.from_config(config)
-    
+
+    # Add Pushover logging handler for error notifications
+    pushover_handler = PushoverLoggingHandler(notifier, rate_limit_seconds=60)
+    pushover_handler.setLevel(logging.ERROR)
+    pushover_handler.setFormatter(formatter)
+    root_logger.addHandler(pushover_handler)
+    if notifier.enabled:
+        logger.info("Pushover logging handler enabled for ERROR level messages")
+
     # Initialize Mastodon clients from config
     logger.info("Initializing Mastodon clients from configuration")
     mastodon_clients = MastodonClient.from_config(config, notifier)

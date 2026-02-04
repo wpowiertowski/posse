@@ -6,6 +6,7 @@ for important events in the POSSE workflow, such as:
 - New Ghost posts received and validated
 - Posts queued for syndication
 - Validation errors or system issues
+- Error-level log messages (via PushoverLoggingHandler)
 
 Pushover Configuration:
     Configure via config.yml:
@@ -19,9 +20,13 @@ Usage:
     >>> notifier = PushoverNotifier.from_config(config)
     >>> notifier.notify_post_received("Post Title", "post-slug")
 
+    For logging integration:
+    >>> handler = PushoverLoggingHandler(notifier)
+    >>> logging.getLogger().addHandler(handler)
+
 API Reference:
     Pushover API: https://pushover.net/api
-    
+
 Security:
     - Credentials are loaded from Docker secrets
     - No credentials are logged or stored in code
@@ -29,6 +34,7 @@ Security:
 """
 import os
 import logging
+import time
 from typing import Optional, Dict, Any
 import requests
 
@@ -392,3 +398,95 @@ class PushoverNotifier:
             url=post_url,
             url_title="View Post"
         )
+
+    def notify_log_error(self, logger_name: str, message: str, level: str = "ERROR") -> bool:
+        """Send notification for error-level log messages.
+
+        Args:
+            logger_name: Name of the logger that produced the message
+            message: The log message content
+            level: Log level (ERROR, CRITICAL, etc.)
+
+        Returns:
+            True if notification sent successfully, False otherwise
+        """
+        title = f"🚨 POSSE {level}"
+        # Include logger name for context, truncate message to fit
+        full_message = f"[{logger_name}]\n{message}"
+        return self._send_notification(
+            title=title,
+            message=full_message,
+            priority=1  # High priority for errors
+        )
+
+
+class PushoverLoggingHandler(logging.Handler):
+    """Custom logging handler that sends ERROR and CRITICAL logs to Pushover.
+
+    This handler integrates with Python's logging system to automatically send
+    push notifications for error-level log messages. It includes rate limiting
+    to prevent notification spam during error storms.
+
+    Attributes:
+        notifier: PushoverNotifier instance used to send notifications
+        rate_limit_seconds: Minimum seconds between notifications (default: 60)
+        _last_notification_time: Timestamp of last sent notification
+
+    Example:
+        >>> notifier = PushoverNotifier.from_config(config)
+        >>> handler = PushoverLoggingHandler(notifier, rate_limit_seconds=30)
+        >>> handler.setLevel(logging.ERROR)
+        >>> logging.getLogger().addHandler(handler)
+    """
+
+    def __init__(self, notifier: PushoverNotifier, rate_limit_seconds: int = 60):
+        """Initialize the Pushover logging handler.
+
+        Args:
+            notifier: PushoverNotifier instance to use for sending notifications
+            rate_limit_seconds: Minimum seconds between notifications to prevent
+                              spam during error storms (default: 60)
+        """
+        super().__init__()
+        self.notifier = notifier
+        self.rate_limit_seconds = rate_limit_seconds
+        self._last_notification_time: float = 0.0
+        # Default to ERROR level
+        self.setLevel(logging.ERROR)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Emit a log record by sending it to Pushover.
+
+        This method is called by the logging system for each log record that
+        passes the handler's level filter. It applies rate limiting to prevent
+        notification spam.
+
+        Args:
+            record: The log record to emit
+        """
+        # Skip if notifier is disabled
+        if not self.notifier.enabled:
+            return
+
+        # Apply rate limiting
+        current_time = time.time()
+        if current_time - self._last_notification_time < self.rate_limit_seconds:
+            return
+
+        try:
+            # Format the log message
+            message = self.format(record)
+
+            # Send notification
+            success = self.notifier.notify_log_error(
+                logger_name=record.name,
+                message=message,
+                level=record.levelname
+            )
+
+            if success:
+                self._last_notification_time = current_time
+
+        except Exception:
+            # Don't let notification failures break logging
+            self.handleError(record)
