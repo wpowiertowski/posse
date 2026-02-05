@@ -47,10 +47,12 @@ Security:
     - No credentials are logged or stored in code
     - App password should be kept secret
 """
+import io
 import logging
 import re
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
+from PIL import Image
 from atproto import Client, client_utils, models
 
 from social.base_client import SocialMediaClient
@@ -86,6 +88,12 @@ class BlueskyClient(SocialMediaClient):
     
     # Bluesky character limit (300 characters)
     MAX_POST_LENGTH = 300
+
+    # Bluesky blob size limit (976.56KB = 1,000,000 bytes)
+    MAX_BLOB_SIZE = 1_000_000
+
+    # Maximum pixel dimension for image compression (longest side)
+    IMAGE_MAX_DIMENSION = 2500
     
     def __init__(
         self,
@@ -291,6 +299,73 @@ class BlueskyClient(SocialMediaClient):
         
         return clients
     
+    @staticmethod
+    def _compress_image(image_data: bytes, max_size: int = 1_000_000, max_dimension: int = 2500) -> bytes:
+        """Compress an image to fit within Bluesky's blob size limit.
+
+        First resizes the image so the longest dimension is at most max_dimension
+        pixels, then reduces JPEG quality 1% at a time until the file is under
+        max_size bytes.
+
+        Args:
+            image_data: Raw image bytes
+            max_size: Maximum file size in bytes (default: 1,000,000 = 976.56KB)
+            max_dimension: Maximum pixel dimension for longest side (default: 2500)
+
+        Returns:
+            Image bytes that fit within max_size, or the original data if
+            compression is not needed or fails
+        """
+        if len(image_data) <= max_size:
+            return image_data
+
+        try:
+            img = Image.open(io.BytesIO(image_data))
+        except Exception as e:
+            logger.warning(f"Could not open image for compression: {e}")
+            return image_data
+
+        # Convert to RGB if necessary (JPEG doesn't support alpha)
+        if img.mode in ('RGBA', 'P', 'LA', 'PA'):
+            img = img.convert('RGB')
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        # Resize if longest dimension exceeds max_dimension
+        width, height = img.size
+        if max(width, height) > max_dimension:
+            if width >= height:
+                new_width = max_dimension
+                new_height = int(height * (max_dimension / width))
+            else:
+                new_height = max_dimension
+                new_width = int(width * (max_dimension / height))
+            img = img.resize((new_width, new_height), Image.LANCZOS)
+            logger.debug(
+                f"Resized image from {width}x{height} to {new_width}x{new_height}"
+            )
+
+        # Try saving as JPEG, reducing quality until under the limit
+        quality = 100
+        compressed_data = image_data
+        while quality > 0:
+            buffer = io.BytesIO()
+            img.save(buffer, format='JPEG', quality=quality)
+            compressed_data = buffer.getvalue()
+            if len(compressed_data) <= max_size:
+                logger.info(
+                    f"Compressed image from {len(image_data)} to "
+                    f"{len(compressed_data)} bytes (quality={quality})"
+                )
+                return compressed_data
+            quality -= 1
+
+        logger.warning(
+            f"Could not compress image below {max_size} bytes "
+            f"(final size: {len(compressed_data)} bytes)"
+        )
+        return compressed_data
+
     def post(
         self,
         content: str,
@@ -376,10 +451,16 @@ class BlueskyClient(SocialMediaClient):
                     if media_descriptions and i < len(media_descriptions):
                         description = media_descriptions[i] or ""
                     
-                    # Upload to Bluesky
+                    # Upload to Bluesky (compress if needed)
                     try:
                         with open(temp_path, 'rb') as f:
-                            upload_result = self.api.upload_blob(f.read())
+                            image_data = f.read()
+                        image_data = self._compress_image(
+                            image_data,
+                            max_size=self.MAX_BLOB_SIZE,
+                            max_dimension=self.IMAGE_MAX_DIMENSION
+                        )
+                        upload_result = self.api.upload_blob(image_data)
                         
                         # Create Image object with blob reference and alt text
                         images.append(
