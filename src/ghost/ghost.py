@@ -484,6 +484,175 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     if internal_token:
         logger.info("Internal API token configured for protected endpoints")
     
+    @app.route("/webhook/ghost/post-updated", methods=["POST"])
+    def receive_ghost_post_update():
+        """Webhook endpoint to receive Ghost post update notifications.
+
+        This endpoint is triggered by Ghost when a published post is updated.
+        It checks whether the post has already been syndicated to all active
+        accounts. If any accounts are missing syndication, it queues the post
+        for selective syndication to only those missing accounts.
+
+        This handles the case where a post was published but syndication to
+        one or more accounts failed or was not configured at the time. When
+        the post is later updated in Ghost, this webhook catches it and
+        syndicates to any accounts that were missed.
+
+        Request Format:
+            POST /webhook/ghost/post-updated
+            Content-Type: application/json
+
+            {
+              "post": {
+                "current": { ... post data ... },
+                "previous": { ... previous state ... }
+              }
+            }
+
+        Success Response (200):
+            {
+              "status": "success",
+              "message": "Post update processed",
+              "post_id": "507f1f77bcf86cd799439011",
+              "syndicated_to": ["mastodon/personal", "bluesky/main"]
+            }
+
+        No Action Response (200):
+            {
+              "status": "success",
+              "message": "Post already fully syndicated",
+              "post_id": "507f1f77bcf86cd799439011"
+            }
+
+        Returns:
+            tuple: (JSON response dict, HTTP status code)
+        """
+        notifier = current_app.config["PUSHOVER_NOTIFIER"]
+        events_queue = current_app.config["EVENTS_QUEUE"]
+
+        try:
+            # Validate Content-Type header
+            if not request.is_json:
+                logger.error("Received non-JSON payload on post-updated webhook")
+                return jsonify({"error": "Content-Type must be application/json"}), 400
+
+            # Parse JSON body
+            payload = request.get_json()
+
+            # Validate against Ghost post schema
+            validate_ghost_post(payload)
+
+            # Extract post data
+            post_data = payload.get("post", {}).get("current", {})
+            post_id = post_data.get("id", "unknown")
+            post_title = post_data.get("title", "untitled")
+            post_url = post_data.get("url", "")
+            post_status = post_data.get("status", "")
+
+            logger.info(f"Received Ghost post update: id={post_id}, title='{post_title}', status={post_status}")
+
+            # Only process published posts
+            if post_status != "published":
+                logger.info(f"Skipping post update for non-published post: id={post_id}, status={post_status}")
+                return jsonify({
+                    "status": "success",
+                    "message": f"Skipped non-published post (status: {post_status})",
+                    "post_id": post_id
+                }), 200
+
+            # Load syndication mapping
+            mappings_path = current_app.config.get("SYNDICATION_MAPPINGS_PATH", "./data/syndication_mappings")
+            mapping_file = os.path.join(mappings_path, f"{post_id}.json")
+
+            existing_mapping = {}
+            if os.path.exists(mapping_file):
+                try:
+                    with open(mapping_file, 'r') as f:
+                        existing_mapping = json.load(f)
+                except Exception as e:
+                    logger.error(f"Failed to load syndication mapping for {post_id}: {e}")
+
+            # Determine which accounts are already syndicated
+            syndicated_accounts = set()
+            for platform in ["mastodon", "bluesky"]:
+                if platform in existing_mapping.get("platforms", {}):
+                    for account_name in existing_mapping["platforms"][platform]:
+                        syndicated_accounts.add((platform, account_name))
+
+            logger.debug(f"Post {post_id} already syndicated to: {syndicated_accounts}")
+
+            # Get enabled clients and filter by post tags
+            from posse.posse import _extract_post_data, _filter_clients_by_tags
+
+            _, _, _, _, _, tags = _extract_post_data(post_data)
+
+            mastodon_clients = current_app.config.get("MASTODON_CLIENTS", [])
+            bluesky_clients = current_app.config.get("BLUESKY_CLIENTS", [])
+
+            all_clients = (
+                [("mastodon", c) for c in mastodon_clients if c.enabled] +
+                [("bluesky", c) for c in bluesky_clients if c.enabled]
+            )
+
+            filtered_clients = _filter_clients_by_tags(tags, all_clients)
+
+            # Find accounts that should have been syndicated but weren't
+            missing_accounts = []
+            for platform, client in filtered_clients:
+                if (platform.lower(), client.account_name) not in syndicated_accounts:
+                    missing_accounts.append((platform.lower(), client.account_name))
+
+            if not missing_accounts:
+                logger.info(f"Post {post_id} already fully syndicated to all {len(filtered_clients)} matching accounts")
+                return jsonify({
+                    "status": "success",
+                    "message": "Post already fully syndicated",
+                    "post_id": post_id
+                }), 200
+
+            # Queue for selective syndication
+            logger.info(
+                f"Post {post_id} missing syndication to {len(missing_accounts)} accounts: "
+                f"{[f'{p}/{a}' for p, a in missing_accounts]}"
+            )
+
+            # Add target accounts metadata to the event
+            event_with_targets = dict(payload)
+            event_with_targets["__target_accounts"] = missing_accounts
+
+            events_queue.put(event_with_targets)
+            logger.info(f"Post {post_id} queued for selective syndication to missing accounts")
+
+            # Send notifications
+            missing_labels = [f"{p}/{a}" for p, a in missing_accounts]
+            notifier.notify_post_received(
+                f"{post_title} (update - syndicating to: {', '.join(missing_labels)})",
+                post_id
+            )
+
+            return jsonify({
+                "status": "success",
+                "message": "Post update processed, queued for syndication to missing accounts",
+                "post_id": post_id,
+                "syndicated_to": missing_labels
+            }), 200
+
+        except GhostPostValidationError as e:
+            logger.error(f"Post update payload validation failed: {str(e)}")
+            notifier.notify_validation_error(str(e))
+            return jsonify({
+                "status": "error",
+                "message": "Invalid Ghost post payload",
+                "details": str(e)
+            }), 400
+
+        except Exception as e:
+            logger.error(f"Unexpected error processing Ghost post update: {str(e)}", exc_info=True)
+            return jsonify({
+                "status": "error",
+                "message": "Internal server error"
+            }), 500
+
     @app.route("/webhook/ghost", methods=["POST"])
     def receive_ghost_post():
         """Webhook endpoint to receive Ghost post notifications.
