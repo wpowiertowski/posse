@@ -135,8 +135,14 @@ security:
   discovery_rate_limit: 50  # Max discovery attempts per window (default: 50)
   discovery_rate_window_seconds: 60  # Window in seconds (default: 60)
 
-  # Internal API token for protected endpoints (like /sync)
-  # If set, these endpoints require X-Internal-Token header
+  # Internal API token for protected endpoints (sync, healthcheck)
+  # Required: these endpoints refuse requests when no token is configured
   # Can also be set via INTERNAL_API_TOKEN environment variable
   # internal_api_token: "your-secret-token"  # Uncomment and set a strong token
   internal_api_token_file: "/run/secrets/internal_api_token"  # Alternative: use Docker secret
+
+  # Webhook secret for authenticating Ghost webhook requests
+  # If set, the /webhook/ghost endpoint requires X-Webhook-Secret header
+  # Can also be set via WEBHOOK_SECRET environment variable
+  # webhook_secret: "your-webhook-secret"  # Uncomment and set a strong secret
+  webhook_secret_file: "/run/secrets/webhook_secret"  # Alternative: use Docker secret

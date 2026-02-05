@@ -82,6 +82,7 @@ Functions:
 Classes:
     GhostPostValidationError: Custom exception for schema validation failures
 """
+import hmac
 import json
 import logging
 import os
@@ -120,7 +121,7 @@ MAX_COOLDOWN_CACHE_SIZE = 1000  # Reduced from 10000 for better memory managemen
 # Global discovery rate limiting to prevent resource exhaustion
 # Limits total discovery attempts across all post IDs
 _global_discovery_timestamps: list = []
-GLOBAL_DISCOVERY_LIMIT = 50  # Max discovery attempts per window
+GLOBAL_DISCOVERY_LIMIT = 10  # Max discovery attempts per window
 GLOBAL_DISCOVERY_WINDOW_SECONDS = 60  # 1 minute window
 
 # Request rate limiting per IP (in-memory, consider Redis for production)
@@ -483,7 +484,23 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     app.config["INTERNAL_API_TOKEN"] = internal_token
     if internal_token:
         logger.info("Internal API token configured for protected endpoints")
-    
+    else:
+        logger.warning("No INTERNAL_API_TOKEN configured - sync and healthcheck endpoints will be unavailable")
+
+    # Webhook secret for authenticating Ghost webhook requests
+    webhook_secret = security_config.get("webhook_secret")
+    if not webhook_secret:
+        webhook_secret_file = security_config.get("webhook_secret_file")
+        if webhook_secret_file:
+            webhook_secret = read_secret_file(webhook_secret_file)
+    if not webhook_secret:
+        webhook_secret = os.environ.get("WEBHOOK_SECRET")
+    app.config["WEBHOOK_SECRET"] = webhook_secret
+    if webhook_secret:
+        logger.info("Webhook secret configured for Ghost webhook authentication")
+    else:
+        logger.warning("No WEBHOOK_SECRET configured - webhook endpoint will accept unauthenticated requests")
+
     @app.route("/webhook/ghost", methods=["POST"])
     def receive_ghost_post():
         """Webhook endpoint to receive Ghost post notifications.
@@ -560,7 +577,18 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         # This ensures they're accessible in exception handlers
         notifier = current_app.config["PUSHOVER_NOTIFIER"]
         events_queue = current_app.config["EVENTS_QUEUE"]
-        
+
+        # Security: Webhook authentication via shared secret
+        webhook_secret = current_app.config.get("WEBHOOK_SECRET")
+        if webhook_secret:
+            provided_secret = request.headers.get("X-Webhook-Secret")
+            if not provided_secret or not hmac.compare_digest(provided_secret, webhook_secret):
+                logger.warning(f"Unauthorized webhook request from {request.remote_addr}")
+                return jsonify({
+                    "status": "error",
+                    "message": "Unauthorized"
+                }), 401
+
         try:
             # Step 1: Validate Content-Type header
             # Ghost should send application/json, but verify to prevent errors
@@ -697,6 +725,23 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         """
         from datetime import datetime
         from zoneinfo import ZoneInfo
+
+        # Security: Authentication (reuse internal API token)
+        internal_token = current_app.config.get("INTERNAL_API_TOKEN")
+        if not internal_token:
+            logger.error("Healthcheck endpoint called but no INTERNAL_API_TOKEN configured - refusing request")
+            return jsonify({
+                "status": "error",
+                "message": "Endpoint not configured"
+            }), 503
+
+        provided_token = request.headers.get("X-Internal-Token")
+        if not provided_token or not hmac.compare_digest(provided_token, internal_token):
+            logger.warning(f"Unauthorized healthcheck attempt from {request.remote_addr}")
+            return jsonify({
+                "status": "error",
+                "message": "Unauthorized"
+            }), 401
 
         # Get service clients from app config
         mastodon_clients = current_app.config.get("MASTODON_CLIENTS", [])
@@ -837,6 +882,15 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         response["status"] = "healthy" if overall_healthy else "unhealthy"
 
         return jsonify(response), 200
+
+    @app.after_request
+    def add_security_headers(response):
+        """Add security-related headers to all API responses."""
+        # Prevent caching of API responses containing user interaction data
+        if request.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+        return response
 
     @app.route("/api/interactions/<ghost_post_id>", methods=["GET"])
     def get_interactions(ghost_post_id: str):
@@ -1172,14 +1226,20 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         # Security: Authentication (for internal/admin endpoints)
         # =================================================================
         internal_token = current_app.config.get("INTERNAL_API_TOKEN")
-        if internal_token:
-            provided_token = request.headers.get("X-Internal-Token")
-            if not provided_token or provided_token != internal_token:
-                logger.warning(f"Unauthorized sync attempt for post: {ghost_post_id[:50]}")
-                return jsonify({
-                    "status": "error",
-                    "message": "Unauthorized"
-                }), 401
+        if not internal_token:
+            logger.error("Sync endpoint called but no INTERNAL_API_TOKEN configured - refusing request")
+            return jsonify({
+                "status": "error",
+                "message": "Endpoint not configured"
+            }), 503
+
+        provided_token = request.headers.get("X-Internal-Token")
+        if not provided_token or not hmac.compare_digest(provided_token, internal_token):
+            logger.warning(f"Unauthorized sync attempt for post: {ghost_post_id[:50]}")
+            return jsonify({
+                "status": "error",
+                "message": "Unauthorized"
+            }), 401
 
         # Security: Input validation
         if not validate_ghost_post_id(ghost_post_id):

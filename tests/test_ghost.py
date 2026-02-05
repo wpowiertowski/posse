@@ -604,14 +604,18 @@ class TestSecurityInputValidation:
                 f"Post ID with invalid chars '{repr(invalid_id)}' should be rejected"
 
     def test_sync_endpoint_validates_post_id(self, client):
-        """Test that the sync endpoint also validates post IDs."""
+        """Test that the sync endpoint rejects unauthenticated requests.
+
+        The sync endpoint now fails closed when no INTERNAL_API_TOKEN is configured,
+        returning 503 before reaching post ID validation.
+        """
         invalid_id = "invalid_post_id_12345"  # Invalid: not hex, wrong format
         response = client.post(f"/api/interactions/{invalid_id}/sync")
 
-        assert response.status_code == 400, \
-            "Sync endpoint should reject invalid post IDs"
+        assert response.status_code == 503, \
+            "Sync endpoint should refuse requests when no token is configured"
         data = response.get_json()
-        assert data["message"] == "Invalid post ID format"
+        assert data["message"] == "Endpoint not configured"
 
 
 class TestSecurityErrorSanitization:

@@ -131,13 +131,13 @@ class TestRateLimiting:
 
     def test_global_discovery_limit_not_exceeded(self):
         """Should not exceed limit with few requests."""
-        for _ in range(10):
+        for _ in range(5):
             record_global_discovery()
         assert check_global_discovery_limit() is False
 
     def test_global_discovery_limit_exceeded(self):
         """Should exceed limit with many requests."""
-        for _ in range(55):  # Exceeds default limit of 50
+        for _ in range(15):  # Exceeds default limit of 10
             record_global_discovery()
         assert check_global_discovery_limit() is True
 
@@ -398,6 +398,234 @@ class TestEndpointSecurity:
             )
             # Should get 503 (no scheduler) not 401 (unauthorized)
             assert response.status_code == 503
+
+    def test_sync_endpoint_fails_closed_without_token(self, test_dirs):
+        """Sync endpoint should return 503 when no token is configured."""
+        clear_rate_limit_caches()
+        test_queue = Queue()
+
+        config = {
+            "security": {}  # No internal_api_token
+        }
+
+        app = create_app(test_queue, config=config)
+        app.config["TESTING"] = True
+
+        with app.test_client() as client:
+            response = client.post(
+                "/api/interactions/507f1f77bcf86cd799439011/sync"
+            )
+            assert response.status_code == 503
+            data = json.loads(response.data)
+            assert data["message"] == "Endpoint not configured"
+
+    def test_healthcheck_requires_auth(self, secured_app):
+        """Healthcheck endpoint should require authentication."""
+        app, _ = secured_app
+
+        with app.test_client() as client:
+            response = client.post("/healthcheck")
+            assert response.status_code == 401
+            data = json.loads(response.data)
+            assert data["message"] == "Unauthorized"
+
+    def test_healthcheck_wrong_token(self, secured_app):
+        """Healthcheck endpoint should reject wrong token."""
+        app, _ = secured_app
+
+        with app.test_client() as client:
+            response = client.post(
+                "/healthcheck",
+                headers={"X-Internal-Token": "wrong-token"}
+            )
+            assert response.status_code == 401
+
+    def test_healthcheck_valid_token(self, secured_app):
+        """Healthcheck endpoint should accept valid token."""
+        app, _ = secured_app
+
+        with app.test_client() as client:
+            response = client.post(
+                "/healthcheck",
+                headers={"X-Internal-Token": "test-secret-token"}
+            )
+            # Should get 200 (healthy) not 401 (unauthorized)
+            assert response.status_code == 200
+
+    def test_healthcheck_fails_closed_without_token(self, test_dirs):
+        """Healthcheck endpoint should return 503 when no token is configured."""
+        clear_rate_limit_caches()
+        test_queue = Queue()
+
+        config = {
+            "security": {}  # No internal_api_token
+        }
+
+        app = create_app(test_queue, config=config)
+        app.config["TESTING"] = True
+
+        with app.test_client() as client:
+            response = client.post("/healthcheck")
+            assert response.status_code == 503
+            data = json.loads(response.data)
+            assert data["message"] == "Endpoint not configured"
+
+
+class TestWebhookAuthentication:
+    """Test webhook endpoint authentication."""
+
+    @pytest.fixture
+    def test_dirs(self):
+        """Create temporary directories for test data."""
+        test_dir = tempfile.mkdtemp()
+        yield {"test_dir": test_dir}
+        shutil.rmtree(test_dir)
+
+    def test_webhook_no_secret_configured_allows_requests(self, test_dirs):
+        """Webhook should accept requests when no secret is configured."""
+        clear_rate_limit_caches()
+        test_queue = Queue()
+
+        config = {
+            "security": {}  # No webhook_secret
+        }
+
+        app = create_app(test_queue, config=config)
+        app.config["TESTING"] = True
+
+        with app.test_client() as client:
+            response = client.post(
+                "/webhook/ghost",
+                data=json.dumps({"some": "data"}),
+                content_type="application/json"
+            )
+            # Should get 400 (validation error) not 401 (unauthorized)
+            assert response.status_code == 400
+
+    def test_webhook_secret_rejects_missing_header(self, test_dirs):
+        """Webhook should reject requests without secret header when configured."""
+        clear_rate_limit_caches()
+        test_queue = Queue()
+
+        config = {
+            "security": {
+                "webhook_secret": "test-webhook-secret"
+            }
+        }
+
+        app = create_app(test_queue, config=config)
+        app.config["TESTING"] = True
+
+        with app.test_client() as client:
+            response = client.post(
+                "/webhook/ghost",
+                data=json.dumps({"some": "data"}),
+                content_type="application/json"
+            )
+            assert response.status_code == 401
+            data = json.loads(response.data)
+            assert data["message"] == "Unauthorized"
+
+    def test_webhook_secret_rejects_wrong_secret(self, test_dirs):
+        """Webhook should reject requests with wrong secret."""
+        clear_rate_limit_caches()
+        test_queue = Queue()
+
+        config = {
+            "security": {
+                "webhook_secret": "test-webhook-secret"
+            }
+        }
+
+        app = create_app(test_queue, config=config)
+        app.config["TESTING"] = True
+
+        with app.test_client() as client:
+            response = client.post(
+                "/webhook/ghost",
+                data=json.dumps({"some": "data"}),
+                content_type="application/json",
+                headers={"X-Webhook-Secret": "wrong-secret"}
+            )
+            assert response.status_code == 401
+
+    def test_webhook_secret_accepts_correct_secret(self, test_dirs):
+        """Webhook should accept requests with correct secret."""
+        clear_rate_limit_caches()
+        test_queue = Queue()
+
+        config = {
+            "security": {
+                "webhook_secret": "test-webhook-secret"
+            }
+        }
+
+        app = create_app(test_queue, config=config)
+        app.config["TESTING"] = True
+
+        with app.test_client() as client:
+            response = client.post(
+                "/webhook/ghost",
+                data=json.dumps({"some": "data"}),
+                content_type="application/json",
+                headers={"X-Webhook-Secret": "test-webhook-secret"}
+            )
+            # Should get 400 (validation error) not 401 (unauthorized)
+            assert response.status_code == 400
+
+
+class TestCacheControlHeaders:
+    """Test Cache-Control headers on API responses."""
+
+    @pytest.fixture
+    def app_with_data(self):
+        """Create Flask app with test interaction data."""
+        clear_rate_limit_caches()
+
+        test_dir = tempfile.mkdtemp()
+        storage_path = os.path.join(test_dir, "interactions")
+        mappings_path = os.path.join(test_dir, "syndication_mappings")
+        os.makedirs(storage_path, exist_ok=True)
+        os.makedirs(mappings_path, exist_ok=True)
+
+        # Write test interaction data
+        test_data = {
+            "ghost_post_id": "507f1f77bcf86cd799439011",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "syndication_links": {"mastodon": {}, "bluesky": {}},
+            "platforms": {"mastodon": {}, "bluesky": {}}
+        }
+        with open(os.path.join(storage_path, "507f1f77bcf86cd799439011.json"), 'w') as f:
+            json.dump(test_data, f)
+
+        test_queue = Queue()
+        config = {"security": {}}
+
+        app = create_app(test_queue, config=config)
+        app.config["TESTING"] = True
+        app.config["INTERACTIONS_STORAGE_PATH"] = storage_path
+        app.config["SYNDICATION_MAPPINGS_PATH"] = mappings_path
+
+        yield app
+
+        shutil.rmtree(test_dir)
+
+    def test_api_response_has_cache_control(self, app_with_data):
+        """API responses should include Cache-Control: no-store."""
+        with app_with_data.test_client() as client:
+            response = client.get("/api/interactions/507f1f77bcf86cd799439011")
+            assert response.status_code == 200
+            assert "no-store" in response.headers.get("Cache-Control", "")
+            assert response.headers.get("Pragma") == "no-cache"
+
+    def test_non_api_response_no_cache_control(self, app_with_data):
+        """Non-API responses should not have the API Cache-Control header."""
+        with app_with_data.test_client() as client:
+            response = client.get("/health")
+            assert response.status_code == 200
+            # Should not have the restrictive API cache control
+            cache_control = response.headers.get("Cache-Control", "")
+            assert "no-store" not in cache_control
 
 
 if __name__ == '__main__':
