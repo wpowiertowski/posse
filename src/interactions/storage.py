@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class InteractionDataStore:
-    """Persistent interaction storage with SQLite primary and JSON fallback."""
+    """Persistent interaction storage backed by SQLite."""
 
     def __init__(self, storage_path: str):
         self.storage_path = storage_path
@@ -45,7 +45,7 @@ class InteractionDataStore:
             logger.error(f"Failed to initialize interactions database {self.db_path}: {e}")
 
     def get(self, ghost_post_id: str) -> Optional[Dict[str, Any]]:
-        """Get interaction payload by post ID, with legacy JSON fallback."""
+        """Get interaction payload by post ID from SQLite."""
         try:
             with self._connect() as conn:
                 row = conn.execute(
@@ -57,7 +57,7 @@ class InteractionDataStore:
         except (sqlite3.Error, json.JSONDecodeError) as e:
             logger.error(f"Failed to read interaction data for {ghost_post_id} from SQLite: {e}")
 
-        return self._read_legacy_json(ghost_post_id)
+        return None
 
     def put(self, ghost_post_id: str, data: Dict[str, Any]) -> None:
         """Upsert interaction payload by post ID."""
@@ -80,7 +80,7 @@ class InteractionDataStore:
             logger.error(f"Failed to store interaction data for {ghost_post_id} in SQLite: {e}")
 
     def exists(self, ghost_post_id: str) -> bool:
-        """Check whether interaction data exists in SQLite or legacy JSON storage."""
+        """Check whether interaction data exists in SQLite."""
         try:
             with self._connect() as conn:
                 row = conn.execute(
@@ -92,21 +92,4 @@ class InteractionDataStore:
         except sqlite3.Error as e:
             logger.error(f"Failed to check interaction data existence for {ghost_post_id}: {e}")
 
-        legacy_file = os.path.join(self.storage_path, f"{ghost_post_id}.json")
-        return os.path.exists(legacy_file)
-
-    def _read_legacy_json(self, ghost_post_id: str) -> Optional[Dict[str, Any]]:
-        """Read data from legacy per-post JSON file and backfill into SQLite."""
-        interaction_file = os.path.join(self.storage_path, f"{ghost_post_id}.json")
-        if not os.path.exists(interaction_file):
-            return None
-
-        try:
-            with open(interaction_file, "r") as f:
-                payload = json.load(f)
-
-            self.put(ghost_post_id, payload)
-            return payload
-        except (OSError, json.JSONDecodeError) as e:
-            logger.error(f"Failed to read legacy interaction JSON {interaction_file}: {e}")
-            return None
+        return False

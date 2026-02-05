@@ -933,7 +933,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                 "message": "Invalid post ID format"
             }), 400
 
-        # Check for existing interaction data (SQLite primary, legacy JSON fallback)
+        # Check for existing interaction data in SQLite
         interaction_store = InteractionDataStore(storage_path)
         interactions = interaction_store.get(ghost_post_id)
         if interactions:

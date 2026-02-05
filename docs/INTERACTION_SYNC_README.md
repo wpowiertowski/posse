@@ -182,7 +182,6 @@ The interaction scheduler:
 - Runs in the background every 30 minutes (configurable)
 - Retrieves interactions from Mastodon and Bluesky APIs
 - Stores aggregated data in a SQLite database (`interactions.db`)
-- Reads legacy per-post JSON files and backfills them into SQLite on access
 - Uses a smart sync strategy based on post age:
   - Posts < 2 days: sync every cycle (most active)
   - Posts 2-7 days: sync every other cycle
@@ -206,12 +205,12 @@ Interaction payloads are now stored in a single SQLite database instead of one J
 ### Why this is minimally invasive
 - No API response shape changes (`/api/interactions/<post_id>` remains the same).
 - Syndication mapping files stay as JSON (`data/syndication_mappings/*.json`).
-- Legacy interaction JSON files are still readable during transition and are auto-backfilled into SQLite when requested.
+- Legacy interaction JSON files must be migrated once with the provided script before old payloads become queryable.
 
 ### Migration cost
 - **Operational cost:** Low. SQLite is built into Python and requires no extra service.
 - **Data migration cost:** Low. One-time script performs idempotent upserts.
-- **Rollback cost:** Low. Legacy JSON files can be kept until migration is validated.
+- **Rollback cost:** Moderate. Reverting to JSON reads would require app code rollback; keep JSON backups during rollout.
 
 ### One-time migration script
 
