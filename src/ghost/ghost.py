@@ -111,9 +111,26 @@ GHOST_POST_ID_PATTERN = re.compile(r'^[a-f0-9]{24}$')
 
 # Discovery cooldown cache to prevent resource exhaustion attacks
 # Structure: {post_id: timestamp_of_last_discovery_attempt}
-_discovery_cooldown_cache: Dict[str, float] = {}
+# Uses OrderedDict for LRU-style eviction
+from collections import OrderedDict
+_discovery_cooldown_cache: OrderedDict[str, float] = OrderedDict()
 DISCOVERY_COOLDOWN_SECONDS = 300  # 5 minutes between discovery attempts for same ID
-MAX_COOLDOWN_CACHE_SIZE = 10000  # Prevent unbounded memory growth
+MAX_COOLDOWN_CACHE_SIZE = 1000  # Reduced from 10000 for better memory management
+
+# Global discovery rate limiting to prevent resource exhaustion
+# Limits total discovery attempts across all post IDs
+_global_discovery_timestamps: list = []
+GLOBAL_DISCOVERY_LIMIT = 50  # Max discovery attempts per window
+GLOBAL_DISCOVERY_WINDOW_SECONDS = 60  # 1 minute window
+
+# Request rate limiting per IP (in-memory, consider Redis for production)
+from collections import defaultdict
+_request_rate_cache: Dict[str, list] = defaultdict(list)
+REQUEST_RATE_LIMIT = 60  # Max requests per IP per window
+REQUEST_RATE_WINDOW_SECONDS = 60  # 1 minute window
+
+# Allowed referrers for interactions endpoint (populated from config)
+_allowed_referrers: list = []
 
 
 def validate_ghost_post_id(post_id: str) -> bool:
@@ -189,24 +206,166 @@ def record_discovery_attempt(post_id: str) -> None:
     """
     Record a discovery attempt for rate limiting purposes.
 
-    Also performs cache cleanup if the cache grows too large to prevent
-    unbounded memory growth from enumeration attacks.
+    Uses LRU-style eviction when cache is full - removes oldest entries first.
+    This provides bounded memory growth while maintaining rate limiting effectiveness.
 
     Args:
         post_id: The Ghost post ID that was attempted
     """
-    # Clean up old entries if cache is getting large
-    # Use in-place modification to preserve references from other modules
-    if len(_discovery_cooldown_cache) > MAX_COOLDOWN_CACHE_SIZE:
-        current_time = time.time()
-        expired_keys = [
-            pid for pid, ts in _discovery_cooldown_cache.items()
-            if (current_time - ts) >= DISCOVERY_COOLDOWN_SECONDS
-        ]
-        for key in expired_keys:
-            del _discovery_cooldown_cache[key]
+    current_time = time.time()
 
-    _discovery_cooldown_cache[post_id] = time.time()
+    # If post_id already exists, move it to the end (most recently used)
+    if post_id in _discovery_cooldown_cache:
+        _discovery_cooldown_cache.move_to_end(post_id)
+        _discovery_cooldown_cache[post_id] = current_time
+        return
+
+    # If cache is at max size, evict oldest entries (LRU eviction)
+    while len(_discovery_cooldown_cache) >= MAX_COOLDOWN_CACHE_SIZE:
+        # Remove the oldest entry (first item in OrderedDict)
+        _discovery_cooldown_cache.popitem(last=False)
+
+    _discovery_cooldown_cache[post_id] = current_time
+
+
+def check_global_discovery_limit() -> bool:
+    """
+    Check if global discovery rate limit has been exceeded.
+
+    This prevents resource exhaustion attacks where an attacker floods
+    the endpoint with many different post IDs, each triggering expensive
+    discovery operations (external API calls to Ghost, Mastodon, Bluesky).
+
+    Returns:
+        True if limit exceeded (should reject), False if allowed
+    """
+    global _global_discovery_timestamps
+
+    current_time = time.time()
+    cutoff_time = current_time - GLOBAL_DISCOVERY_WINDOW_SECONDS
+
+    # Remove old timestamps outside the window
+    _global_discovery_timestamps = [
+        ts for ts in _global_discovery_timestamps if ts > cutoff_time
+    ]
+
+    return len(_global_discovery_timestamps) >= GLOBAL_DISCOVERY_LIMIT
+
+
+def record_global_discovery() -> None:
+    """Record a global discovery attempt for rate limiting."""
+    _global_discovery_timestamps.append(time.time())
+
+
+def check_request_rate_limit(client_ip: str) -> bool:
+    """
+    Check if request rate limit has been exceeded for a client IP.
+
+    Args:
+        client_ip: The client's IP address
+
+    Returns:
+        True if limit exceeded (should reject), False if allowed
+    """
+    current_time = time.time()
+    cutoff_time = current_time - REQUEST_RATE_WINDOW_SECONDS
+
+    # Clean up old timestamps
+    _request_rate_cache[client_ip] = [
+        ts for ts in _request_rate_cache[client_ip] if ts > cutoff_time
+    ]
+
+    return len(_request_rate_cache[client_ip]) >= REQUEST_RATE_LIMIT
+
+
+def record_request(client_ip: str) -> None:
+    """Record a request for rate limiting."""
+    _request_rate_cache[client_ip].append(time.time())
+
+    # Periodic cleanup of stale IPs to prevent memory growth
+    if len(_request_rate_cache) > 10000:
+        current_time = time.time()
+        cutoff_time = current_time - REQUEST_RATE_WINDOW_SECONDS
+        stale_ips = [
+            ip for ip, timestamps in _request_rate_cache.items()
+            if not timestamps or max(timestamps) < cutoff_time
+        ]
+        for ip in stale_ips:
+            del _request_rate_cache[ip]
+
+
+def validate_referrer(referrer: Optional[str], allowed_referrers: list) -> bool:
+    """
+    Validate that the request referrer is from an allowed domain.
+
+    Args:
+        referrer: The Referer header value (may be None)
+        allowed_referrers: List of allowed referrer patterns/domains
+
+    Returns:
+        True if referrer is valid or validation is disabled, False otherwise
+    """
+    # If no allowed referrers configured, skip validation (disabled)
+    if not allowed_referrers:
+        return True
+
+    # If no referrer provided, reject (when validation is enabled)
+    if not referrer:
+        return False
+
+    # Check if referrer matches any allowed pattern
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(referrer)
+        referrer_host = parsed.netloc.lower()
+
+        for allowed in allowed_referrers:
+            allowed_lower = allowed.lower()
+            # Support exact match or wildcard subdomain match
+            if referrer_host == allowed_lower:
+                return True
+            if allowed_lower.startswith("*.") and referrer_host.endswith(allowed_lower[1:]):
+                return True
+            # Also check if the full referrer URL starts with the allowed pattern
+            if referrer.lower().startswith(allowed_lower):
+                return True
+    except Exception:
+        return False
+
+    return False
+
+
+def sanitize_error_message(error: Exception) -> str:
+    """
+    Sanitize an error message to prevent information leakage.
+
+    Removes potentially sensitive information like file paths, credentials,
+    tokens, and internal implementation details.
+
+    Args:
+        error: The exception to sanitize
+
+    Returns:
+        A safe, generic error message
+    """
+    error_str = str(error).lower()
+
+    # Map known error patterns to safe messages
+    if "token" in error_str or "credential" in error_str or "auth" in error_str:
+        return "Authentication failed"
+    if "timeout" in error_str:
+        return "Request timed out"
+    if "connection" in error_str or "network" in error_str:
+        return "Connection error"
+    if "rate limit" in error_str or "too many" in error_str:
+        return "Rate limit exceeded"
+    if "not found" in error_str or "404" in error_str:
+        return "Resource not found"
+    if "permission" in error_str or "forbidden" in error_str or "403" in error_str:
+        return "Permission denied"
+
+    # Default generic message
+    return "Service temporarily unavailable"
 
 # Create validator for better error messages
 # Draft7Validator provides detailed validation error context including
@@ -271,6 +430,43 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     app.config["BLUESKY_CLIENTS"] = bluesky_clients or []
     app.config["LLM_CLIENT"] = llm_client
     app.config["GHOST_API_CLIENT"] = ghost_api_client
+
+    # =================================================================
+    # Security Configuration
+    # =================================================================
+    security_config = config.get("security", {})
+
+    # Allowed referrers for interactions endpoint
+    # If empty, referrer validation is disabled (backward compatible)
+    app.config["ALLOWED_REFERRERS"] = security_config.get("allowed_referrers", [])
+    if app.config["ALLOWED_REFERRERS"]:
+        logger.info(f"Referrer validation enabled for: {app.config['ALLOWED_REFERRERS']}")
+    else:
+        logger.info("Referrer validation disabled (no allowed_referrers configured)")
+
+    # Rate limiting configuration
+    app.config["RATE_LIMIT_ENABLED"] = security_config.get("rate_limit_enabled", True)
+    app.config["RATE_LIMIT_REQUESTS"] = security_config.get("rate_limit_requests", REQUEST_RATE_LIMIT)
+    app.config["RATE_LIMIT_WINDOW"] = security_config.get("rate_limit_window_seconds", REQUEST_RATE_WINDOW_SECONDS)
+
+    # Discovery rate limiting
+    app.config["DISCOVERY_RATE_LIMIT_ENABLED"] = security_config.get("discovery_rate_limit_enabled", True)
+    app.config["DISCOVERY_RATE_LIMIT"] = security_config.get("discovery_rate_limit", GLOBAL_DISCOVERY_LIMIT)
+    app.config["DISCOVERY_RATE_WINDOW"] = security_config.get("discovery_rate_window_seconds", GLOBAL_DISCOVERY_WINDOW_SECONDS)
+
+    # Internal API token for protected endpoints
+    # Priority: config value > config file > environment variable
+    from config import read_secret_file
+    internal_token = security_config.get("internal_api_token")
+    if not internal_token:
+        token_file = security_config.get("internal_api_token_file")
+        if token_file:
+            internal_token = read_secret_file(token_file)
+    if not internal_token:
+        internal_token = os.environ.get("INTERNAL_API_TOKEN")
+    app.config["INTERNAL_API_TOKEN"] = internal_token
+    if internal_token:
+        logger.info("Internal API token configured for protected endpoints")
     
     @app.route("/webhook/ghost", methods=["POST"])
     def receive_ghost_post():
@@ -530,7 +726,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             except Exception as e:
                 mastodon_status["accounts"][account_name] = {
                     "status": "unhealthy",
-                    "error": str(e)
+                    "error": sanitize_error_message(e)
                 }
                 overall_healthy = False
                 logger.error(f"Healthcheck: Mastodon account '{account_name}' error: {e}")
@@ -566,7 +762,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             except Exception as e:
                 bluesky_status["accounts"][account_name] = {
                     "status": "unhealthy",
-                    "error": str(e)
+                    "error": sanitize_error_message(e)
                 }
                 overall_healthy = False
                 logger.error(f"Healthcheck: Bluesky account '{account_name}' error: {e}")
@@ -591,7 +787,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     logger.warning("Healthcheck: LLM service health check failed")
             except Exception as e:
                 llm_status["status"] = "unhealthy"
-                llm_status["error"] = str(e)
+                llm_status["error"] = sanitize_error_message(e)
                 overall_healthy = False
                 logger.error(f"Healthcheck: LLM service error: {e}")
         
@@ -615,7 +811,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     logger.warning("Healthcheck: Pushover service failed to send test notification")
             except Exception as e:
                 pushover_status["status"] = "unhealthy"
-                pushover_status["error"] = str(e)
+                pushover_status["error"] = sanitize_error_message(e)
                 overall_healthy = False
                 logger.error(f"Healthcheck: Pushover service error: {e}")
         
@@ -640,7 +836,11 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         Security:
             - Input validation: ghost_post_id must be a valid 24-char hex string
             - Path traversal protection: file paths are validated
+            - IP-based rate limiting: prevents request flooding
+            - Referrer validation: only allows requests from configured domains
             - Discovery rate limiting: cooldown prevents resource exhaustion
+            - Global discovery limit: prevents mass enumeration attacks
+            - Timing normalization: prevents timing-based information leakage
 
         Args:
             ghost_post_id: Ghost post ID (24 character hex string)
@@ -669,7 +869,36 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
               }
             }
         """
+        import random
         from interactions.interaction_sync import InteractionSyncService
+
+        # =================================================================
+        # Security: Rate Limiting (per IP)
+        # =================================================================
+        client_ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr
+
+        if current_app.config.get("RATE_LIMIT_ENABLED", True):
+            if check_request_rate_limit(client_ip):
+                logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+                return jsonify({
+                    "status": "error",
+                    "message": "Rate limit exceeded. Please try again later."
+                }), 429
+
+            record_request(client_ip)
+
+        # =================================================================
+        # Security: Referrer Validation
+        # =================================================================
+        allowed_referrers = current_app.config.get("ALLOWED_REFERRERS", [])
+        if allowed_referrers:
+            referrer = request.headers.get("Referer")
+            if not validate_referrer(referrer, allowed_referrers):
+                logger.warning(f"Invalid referrer rejected: {referrer!r} from IP {client_ip}")
+                return jsonify({
+                    "status": "error",
+                    "message": "Forbidden"
+                }), 403
 
         # =================================================================
         # Security: Input Validation
@@ -677,6 +906,8 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         # Validate ghost_post_id format to prevent path traversal and injection
         if not validate_ghost_post_id(ghost_post_id):
             logger.warning(f"Invalid post ID format rejected: {ghost_post_id[:50]!r}")
+            # Add small random delay to prevent timing attacks
+            time.sleep(random.uniform(0.01, 0.05))
             return jsonify({
                 "status": "error",
                 "message": "Invalid post ID format"
@@ -780,7 +1011,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         # =================================================================
         # Security: Discovery Rate Limiting
         # =================================================================
-        # Check cooldown before attempting expensive discovery operations
+        # Check per-ID cooldown before attempting expensive discovery operations
         if check_discovery_cooldown(ghost_post_id):
             logger.debug(f"Discovery cooldown active for post: {ghost_post_id}")
             return jsonify({
@@ -797,6 +1028,26 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                 "message": "No syndication or interaction data available"
             }), 404
 
+        # Check global discovery rate limit (prevents mass enumeration attacks)
+        if current_app.config.get("DISCOVERY_RATE_LIMIT_ENABLED", True):
+            if check_global_discovery_limit():
+                logger.warning(f"Global discovery rate limit exceeded, rejecting discovery for: {ghost_post_id}")
+                # Still record this attempt for per-ID cooldown
+                record_discovery_attempt(ghost_post_id)
+                return jsonify({
+                    "ghost_post_id": ghost_post_id,
+                    "updated_at": None,
+                    "syndication_links": {
+                        "mastodon": {},
+                        "bluesky": {}
+                    },
+                    "platforms": {
+                        "mastodon": {},
+                        "bluesky": {}
+                    },
+                    "message": "No syndication or interaction data available"
+                }), 404
+
         # Neither interaction file nor mapping file exists - try to discover mapping
         logger.info(f"No interaction data or syndication mapping found for post: {ghost_post_id}, attempting discovery")
 
@@ -805,8 +1056,9 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         mastodon_clients = current_app.config.get("MASTODON_CLIENTS", [])
         bluesky_clients = current_app.config.get("BLUESKY_CLIENTS", [])
 
-        # Record this discovery attempt for rate limiting
+        # Record this discovery attempt for rate limiting (both per-ID and global)
         record_discovery_attempt(ghost_post_id)
+        record_global_discovery()
 
         # Try to get the Ghost post URL
         ghost_post_url = None
@@ -876,6 +1128,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         bypassing the normal scheduler. Useful for testing or immediate updates.
 
         Security:
+            - Authentication: requires X-Internal-Token header (if configured)
             - Input validation: ghost_post_id must be a valid 24-char hex string
 
         Args:
@@ -886,6 +1139,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
 
         Example:
             POST /api/interactions/507f1f77bcf86cd799439011/sync
+            X-Internal-Token: your-secret-token
 
             Response:
             {
@@ -894,6 +1148,19 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
               "ghost_post_id": "507f1f77bcf86cd799439011"
             }
         """
+        # =================================================================
+        # Security: Authentication (for internal/admin endpoints)
+        # =================================================================
+        internal_token = current_app.config.get("INTERNAL_API_TOKEN")
+        if internal_token:
+            provided_token = request.headers.get("X-Internal-Token")
+            if not provided_token or provided_token != internal_token:
+                logger.warning(f"Unauthorized sync attempt for post: {ghost_post_id[:50]}")
+                return jsonify({
+                    "status": "error",
+                    "message": "Unauthorized"
+                }), 401
+
         # Security: Input validation
         if not validate_ghost_post_id(ghost_post_id):
             logger.warning(f"Invalid post ID format rejected for sync: {ghost_post_id[:50]!r}")

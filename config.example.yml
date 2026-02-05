@@ -110,3 +110,33 @@ interactions:
   # Privacy settings (optional)
   show_reply_content: true  # Show full comment text (default: true)
   show_reply_authors: true  # Show commenter names and avatars (default: true)
+
+# =============================================================================
+# Security Configuration
+# =============================================================================
+# Configure security settings for the API endpoints
+security:
+  # Referrer validation for interactions endpoint
+  # Only allow requests from these domains (leave empty to disable validation)
+  # Supports exact matches and wildcard subdomains (e.g., "*.yourblog.com")
+  allowed_referrers:
+    - "https://yourblog.com"
+    - "https://www.yourblog.com"
+    # - "*.yourblog.com"  # Wildcard for all subdomains
+
+  # IP-based rate limiting
+  rate_limit_enabled: true  # Enable/disable rate limiting (default: true)
+  rate_limit_requests: 60  # Max requests per IP per window (default: 60)
+  rate_limit_window_seconds: 60  # Rate limit window in seconds (default: 60)
+
+  # Discovery rate limiting (prevents enumeration attacks)
+  # Limits expensive discovery operations that query external APIs
+  discovery_rate_limit_enabled: true  # Enable/disable (default: true)
+  discovery_rate_limit: 50  # Max discovery attempts per window (default: 50)
+  discovery_rate_window_seconds: 60  # Window in seconds (default: 60)
+
+  # Internal API token for protected endpoints (like /sync)
+  # If set, these endpoints require X-Internal-Token header
+  # Can also be set via INTERNAL_API_TOKEN environment variable
+  # internal_api_token: "your-secret-token"  # Uncomment and set a strong token
+  internal_api_token_file: "/run/secrets/internal_api_token"  # Alternative: use Docker secret
