@@ -485,6 +485,19 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
             # Filter clients by tags
             filtered_clients = _filter_clients_by_tags(tags, all_clients)
             logger.info(f"Posting to {len(filtered_clients)} of {len(all_clients)} enabled accounts after tag filtering")
+
+            # Selective syndication: if __target_accounts is set, only post to those accounts
+            target_accounts = event.get("__target_accounts")
+            if target_accounts:
+                target_set = {(p.lower(), a) for p, a in target_accounts}
+                filtered_clients = [
+                    (platform, client) for platform, client in filtered_clients
+                    if (platform.lower(), client.account_name) in target_set
+                ]
+                logger.info(
+                    f"Selective syndication: targeting {len(filtered_clients)} accounts "
+                    f"(from post update webhook)"
+                )
             
             # Pre-download images if we have any and LLM is enabled for alt text generation
             if images and llm_client.enabled:
@@ -959,6 +972,7 @@ def main(debug: bool = False) -> None:
     # Store interaction scheduler in app config for API endpoints
     app.config["INTERACTION_SCHEDULER"] = interaction_scheduler
     app.config["INTERACTIONS_STORAGE_PATH"] = storage_path
+    app.config["SYNDICATION_MAPPINGS_PATH"] = mappings_path
     
     # Load Gunicorn configuration from ghost package
     config_path = os.path.join(os.path.dirname(__file__), "..", "ghost", "gunicorn_config.py")
