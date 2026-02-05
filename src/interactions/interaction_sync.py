@@ -13,6 +13,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from requests.exceptions import Timeout, RequestException
 
+from interactions.storage import InteractionDataStore
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +55,7 @@ class InteractionSyncService:
         # Create storage directories if they don't exist
         os.makedirs(self.storage_path, mode=0o755, exist_ok=True)
         os.makedirs(self.mappings_path, mode=0o755, exist_ok=True)
+        self.data_store = InteractionDataStore(self.storage_path)
 
         logger.info(
             f"InteractionSyncService initialized with "
@@ -657,17 +660,10 @@ class InteractionSyncService:
         Returns:
             Existing interaction data dictionary, or empty structure if not found
         """
-        interaction_file = os.path.join(self.storage_path, f"{ghost_post_id}.json")
-
-        if not os.path.exists(interaction_file):
+        data = self.data_store.get(ghost_post_id)
+        if data is None:
             return self._empty_interaction_data(ghost_post_id)
-
-        try:
-            with open(interaction_file, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load existing interaction data {interaction_file}: {e}")
-            return self._empty_interaction_data(ghost_post_id)
+        return data
 
     def _store_interaction_data(self, ghost_post_id: str, data: Dict[str, Any]) -> None:
         """
@@ -677,14 +673,12 @@ class InteractionSyncService:
             ghost_post_id: Ghost post ID
             data: Interaction data to store
         """
-        output_file = os.path.join(self.storage_path, f"{ghost_post_id}.json")
+        self.data_store.put(ghost_post_id, data)
+        logger.debug(f"Stored interaction data in SQLite for {ghost_post_id}")
 
-        try:
-            with open(output_file, 'w') as f:
-                json.dump(data, f, indent=2)
-            logger.debug(f"Stored interaction data to {output_file}")
-        except Exception as e:
-            logger.error(f"Failed to store interaction data to {output_file}: {e}")
+    def get_stored_interaction_data(self, ghost_post_id: str) -> Optional[Dict[str, Any]]:
+        """Return stored interaction data for a post, if available."""
+        return self.data_store.get(ghost_post_id)
 
     def _empty_interaction_data(self, ghost_post_id: str) -> Dict[str, Any]:
         """Return empty interaction data structure."""

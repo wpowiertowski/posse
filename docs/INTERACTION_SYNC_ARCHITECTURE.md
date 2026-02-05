@@ -153,7 +153,7 @@ Store interaction data in two ways:
 - Tables: `posts`, `interactions`, `replies`
 - Better for querying and analytics
 
-**Recommendation**: Start with Option A (file-based) for simplicity, migrate to Option B if needed.
+**Recommendation**: Use a minimally invasive SQLite payload store (`interactions.db`) while keeping existing mapping JSON files unchanged.
 
 ### 3. Mapping System
 

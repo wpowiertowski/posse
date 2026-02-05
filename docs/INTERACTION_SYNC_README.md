@@ -181,7 +181,8 @@ When POSSE syndicates a post to Mastodon or Bluesky, it stores a mapping:
 The interaction scheduler:
 - Runs in the background every 30 minutes (configurable)
 - Retrieves interactions from Mastodon and Bluesky APIs
-- Stores aggregated data in JSON files
+- Stores aggregated data in a SQLite database (`interactions.db`)
+- Reads legacy per-post JSON files and backfills them into SQLite on access
 - Uses a smart sync strategy based on post age:
   - Posts < 2 days: sync every cycle (most active)
   - Posts 2-7 days: sync every other cycle
@@ -196,6 +197,35 @@ The JavaScript widget:
 - Shows recent comments with avatars
 - Auto-refreshes every 5 minutes
 - Falls back gracefully if data unavailable
+
+
+## Interaction Storage Migration (JSON → SQLite)
+
+Interaction payloads are now stored in a single SQLite database instead of one JSON file per post.
+
+### Why this is minimally invasive
+- No API response shape changes (`/api/interactions/<post_id>` remains the same).
+- Syndication mapping files stay as JSON (`data/syndication_mappings/*.json`).
+- Legacy interaction JSON files are still readable during transition and are auto-backfilled into SQLite when requested.
+
+### Migration cost
+- **Operational cost:** Low. SQLite is built into Python and requires no extra service.
+- **Data migration cost:** Low. One-time script performs idempotent upserts.
+- **Rollback cost:** Low. Legacy JSON files can be kept until migration is validated.
+
+### One-time migration script
+
+```bash
+python scripts/migrate_interactions_to_sqlite.py --storage-path ./data/interactions
+```
+
+Preview without writing:
+
+```bash
+python scripts/migrate_interactions_to_sqlite.py --storage-path ./data/interactions --dry-run
+```
+
+The script creates/updates `./data/interactions/interactions.db` and migrates each `*.json` interaction file into `interaction_data` with upsert semantics.
 
 ## API Endpoints
 
