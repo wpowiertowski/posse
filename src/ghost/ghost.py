@@ -228,7 +228,7 @@ def record_discovery_attempt(post_id: str) -> None:
     _discovery_cooldown_cache[post_id] = current_time
 
 
-def check_global_discovery_limit() -> bool:
+def check_global_discovery_limit(limit: int = GLOBAL_DISCOVERY_LIMIT, window: int = GLOBAL_DISCOVERY_WINDOW_SECONDS) -> bool:
     """
     Check if global discovery rate limit has been exceeded.
 
@@ -236,18 +236,22 @@ def check_global_discovery_limit() -> bool:
     the endpoint with many different post IDs, each triggering expensive
     discovery operations (external API calls to Ghost, Mastodon, Bluesky).
 
+    Args:
+        limit: Maximum discovery attempts per window (default: GLOBAL_DISCOVERY_LIMIT)
+        window: Time window in seconds (default: GLOBAL_DISCOVERY_WINDOW_SECONDS)
+
     Returns:
         True if limit exceeded (should reject), False if allowed
     """
     current_time = time.time()
-    cutoff_time = current_time - GLOBAL_DISCOVERY_WINDOW_SECONDS
+    cutoff_time = current_time - window
 
     # Remove old timestamps outside the window (modify in-place to preserve references)
     _global_discovery_timestamps[:] = [
         ts for ts in _global_discovery_timestamps if ts > cutoff_time
     ]
 
-    return len(_global_discovery_timestamps) >= GLOBAL_DISCOVERY_LIMIT
+    return len(_global_discovery_timestamps) >= limit
 
 
 def record_global_discovery() -> None:
@@ -267,25 +271,27 @@ def clear_rate_limit_caches() -> None:
     _request_rate_cache.clear()
 
 
-def check_request_rate_limit(client_ip: str) -> bool:
+def check_request_rate_limit(client_ip: str, limit: int = REQUEST_RATE_LIMIT, window: int = REQUEST_RATE_WINDOW_SECONDS) -> bool:
     """
     Check if request rate limit has been exceeded for a client IP.
 
     Args:
         client_ip: The client's IP address
+        limit: Maximum requests per window (default: REQUEST_RATE_LIMIT)
+        window: Time window in seconds (default: REQUEST_RATE_WINDOW_SECONDS)
 
     Returns:
         True if limit exceeded (should reject), False if allowed
     """
     current_time = time.time()
-    cutoff_time = current_time - REQUEST_RATE_WINDOW_SECONDS
+    cutoff_time = current_time - window
 
     # Clean up old timestamps
     _request_rate_cache[client_ip] = [
         ts for ts in _request_rate_cache[client_ip] if ts > cutoff_time
     ]
 
-    return len(_request_rate_cache[client_ip]) >= REQUEST_RATE_LIMIT
+    return len(_request_rate_cache[client_ip]) >= limit
 
 
 def record_request(client_ip: str) -> None:
@@ -888,7 +894,9 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         client_ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr
 
         if current_app.config.get("RATE_LIMIT_ENABLED", True):
-            if check_request_rate_limit(client_ip):
+            rate_limit = current_app.config.get("RATE_LIMIT_REQUESTS", REQUEST_RATE_LIMIT)
+            rate_window = current_app.config.get("RATE_LIMIT_WINDOW", REQUEST_RATE_WINDOW_SECONDS)
+            if check_request_rate_limit(client_ip, limit=rate_limit, window=rate_window):
                 logger.warning(f"Rate limit exceeded for IP: {client_ip}")
                 return jsonify({
                     "status": "error",
@@ -1040,7 +1048,9 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
 
         # Check global discovery rate limit (prevents mass enumeration attacks)
         if current_app.config.get("DISCOVERY_RATE_LIMIT_ENABLED", True):
-            if check_global_discovery_limit():
+            discovery_limit = current_app.config.get("DISCOVERY_RATE_LIMIT", GLOBAL_DISCOVERY_LIMIT)
+            discovery_window = current_app.config.get("DISCOVERY_RATE_WINDOW", GLOBAL_DISCOVERY_WINDOW_SECONDS)
+            if check_global_discovery_limit(limit=discovery_limit, window=discovery_window):
                 logger.warning(f"Global discovery rate limit exceeded, rejecting discovery for: {ghost_post_id}")
                 # Still record this attempt for per-ID cooldown
                 record_discovery_attempt(ghost_post_id)
