@@ -15,7 +15,7 @@ Architecture:
     6. Log full payload at DEBUG level
     7. Push validated post to events queue for syndication
     8. Return appropriate HTTP status code
-    
+
 Schema Validation:
     Uses jsonschema library with Draft7Validator to validate incoming posts
     against the Ghost post schema. The schema defines:
@@ -27,9 +27,9 @@ Events Queue:
     Valid posts are pushed to an events_queue instance passed via the app factory.
     This queue will be consumed by Mastodon and Bluesky agents (to be implemented)
     for cross-posting to social media platforms.
-    
+
     The queue is injected through create_app(events_queue) and stored in app.config.
-    
+
 Logging Strategy:
     - Handler: FileHandler (ghost_posts.log) + StreamHandler (console)
     - Format: timestamp - logger_name - level - message
@@ -37,19 +37,22 @@ Logging Strategy:
         * INFO: Post reception notifications (id, title, timestamp)
         * DEBUG: Full JSON payload dumps (can be large)
         * ERROR: Validation failures, malformed requests, exceptions
-        
+
 Error Handling:
     Returns appropriate HTTP status codes:
     - 200: Success (post validated, logged, and queued)
     - 400: Bad request (non-JSON, schema validation failure)
     - 500: Internal server error (unexpected exceptions)
-    
+
     All errors include JSON response with:
     - status: "error" or "success"
     - message: Human-readable description
     - details: Specific error information (for validation errors)
 
 Security Considerations:
+    - Input validation: Ghost post IDs are validated against strict format
+    - Path traversal protection: File paths are validated to prevent directory escape
+    - Discovery rate limiting: Cooldown mechanism prevents resource exhaustion
     - No authentication implemented (add API key validation in production)
     - All inputs validated against strict schema
     - No direct database writes (only logging)
@@ -82,6 +85,9 @@ Classes:
 import json
 import logging
 import os
+import re
+import time
+from pathlib import Path
 from typing import Any, Dict, Optional
 from queue import Queue
 
@@ -95,6 +101,112 @@ from config import load_config
 
 # Logging is configured in posse.py main() - this module uses the configured logger
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Security: Input Validation and Rate Limiting
+# =============================================================================
+
+# Ghost post ID validation pattern (24 hex characters - MongoDB ObjectID format)
+GHOST_POST_ID_PATTERN = re.compile(r'^[a-f0-9]{24}$')
+
+# Discovery cooldown cache to prevent resource exhaustion attacks
+# Structure: {post_id: timestamp_of_last_discovery_attempt}
+_discovery_cooldown_cache: Dict[str, float] = {}
+DISCOVERY_COOLDOWN_SECONDS = 300  # 5 minutes between discovery attempts for same ID
+MAX_COOLDOWN_CACHE_SIZE = 10000  # Prevent unbounded memory growth
+
+
+def validate_ghost_post_id(post_id: str) -> bool:
+    """
+    Validate that a Ghost post ID matches the expected format.
+
+    Ghost uses MongoDB ObjectIDs which are 24-character hexadecimal strings.
+    This validation prevents path traversal attacks and other injection attempts.
+
+    Args:
+        post_id: The post ID string to validate
+
+    Returns:
+        True if valid, False otherwise
+
+    Examples:
+        >>> validate_ghost_post_id("507f1f77bcf86cd799439011")
+        True
+        >>> validate_ghost_post_id("../../../etc/passwd")
+        False
+        >>> validate_ghost_post_id("abc")
+        False
+    """
+    if not post_id or not isinstance(post_id, str):
+        return False
+    return bool(GHOST_POST_ID_PATTERN.match(post_id))
+
+
+def is_safe_path(base_path: str, file_path: str) -> bool:
+    """
+    Verify that a file path is safely contained within a base directory.
+
+    This prevents path traversal attacks by ensuring the resolved path
+    is still within the expected base directory.
+
+    Args:
+        base_path: The base directory that should contain the file
+        file_path: The full file path to validate
+
+    Returns:
+        True if the path is safe, False if it escapes the base directory
+    """
+    try:
+        base = Path(base_path).resolve()
+        target = Path(file_path).resolve()
+        return target.is_relative_to(base)
+    except (ValueError, RuntimeError):
+        return False
+
+
+def check_discovery_cooldown(post_id: str) -> bool:
+    """
+    Check if a post ID is in discovery cooldown period.
+
+    This prevents resource exhaustion attacks where an attacker floods
+    the endpoint with requests for non-existent posts, triggering
+    expensive discovery operations (external API calls).
+
+    Args:
+        post_id: The Ghost post ID to check
+
+    Returns:
+        True if cooldown is active (should skip discovery), False otherwise
+    """
+    if post_id not in _discovery_cooldown_cache:
+        return False
+
+    last_attempt = _discovery_cooldown_cache[post_id]
+    return (time.time() - last_attempt) < DISCOVERY_COOLDOWN_SECONDS
+
+
+def record_discovery_attempt(post_id: str) -> None:
+    """
+    Record a discovery attempt for rate limiting purposes.
+
+    Also performs cache cleanup if the cache grows too large to prevent
+    unbounded memory growth from enumeration attacks.
+
+    Args:
+        post_id: The Ghost post ID that was attempted
+    """
+    # Clean up old entries if cache is getting large
+    # Use in-place modification to preserve references from other modules
+    if len(_discovery_cooldown_cache) > MAX_COOLDOWN_CACHE_SIZE:
+        current_time = time.time()
+        expired_keys = [
+            pid for pid, ts in _discovery_cooldown_cache.items()
+            if (current_time - ts) >= DISCOVERY_COOLDOWN_SECONDS
+        ]
+        for key in expired_keys:
+            del _discovery_cooldown_cache[key]
+
+    _discovery_cooldown_cache[post_id] = time.time()
 
 # Create validator for better error messages
 # Draft7Validator provides detailed validation error context including
@@ -525,18 +637,23 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         If no syndication mapping exists, the endpoint will attempt to discover
         the mapping by searching recent social media posts for links to the Ghost post.
 
+        Security:
+            - Input validation: ghost_post_id must be a valid 24-char hex string
+            - Path traversal protection: file paths are validated
+            - Discovery rate limiting: cooldown prevents resource exhaustion
+
         Args:
-            ghost_post_id: Ghost post ID
+            ghost_post_id: Ghost post ID (24 character hex string)
 
         Returns:
             JSON response with interaction data
 
         Example:
-            GET /api/interactions/abc123
+            GET /api/interactions/507f1f77bcf86cd799439011
 
             Response:
             {
-              "ghost_post_id": "abc123",
+              "ghost_post_id": "507f1f77bcf86cd799439011",
               "updated_at": "2026-01-27T10:00:00Z",
               "syndication_links": {
                 "mastodon": {
@@ -553,22 +670,45 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             }
         """
         from interactions.interaction_sync import InteractionSyncService
-        import os
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
 
-        # Get interaction scheduler from app config (if available)
-        scheduler = current_app.config.get("INTERACTION_SCHEDULER")
+        # =================================================================
+        # Security: Input Validation
+        # =================================================================
+        # Validate ghost_post_id format to prevent path traversal and injection
+        if not validate_ghost_post_id(ghost_post_id):
+            logger.warning(f"Invalid post ID format rejected: {ghost_post_id[:50]!r}")
+            return jsonify({
+                "status": "error",
+                "message": "Invalid post ID format"
+            }), 400
 
         # Get storage paths from config or use defaults
         storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data/interactions")
         mappings_path = current_app.config.get("SYNDICATION_MAPPINGS_PATH", "./data/syndication_mappings")
 
-        # Load interaction data from file
+        # Construct file paths with validated post ID
         interaction_file = os.path.join(storage_path, f"{ghost_post_id}.json")
+        mapping_file = os.path.join(mappings_path, f"{ghost_post_id}.json")
 
+        # =================================================================
+        # Security: Path Traversal Protection (defense in depth)
+        # =================================================================
+        if not is_safe_path(storage_path, interaction_file):
+            logger.warning(f"Path traversal attempt blocked for interaction file: {ghost_post_id}")
+            return jsonify({
+                "status": "error",
+                "message": "Invalid post ID format"
+            }), 400
+
+        if not is_safe_path(mappings_path, mapping_file):
+            logger.warning(f"Path traversal attempt blocked for mapping file: {ghost_post_id}")
+            return jsonify({
+                "status": "error",
+                "message": "Invalid post ID format"
+            }), 400
+
+        # Check for existing interaction data
         if os.path.exists(interaction_file):
-            # Interaction data exists - return it
             try:
                 with open(interaction_file, 'r') as f:
                     interactions = json.load(f)
@@ -576,19 +716,21 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                 logger.debug(f"Retrieved interactions for post: {ghost_post_id}")
                 return jsonify(interactions), 200
 
+            except json.JSONDecodeError as e:
+                logger.error(f"Malformed JSON in interaction file for {ghost_post_id}: {e}")
+                return jsonify({
+                    "status": "error",
+                    "message": "Failed to load interaction data"
+                }), 500
             except Exception as e:
                 logger.error(f"Failed to load interactions for {ghost_post_id}: {e}")
                 return jsonify({
                     "status": "error",
-                    "message": "Failed to load interaction data",
-                    "details": str(e)
+                    "message": "Failed to load interaction data"
                 }), 500
 
-        # No interaction file - check for syndication mappings
-        mapping_file = os.path.join(mappings_path, f"{ghost_post_id}.json")
-
+        # Check for syndication mapping without interaction data
         if os.path.exists(mapping_file):
-            # Syndication mapping exists - return syndication links without interaction counts
             try:
                 with open(mapping_file, 'r') as f:
                     mapping = json.load(f)
@@ -622,13 +764,38 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     "message": "Syndication links available, no interaction data yet"
                 }), 200
 
+            except json.JSONDecodeError as e:
+                logger.error(f"Malformed JSON in mapping file for {ghost_post_id}: {e}")
+                return jsonify({
+                    "status": "error",
+                    "message": "Failed to load syndication mapping"
+                }), 500
             except Exception as e:
                 logger.error(f"Failed to load syndication mapping for {ghost_post_id}: {e}")
                 return jsonify({
                     "status": "error",
-                    "message": "Failed to load syndication mapping",
-                    "details": str(e)
+                    "message": "Failed to load syndication mapping"
                 }), 500
+
+        # =================================================================
+        # Security: Discovery Rate Limiting
+        # =================================================================
+        # Check cooldown before attempting expensive discovery operations
+        if check_discovery_cooldown(ghost_post_id):
+            logger.debug(f"Discovery cooldown active for post: {ghost_post_id}")
+            return jsonify({
+                "ghost_post_id": ghost_post_id,
+                "updated_at": None,
+                "syndication_links": {
+                    "mastodon": {},
+                    "bluesky": {}
+                },
+                "platforms": {
+                    "mastodon": {},
+                    "bluesky": {}
+                },
+                "message": "No syndication or interaction data available"
+            }), 404
 
         # Neither interaction file nor mapping file exists - try to discover mapping
         logger.info(f"No interaction data or syndication mapping found for post: {ghost_post_id}, attempting discovery")
@@ -637,6 +804,9 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         ghost_api_client = current_app.config.get("GHOST_API_CLIENT")
         mastodon_clients = current_app.config.get("MASTODON_CLIENTS", [])
         bluesky_clients = current_app.config.get("BLUESKY_CLIENTS", [])
+
+        # Record this discovery attempt for rate limiting
+        record_discovery_attempt(ghost_post_id)
 
         # Try to get the Ghost post URL
         ghost_post_url = None
@@ -705,22 +875,33 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         This endpoint immediately syncs interactions for the specified post,
         bypassing the normal scheduler. Useful for testing or immediate updates.
 
+        Security:
+            - Input validation: ghost_post_id must be a valid 24-char hex string
+
         Args:
-            ghost_post_id: Ghost post ID
+            ghost_post_id: Ghost post ID (24 character hex string)
 
         Returns:
             JSON response with sync result
 
         Example:
-            POST /api/interactions/abc123/sync
+            POST /api/interactions/507f1f77bcf86cd799439011/sync
 
             Response:
             {
               "status": "success",
               "message": "Interactions synced successfully",
-              "ghost_post_id": "abc123"
+              "ghost_post_id": "507f1f77bcf86cd799439011"
             }
         """
+        # Security: Input validation
+        if not validate_ghost_post_id(ghost_post_id):
+            logger.warning(f"Invalid post ID format rejected for sync: {ghost_post_id[:50]!r}")
+            return jsonify({
+                "status": "error",
+                "message": "Invalid post ID format"
+            }), 400
+
         scheduler = current_app.config.get("INTERACTION_SCHEDULER")
 
         if not scheduler:
@@ -745,8 +926,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             logger.error(f"Failed to sync interactions for {ghost_post_id}: {e}")
             return jsonify({
                 "status": "error",
-                "message": "Failed to sync interactions",
-                "details": str(e)
+                "message": "Failed to sync interactions"
             }), 500
 
     return app
