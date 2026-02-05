@@ -26,6 +26,7 @@ requests = "^2.32.5"
 pyyaml = "^6.0.3"
 "Mastodon.py" = "^2.1.4"
 atproto = "^0.0.65"
+Pillow = "^12.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.2"

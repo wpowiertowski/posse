@@ -8,6 +8,7 @@ Test Coverage:
     - Login with credentials from secrets
     - Posting to Bluesky
     - Credential verification
+    - Image compression for blob size limits
 
 Testing Strategy:
     Tests use mocked credentials from Docker secrets to verify
@@ -16,8 +17,11 @@ Testing Strategy:
 Running Tests:
     $ PYTHONPATH=src python -m unittest tests.test_bluesky -v
 """
+import io
 import unittest
 from unittest.mock import patch, MagicMock, call
+
+from PIL import Image
 
 from atproto import models
 from social.bluesky_client import BlueskyClient
@@ -1065,6 +1069,205 @@ class TestBlueskyClient(unittest.TestCase):
             initial_login_count + 3,
             "Expected login to be called once per post for re-authentication"
         )
+
+
+class TestBlueskyImageCompression(unittest.TestCase):
+    """Test suite for BlueskyClient._compress_image method."""
+
+    @staticmethod
+    def _make_jpeg(width, height, quality=95):
+        """Create a JPEG image of the given dimensions and return its bytes."""
+        img = Image.new('RGB', (width, height), color='red')
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=quality)
+        return buf.getvalue()
+
+    @staticmethod
+    def _make_png_rgba(width, height):
+        """Create an RGBA PNG image and return its bytes."""
+        img = Image.new('RGBA', (width, height), color=(255, 0, 0, 128))
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        return buf.getvalue()
+
+    def test_small_image_returned_unchanged(self):
+        """Images already under the size limit should be returned as-is."""
+        small_data = self._make_jpeg(100, 100)
+        result = BlueskyClient._compress_image(small_data, max_size=1_000_000)
+        self.assertEqual(result, small_data)
+
+    def test_large_image_is_compressed_below_limit(self):
+        """A large image should be compressed to fit under max_size."""
+        # Create a large noisy image that compresses poorly
+        img = Image.new('RGB', (4000, 3000), color='red')
+        # Add noise-like pattern to make it harder to compress
+        pixels = img.load()
+        for x in range(0, 4000, 2):
+            for y in range(0, 3000, 2):
+                pixels[x, y] = ((x * 7) % 256, (y * 13) % 256, ((x + y) * 3) % 256)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=100)
+        large_data = buf.getvalue()
+
+        # Ensure the test data is actually over the limit
+        self.assertGreater(len(large_data), 1_000_000)
+
+        result = BlueskyClient._compress_image(large_data, max_size=1_000_000)
+        self.assertLessEqual(len(result), 1_000_000)
+
+    def test_image_resized_to_max_dimension(self):
+        """Images wider than max_dimension should be resized."""
+        # Create a noisy 5000x2500 image that exceeds the size limit
+        img = Image.new('RGB', (5000, 2500), color='red')
+        pixels = img.load()
+        for x in range(0, 5000, 2):
+            for y in range(0, 2500, 2):
+                pixels[x, y] = ((x * 7) % 256, (y * 13) % 256, ((x + y) * 3) % 256)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=100)
+        data = buf.getvalue()
+        # Use a max_size just below the data size to force compression
+        result = BlueskyClient._compress_image(data, max_size=len(data) - 1, max_dimension=2500)
+        result_img = Image.open(io.BytesIO(result))
+        self.assertLessEqual(max(result_img.size), 2500)
+
+    def test_tall_image_resized_to_max_dimension(self):
+        """Images taller than max_dimension should be resized along height."""
+        # Create a noisy 1500x4000 image that exceeds the size limit
+        img = Image.new('RGB', (1500, 4000), color='blue')
+        pixels = img.load()
+        for x in range(0, 1500, 2):
+            for y in range(0, 4000, 2):
+                pixels[x, y] = ((x * 11) % 256, (y * 7) % 256, ((x + y) * 5) % 256)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=100)
+        data = buf.getvalue()
+        # Use a max_size just below the data size to force compression
+        result = BlueskyClient._compress_image(data, max_size=len(data) - 1, max_dimension=2500)
+        result_img = Image.open(io.BytesIO(result))
+        self.assertLessEqual(result_img.height, 2500)
+        # Aspect ratio should be approximately preserved
+        expected_width = int(1500 * (2500 / 4000))
+        self.assertAlmostEqual(result_img.width, expected_width, delta=1)
+
+    def test_image_within_dimension_not_resized(self):
+        """Images within max_dimension should not be resized."""
+        data = self._make_jpeg(2000, 1500)
+        result = BlueskyClient._compress_image(data, max_size=10_000_000, max_dimension=2500)
+        result_img = Image.open(io.BytesIO(result))
+        self.assertEqual(result_img.size, (2000, 1500))
+
+    def test_rgba_image_converted_to_rgb(self):
+        """RGBA images should be converted to RGB for JPEG output."""
+        # Create a noisy RGBA image so it's large enough to trigger compression
+        img = Image.new('RGBA', (3000, 3000), color=(255, 0, 0, 128))
+        pixels = img.load()
+        for x in range(0, 3000, 2):
+            for y in range(0, 3000, 2):
+                pixels[x, y] = ((x * 7) % 256, (y * 13) % 256, ((x + y) * 3) % 256, 200)
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        rgba_data = buf.getvalue()
+
+        # Use a max_size that forces compression
+        result = BlueskyClient._compress_image(rgba_data, max_size=len(rgba_data) - 1)
+        self.assertLessEqual(len(result), len(rgba_data) - 1)
+        # Verify it's a valid JPEG with RGB mode
+        result_img = Image.open(io.BytesIO(result))
+        self.assertEqual(result_img.mode, 'RGB')
+
+    def test_corrupt_image_returns_original(self):
+        """If the image can't be opened, the original data should be returned."""
+        corrupt_data = b'\x00' * 2_000_000  # Not a valid image
+        result = BlueskyClient._compress_image(corrupt_data, max_size=1_000_000)
+        self.assertEqual(result, corrupt_data)
+
+    def test_quality_reduction_produces_valid_jpeg(self):
+        """Compressed output should be a valid JPEG image."""
+        img = Image.new('RGB', (3500, 2500), color='blue')
+        pixels = img.load()
+        for x in range(0, 3500, 2):
+            for y in range(0, 2500, 2):
+                pixels[x, y] = ((x * 11) % 256, (y * 7) % 256, ((x + y) * 5) % 256)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=100)
+        large_data = buf.getvalue()
+
+        if len(large_data) <= 1_000_000:
+            self.skipTest("Test image not large enough to trigger compression")
+
+        result = BlueskyClient._compress_image(large_data, max_size=1_000_000)
+        # Verify valid JPEG
+        result_img = Image.open(io.BytesIO(result))
+        self.assertEqual(result_img.format, 'JPEG')
+
+    @patch("social.bluesky_client.models")
+    @patch("builtins.open", create=True)
+    @patch("social.bluesky_client.Client")
+    def test_post_compresses_image_before_upload(self, mock_client_class, mock_open, mock_models):
+        """Test that the post method compresses images before uploading."""
+        # Setup mock API
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+
+        # Create a large image to trigger compression
+        img = Image.new('RGB', (4000, 3000), color='green')
+        pixels = img.load()
+        for x in range(0, 4000, 3):
+            for y in range(0, 3000, 3):
+                pixels[x, y] = ((x * 7) % 256, (y * 13) % 256, ((x + y) * 3) % 256)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG', quality=100)
+        large_image_data = buf.getvalue()
+
+        # Mock file open to return our large image
+        mock_file = MagicMock()
+        mock_file.read.return_value = large_image_data
+        mock_file.__enter__.return_value = mock_file
+        mock_open.return_value = mock_file
+
+        # Mock upload_blob
+        mock_blob_result = MagicMock()
+        mock_blob_result.blob = MagicMock()
+        mock_client.upload_blob.return_value = mock_blob_result
+
+        # Mock models
+        mock_image = MagicMock()
+        mock_models.AppBskyEmbedImages.Image.return_value = mock_image
+        mock_embed = MagicMock()
+        mock_models.AppBskyEmbedImages.Main.return_value = mock_embed
+
+        # Mock send_post result
+        mock_result = MagicMock()
+        mock_result.uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789"
+        mock_result.cid = "bafyreiabc123"
+        mock_client.send_post.return_value = mock_result
+
+        # Create client
+        client = BlueskyClient(
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password"
+        )
+
+        # Mock _download_image to return a valid path
+        with patch.object(client, '_download_image', return_value='/tmp/test.jpg'):
+            result = client.post(
+                "Large image post",
+                media_urls=["https://example.com/large.jpg"],
+                media_descriptions=["A large image"]
+            )
+
+        # Verify upload_blob was called with compressed data (not the original)
+        mock_client.upload_blob.assert_called_once()
+        uploaded_data = mock_client.upload_blob.call_args[0][0]
+
+        if len(large_image_data) > 1_000_000:
+            # If the original was over the limit, the uploaded data should be smaller
+            self.assertLessEqual(len(uploaded_data), 1_000_000)
+            self.assertNotEqual(uploaded_data, large_image_data)
+
+        self.assertIsNotNone(result)
 
 
 if __name__ == "__main__":
