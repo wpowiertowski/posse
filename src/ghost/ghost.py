@@ -239,13 +239,11 @@ def check_global_discovery_limit() -> bool:
     Returns:
         True if limit exceeded (should reject), False if allowed
     """
-    global _global_discovery_timestamps
-
     current_time = time.time()
     cutoff_time = current_time - GLOBAL_DISCOVERY_WINDOW_SECONDS
 
-    # Remove old timestamps outside the window
-    _global_discovery_timestamps = [
+    # Remove old timestamps outside the window (modify in-place to preserve references)
+    _global_discovery_timestamps[:] = [
         ts for ts in _global_discovery_timestamps if ts > cutoff_time
     ]
 
@@ -255,6 +253,18 @@ def check_global_discovery_limit() -> bool:
 def record_global_discovery() -> None:
     """Record a global discovery attempt for rate limiting."""
     _global_discovery_timestamps.append(time.time())
+
+
+def clear_rate_limit_caches() -> None:
+    """
+    Clear all rate limiting caches.
+
+    This is primarily useful for testing to ensure clean state between tests.
+    Should not be called in production code.
+    """
+    _discovery_cooldown_cache.clear()
+    _global_discovery_timestamps.clear()
+    _request_rate_cache.clear()
 
 
 def check_request_rate_limit(client_ip: str) -> bool:

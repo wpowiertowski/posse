@@ -34,9 +34,7 @@ from ghost.ghost import (
     record_request,
     validate_referrer,
     sanitize_error_message,
-    _discovery_cooldown_cache,
-    _global_discovery_timestamps,
-    _request_rate_cache,
+    clear_rate_limit_caches,
 )
 
 
@@ -119,9 +117,7 @@ class TestRateLimiting:
 
     def setup_method(self):
         """Clear rate limiting caches before each test."""
-        _discovery_cooldown_cache.clear()
-        _global_discovery_timestamps.clear()
-        _request_rate_cache.clear()
+        clear_rate_limit_caches()
 
     def test_discovery_cooldown_not_in_cache(self):
         """Post ID not in cache should not be in cooldown."""
@@ -275,9 +271,7 @@ class TestEndpointSecurity:
     @pytest.fixture
     def secured_app(self, test_dirs):
         """Create Flask app with security features enabled."""
-        _discovery_cooldown_cache.clear()
-        _global_discovery_timestamps.clear()
-        _request_rate_cache.clear()
+        clear_rate_limit_caches()
 
         test_queue = Queue()
 

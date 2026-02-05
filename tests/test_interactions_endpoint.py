@@ -28,7 +28,7 @@ from pathlib import Path
 from queue import Queue
 from unittest.mock import MagicMock, patch
 
-from ghost.ghost import create_app
+from ghost.ghost import create_app, clear_rate_limit_caches
 
 
 @pytest.fixture
@@ -53,6 +53,9 @@ def test_dirs():
 @pytest.fixture
 def app_with_discovery(test_dirs):
     """Create Flask app with mocked clients for discovery testing."""
+    # Clear rate limiting caches to ensure clean state
+    clear_rate_limit_caches()
+
     test_queue = Queue()
 
     # Mock Ghost API client
@@ -75,9 +78,19 @@ def app_with_discovery(test_dirs):
     mock_bluesky.account_name = "main"
     mock_bluesky.get_recent_posts.return_value = []
 
+    # Create config with security disabled for these tests
+    config = {
+        "security": {
+            "rate_limit_enabled": False,
+            "discovery_rate_limit_enabled": False,
+            "allowed_referrers": []  # Disable referrer validation
+        }
+    }
+
     # Create app with mocked clients
     app = create_app(
         test_queue,
+        config=config,
         mastodon_clients=[mock_mastodon],
         bluesky_clients=[mock_bluesky],
         ghost_api_client=mock_ghost_api
