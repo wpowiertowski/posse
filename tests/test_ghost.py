@@ -567,12 +567,20 @@ class TestSecurityInputValidation:
             "Long post ID should be rejected with 400"
 
     def test_path_traversal_attempt_rejected(self, client):
-        """Test that path traversal attempts are rejected."""
-        # Test patterns that clearly don't match the 24-char hex format
-        # These patterns would fail our regex validation regardless of Flask's URL handling
+        """Test that path traversal attempts are rejected.
+
+        Note: Patterns containing '/' are handled by Flask's URL routing before
+        reaching our handler (Flask returns 404 for unmatched routes). We test
+        patterns without '/' that still represent traversal-like input and will
+        reach our validation code.
+        """
+        # Test patterns that reach our handler but contain traversal-like chars
+        # (patterns with '/' are intercepted by Flask's routing, returning 404)
         traversal_patterns = [
-            "aaaaaaaaaaaaaaaaaaaaaaaa/../b",  # 24 chars but contains path chars
-            "0000000000000000000000../",  # Almost valid but has path chars
+            ".....................",  # All dots, wrong length
+            "........................",  # 24 dots - not hex
+            "aaaaaaaaaaaaaaaaaa......",  # 24 chars with dots
+            "aaaaaaaaaaaaaaaa........",  # 24 chars ending with dots
         ]
 
         for pattern in traversal_patterns:
