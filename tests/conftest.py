@@ -78,26 +78,40 @@ def clear_events_queue():
 
 
 @pytest.fixture(autouse=True)
-def clear_discovery_cooldown_cache():
-    """Clear the discovery cooldown cache before each test.
+def clear_rate_limiting_caches():
+    """Clear all rate limiting caches before each test.
 
     This fixture ensures that tests don't interfere with each other due to
-    the discovery rate limiting cache. The cache is module-level in ghost.py
-    and persists across test runs, so we need to clear it before each test.
+    rate limiting caches. These caches are module-level in ghost.py
+    and persist across test runs, so we need to clear them before each test.
+
+    Clears:
+    - Discovery cooldown cache (per-ID cooldown)
+    - Global discovery timestamps (global rate limit)
+    - Request rate cache (per-IP rate limit)
     """
     # Clear before test
     try:
-        from ghost.ghost import _discovery_cooldown_cache
-        _discovery_cooldown_cache.clear()
+        from ghost.ghost import clear_rate_limit_caches
+        clear_rate_limit_caches()
     except Exception:
         # Module not available or other import issues - skip silently
-        pass
+        # Fallback to legacy behavior
+        try:
+            from ghost.ghost import _discovery_cooldown_cache
+            _discovery_cooldown_cache.clear()
+        except Exception:
+            pass
 
     yield
 
     # Clear after test for good measure
     try:
-        from ghost.ghost import _discovery_cooldown_cache
-        _discovery_cooldown_cache.clear()
+        from ghost.ghost import clear_rate_limit_caches
+        clear_rate_limit_caches()
     except Exception:
-        pass
+        try:
+            from ghost.ghost import _discovery_cooldown_cache
+            _discovery_cooldown_cache.clear()
+        except Exception:
+            pass
