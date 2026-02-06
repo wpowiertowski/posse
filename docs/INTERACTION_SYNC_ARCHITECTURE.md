@@ -104,56 +104,12 @@ reposts = client.app.bsky.feed.get_reposted_by({
 
 ### 2. Data Storage
 
-Store interaction data in two ways:
+Interaction payloads are stored in SQLite in `data/interactions/interactions.db`.
 
-#### Option A: File-based Storage (Simpler)
-- Store interactions as JSON files
-- One file per Ghost post: `interactions/{ghost_post_id}.json`
-- Served statically via Flask
-
-```json
-{
-  "ghost_post_id": "abc123",
-  "updated_at": "2026-01-27T10:00:00Z",
-  "platforms": {
-    "mastodon": {
-      "personal": {
-        "status_id": "123456",
-        "post_url": "https://mastodon.social/@user/123456",
-        "favorites": 42,
-        "reblogs": 15,
-        "replies": 8,
-        "reply_previews": [
-          {
-            "author": "@commenter",
-            "author_url": "https://mastodon.social/@commenter",
-            "content": "Great post!",
-            "created_at": "2026-01-27T09:00:00Z",
-            "url": "https://mastodon.social/@commenter/789"
-          }
-        ]
-      }
-    },
-    "bluesky": {
-      "main": {
-        "post_uri": "at://did:plc:xyz/app.bsky.feed.post/abc",
-        "post_url": "https://bsky.app/profile/user.bsky.social/post/abc",
-        "likes": 38,
-        "reposts": 12,
-        "replies": 5,
-        "reply_previews": [...]
-      }
-    }
-  }
-}
-```
-
-#### Option B: Database Storage (More Scalable)
-- Add SQLite database for interaction storage
-- Tables: `posts`, `interactions`, `replies`
-- Better for querying and analytics
-
-**Recommendation**: Use a minimally invasive SQLite payload store (`interactions.db`) while keeping existing mapping JSON files unchanged.
+- Uses a minimally invasive payload-store approach (`interaction_data` table).
+- API response shape remains unchanged for `/api/interactions/<post_id>`.
+- Syndication mappings remain JSON files in `data/syndication_mappings/*.json`.
+- Legacy JSON payloads are migrated with `scripts/migrate_interactions_to_sqlite.py`.
 
 ### 3. Mapping System
 

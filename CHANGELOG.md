@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Post update webhook support (`post.edited`) for catch-up syndication flows.
+- Pushover logging handler support for operational error notifications.
+- Interaction payload migration utility: `scripts/migrate_interactions_to_sqlite.py`.
+- Security hardening controls for interactions API:
+  - Referrer allow-list checks
+  - Per-IP and discovery rate limiting
+  - Per-post discovery cooldown
+
+### Changed
+
+- Interaction payload storage moved from per-post JSON files to SQLite (`interactions.db`) while keeping syndication mappings as JSON.
+- Internal API token validation now uses constant-time comparison to reduce timing attack risk.
+- Bluesky syndication now re-authenticates before posting and compresses oversized images to satisfy blob limits.
+
+### Fixed
+
+- Interaction/syndication pipeline resilience improved with better error isolation and handling.
+- Interactions endpoint behavior tightened for invalid IDs and security edge cases.
+
 
 ## [1.1.0] - 2026-02-03
 
@@ -140,4 +161,3 @@ Key capabilities:
 [1.0.2]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.2
 [1.0.1]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.1
 [1.0.0]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.0
-
