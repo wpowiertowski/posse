@@ -164,9 +164,8 @@ def test_get_interactions_with_mapping_only(app_with_discovery):
         }
     }
 
-    mapping_file = os.path.join(test_dirs["mappings_path"], "507f1f77bcf86cd799439002.json")
-    with open(mapping_file, 'w') as f:
-        json.dump(mapping_data, f)
+    store = InteractionDataStore(test_dirs["storage_path"])
+    store.put_syndication_mapping("507f1f77bcf86cd799439002", mapping_data)
 
     # Test endpoint
     with app.test_client() as client:
@@ -234,12 +233,10 @@ def test_get_interactions_discovers_mastodon_mapping(app_with_discovery):
             assert data["ghost_post_id"] == "507f1f77bcf86cd799439003"
             assert "personal" in data["platforms"]["mastodon"]
 
-            # Verify mapping file was created
-            mapping_file = os.path.join(test_dirs["mappings_path"], "507f1f77bcf86cd799439003.json")
-            assert os.path.exists(mapping_file)
-
-            with open(mapping_file, 'r') as f:
-                mapping = json.load(f)
+            # Verify mapping was stored in SQLite
+            store = InteractionDataStore(test_dirs["storage_path"])
+            mapping = store.get_syndication_mapping("507f1f77bcf86cd799439003")
+            assert mapping is not None
             assert mapping["platforms"]["mastodon"]["personal"]["status_id"] == "333"
 
 
@@ -356,9 +353,8 @@ def test_get_interactions_with_existing_mapping_returns_links(app_with_discovery
         }
     }
 
-    mapping_file = os.path.join(test_dirs["mappings_path"], "507f1f77bcf86cd799439006.json")
-    with open(mapping_file, 'w') as f:
-        json.dump(existing_mapping, f)
+    store = InteractionDataStore(test_dirs["storage_path"])
+    store.put_syndication_mapping("507f1f77bcf86cd799439006", existing_mapping)
 
     # Test endpoint - should return existing mapping without triggering discovery
     with app.test_client() as client:

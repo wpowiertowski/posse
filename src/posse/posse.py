@@ -584,7 +584,7 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                                         "status_id": result_id,
                                         "post_url": result_url
                                     },
-                                    storage_path=current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data/interactions"),
+                                    storage_path=current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data"),
                                     split_info=split_info
                                 )
                             elif platform.lower() == "bluesky" and result_uri:
@@ -597,7 +597,7 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                                         "post_uri": result_uri,
                                         "post_url": result_url
                                     },
-                                    storage_path=current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data/interactions"),
+                                    storage_path=current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data"),
                                     split_info=split_info
                                 )
                         except Exception as mapping_error:
@@ -924,8 +924,7 @@ def main(debug: bool = False) -> None:
     sync_interval_minutes = interactions_config.get("sync_interval_minutes", 30)
     max_post_age_days = interactions_config.get("max_post_age_days", 30)
     cache_directory = interactions_config.get("cache_directory", "./data")
-    storage_path = os.path.join(cache_directory, "interactions")
-    mappings_path = os.path.join(cache_directory, "syndication_mappings")
+    storage_path = cache_directory
 
     # Initialize Ghost Content API client for interaction sync
     logger.info("Initializing Ghost Content API client")
@@ -940,7 +939,6 @@ def main(debug: bool = False) -> None:
         mastodon_clients=mastodon_clients,
         bluesky_clients=bluesky_clients,
         storage_path=storage_path,
-        mappings_path=mappings_path
     )
 
     logger.info("Initializing interaction scheduler")
@@ -974,7 +972,6 @@ def main(debug: bool = False) -> None:
     # Store interaction scheduler in app config for API endpoints
     app.config["INTERACTION_SCHEDULER"] = interaction_scheduler
     app.config["INTERACTIONS_STORAGE_PATH"] = storage_path
-    app.config["SYNDICATION_MAPPINGS_PATH"] = mappings_path
     
     # Load Gunicorn configuration from ghost package
     config_path = os.path.join(os.path.dirname(__file__), "..", "ghost", "gunicorn_config.py")

@@ -24,21 +24,26 @@ import pytest
 import tempfile
 import shutil
 import os
+import sqlite3
 from queue import Queue
 from unittest.mock import MagicMock, patch
 
 from ghost.ghost import create_app
+from interactions.storage import InteractionDataStore
 
 
 @pytest.fixture
 def test_dirs():
     """Create temporary directories for test data."""
     test_dir = tempfile.mkdtemp()
+    storage_path = os.path.join(test_dir, "interactions")
     mappings_path = os.path.join(test_dir, "syndication_mappings")
+    os.makedirs(storage_path, exist_ok=True)
     os.makedirs(mappings_path, exist_ok=True)
 
     yield {
         "test_dir": test_dir,
+        "storage_path": storage_path,
         "mappings_path": mappings_path
     }
 
@@ -110,6 +115,7 @@ def app_with_clients(test_dirs):
     )
 
     app.config["TESTING"] = True
+    app.config["INTERACTIONS_STORAGE_PATH"] = test_dirs["storage_path"]
     app.config["SYNDICATION_MAPPINGS_PATH"] = test_dirs["mappings_path"]
 
     return app, test_queue, mock_mastodon, mock_bluesky, test_dirs
@@ -204,9 +210,8 @@ class TestPostUpdateWebhook:
             }
         }
 
-        mapping_file = os.path.join(test_dirs["mappings_path"], f"{post_id}.json")
-        with open(mapping_file, 'w') as f:
-            json.dump(mapping, f)
+        store = InteractionDataStore(test_dirs["storage_path"])
+        store.put_syndication_mapping(post_id, mapping)
 
         payload = _make_valid_payload(post_id=post_id)
 
@@ -243,9 +248,8 @@ class TestPostUpdateWebhook:
             }
         }
 
-        mapping_file = os.path.join(test_dirs["mappings_path"], f"{post_id}.json")
-        with open(mapping_file, 'w') as f:
-            json.dump(mapping, f)
+        store = InteractionDataStore(test_dirs["storage_path"])
+        store.put_syndication_mapping(post_id, mapping)
 
         payload = _make_valid_payload(post_id=post_id)
 
@@ -322,6 +326,7 @@ class TestPostUpdateWebhook:
         )
 
         app.config["TESTING"] = True
+        app.config["INTERACTIONS_STORAGE_PATH"] = test_dirs["storage_path"]
         app.config["SYNDICATION_MAPPINGS_PATH"] = test_dirs["mappings_path"]
 
         # Post has photography tag but not tech
@@ -343,16 +348,24 @@ class TestPostUpdateWebhook:
                 assert "mastodon/personal" in data["syndicated_to"]
                 assert "bluesky/main" not in data["syndicated_to"]
 
-    def test_corrupted_mapping_file_handled(self, app_with_clients):
-        """Test that a corrupted mapping file is handled gracefully."""
+    def test_corrupted_mapping_payload_in_db_handled(self, app_with_clients):
+        """Test that a corrupted SQLite mapping payload is handled gracefully."""
         app, test_queue, _, _, test_dirs = app_with_clients
 
         post_id = "695c4286fc6853000152b1fc"
 
-        # Write corrupted JSON
-        mapping_file = os.path.join(test_dirs["mappings_path"], f"{post_id}.json")
-        with open(mapping_file, 'w') as f:
-            f.write("not valid json{{{")
+        InteractionDataStore(test_dirs["storage_path"])
+        db_path = os.path.join(test_dirs["storage_path"], "interactions.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            """
+            INSERT INTO syndication_mappings (ghost_post_id, payload, syndicated_at)
+            VALUES (?, ?, ?)
+            """,
+            (post_id, "not valid json{{{", "2026-02-01T10:00:00Z"),
+        )
+        conn.commit()
+        conn.close()
 
         payload = _make_valid_payload(post_id=post_id)
 
@@ -407,9 +420,8 @@ class TestPostUpdateWebhook:
             }
         }
 
-        mapping_file = os.path.join(test_dirs["mappings_path"], f"{post_id}.json")
-        with open(mapping_file, 'w') as f:
-            json.dump(mapping, f)
+        store = InteractionDataStore(test_dirs["storage_path"])
+        store.put_syndication_mapping(post_id, mapping)
 
         payload = _make_valid_payload(post_id=post_id)
 

@@ -561,17 +561,11 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     "post_id": post_id
                 }), 200
 
-            # Load syndication mapping
-            mappings_path = current_app.config.get("SYNDICATION_MAPPINGS_PATH", "./data/syndication_mappings")
-            mapping_file = os.path.join(mappings_path, f"{post_id}.json")
-
-            existing_mapping = {}
-            if os.path.exists(mapping_file):
-                try:
-                    with open(mapping_file, 'r') as f:
-                        existing_mapping = json.load(f)
-                except Exception as e:
-                    logger.error(f"Failed to load syndication mapping for {post_id}: {e}")
+            # Load syndication mapping from SQLite
+            from interactions.storage import InteractionDataStore
+            storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data")
+            interaction_store = InteractionDataStore(storage_path)
+            existing_mapping = interaction_store.get_syndication_mapping(post_id) or {}
 
             # Determine which accounts are already syndicated
             syndicated_accounts = set()
@@ -835,7 +829,6 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
 
         Security:
             - Input validation: ghost_post_id must be a valid 24-char hex string
-            - Path traversal protection: file paths are validated
             - IP-based rate limiting: prevents request flooding
             - Referrer validation: only allows requests from configured domains
             - Discovery rate limiting: cooldown prevents resource exhaustion
@@ -917,21 +910,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             }), 400
 
         # Get storage paths from config or use defaults
-        storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data/interactions")
-        mappings_path = current_app.config.get("SYNDICATION_MAPPINGS_PATH", "./data/syndication_mappings")
-
-        # Construct file path with validated post ID
-        mapping_file = os.path.join(mappings_path, f"{ghost_post_id}.json")
-
-        # =================================================================
-        # Security: Path Traversal Protection (defense in depth)
-        # =================================================================
-        if not is_safe_path(mappings_path, mapping_file):
-            logger.warning(f"Path traversal attempt blocked for mapping file: {ghost_post_id}")
-            return jsonify({
-                "status": "error",
-                "message": "Invalid post ID format"
-            }), 400
+        storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data")
 
         # Check for existing interaction data in SQLite
         interaction_store = InteractionDataStore(storage_path)
@@ -940,13 +919,9 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             logger.debug(f"Retrieved interactions for post: {ghost_post_id}")
             return jsonify(interactions), 200
 
-        # Check for syndication mapping (SQLite first, JSON fallback) without interaction data
+        # Check for syndication mapping in SQLite without interaction data
         try:
             mapping = interaction_store.get_syndication_mapping(ghost_post_id)
-            if mapping is None and os.path.exists(mapping_file):
-                with open(mapping_file, 'r') as f:
-                    mapping = json.load(f)
-                interaction_store.put_syndication_mapping(ghost_post_id, mapping)
 
             if mapping is not None:
                 # Build syndication_links from mapping
@@ -978,12 +953,6 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     "message": "Syndication links available, no interaction data yet"
                 }), 200
 
-        except json.JSONDecodeError as e:
-            logger.error(f"Malformed JSON in mapping file for {ghost_post_id}: {e}")
-            return jsonify({
-                "status": "error",
-                "message": "Failed to load syndication mapping"
-            }), 500
         except Exception as e:
             logger.error(f"Failed to load syndication mapping for {ghost_post_id}: {e}")
             return jsonify({
@@ -1033,7 +1002,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     "message": "No syndication or interaction data available"
                 }), 404
 
-        # Neither interaction file nor mapping file exists - try to discover mapping
+        # No interaction data or mapping in SQLite; try discovery
         logger.info(f"No interaction data or syndication mapping found for post: {ghost_post_id}, attempting discovery")
 
         # Get Ghost API client and social media clients
@@ -1064,7 +1033,6 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     mastodon_clients=mastodon_clients,
                     bluesky_clients=bluesky_clients,
                     storage_path=storage_path,
-                    mappings_path=mappings_path
                 )
 
                 # Attempt to discover syndication mapping
@@ -1244,4 +1212,3 @@ def validate_ghost_post(payload: Dict[str, Any]) -> None:
         path_str = ".".join(str(p) for p in e.path)
         error_msg = f"Schema validation failed: {e.message} at path: {path_str}"
         raise GhostPostValidationError(error_msg) from e
-

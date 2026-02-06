@@ -5,8 +5,6 @@ This module provides a background scheduler that periodically syncs
 interactions for syndicated posts.
 """
 import logging
-import os
-import json
 import threading
 import time
 from typing import Optional, List, Any, Dict
@@ -14,6 +12,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from interactions.interaction_sync import InteractionSyncService
+from interactions.storage import InteractionDataStore
 
 logger = logging.getLogger(__name__)
 
@@ -144,28 +143,12 @@ class InteractionScheduler:
         - Posts 7-30 days old: sync every 4th cycle
         - Posts > max_post_age_days: skip
         """
-        mappings_path = self.sync_service.mappings_path
-
-        if not os.path.exists(mappings_path):
-            logger.debug(f"Mappings directory does not exist: {mappings_path}")
-            return
-
-        # Get all mapping files with error handling to ensure file system issues
-        # don't crash the scheduler
-        try:
-            mapping_files = [
-                f for f in os.listdir(mappings_path)
-                if f.endswith('.json')
-            ]
-        except OSError as e:
-            logger.error(f"Failed to list mappings directory {mappings_path}: {e}")
-            return
-
-        if not mapping_files:
+        mappings = InteractionDataStore(self.sync_service.storage_path).list_syndication_mappings()
+        if not mappings:
             logger.debug("No syndication mappings found")
             return
 
-        logger.info(f"Found {len(mapping_files)} posts with syndication mappings")
+        logger.info(f"Found {len(mappings)} posts with syndication mappings")
 
         # If Ghost API is available, refresh the posts cache
         ghost_posts = self._get_ghost_posts_cache()
@@ -178,17 +161,14 @@ class InteractionScheduler:
         skipped_not_in_ghost = 0
         failed = 0
 
-        for mapping_file in mapping_files:
-            ghost_post_id = mapping_file.replace('.json', '')
+        for mapping in mappings:
+            ghost_post_id = str(mapping.get("ghost_post_id", ""))
+            if not ghost_post_id:
+                logger.warning("Skipping syndication mapping with missing ghost_post_id")
+                failed += 1
+                continue
 
             try:
-                # Load mapping to check age
-                mapping = self._load_mapping(os.path.join(mappings_path, mapping_file))
-                if not mapping:
-                    logger.warning(f"Could not load mapping for {ghost_post_id}")
-                    failed += 1
-                    continue
-
                 # If Ghost API is available, check if post still exists in Ghost
                 if ghost_posts:
                     if not self._is_post_in_ghost(ghost_post_id, mapping, ghost_posts):
@@ -237,15 +217,6 @@ class InteractionScheduler:
         if ghost_posts:
             log_msg += f", not_in_ghost={skipped_not_in_ghost}"
         logger.info(log_msg)
-
-    def _load_mapping(self, mapping_file: str) -> Optional[dict]:
-        """Load a syndication mapping file."""
-        try:
-            with open(mapping_file, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load mapping {mapping_file}: {e}")
-            return None
 
     def _get_post_age_days(self, mapping: dict) -> float:
         """
@@ -386,7 +357,7 @@ class InteractionScheduler:
         3. Slug extracted from URL
 
         Args:
-            ghost_post_id: Ghost post ID from mapping filename
+            ghost_post_id: Ghost post ID from syndication mapping
             mapping: Syndication mapping data
             ghost_posts: Ghost posts cache dictionary
 

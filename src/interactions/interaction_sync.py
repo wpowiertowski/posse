@@ -5,7 +5,6 @@ This module retrieves interactions (comments, likes, reposts) from syndicated
 posts on Mastodon and Bluesky and stores them for display in Ghost widgets.
 """
 import logging
-import json
 import os
 import re
 from typing import Dict, Any, List, Optional
@@ -29,15 +28,13 @@ class InteractionSyncService:
         mastodon_clients: List of MastodonClient instances
         bluesky_clients: List of BlueskyClient instances
         storage_path: Path to store interaction data files
-        mappings_path: Path to syndication mapping files
     """
 
     def __init__(
         self,
         mastodon_clients: Optional[List[Any]] = None,
         bluesky_clients: Optional[List[Any]] = None,
-        storage_path: str = "./data/interactions",
-        mappings_path: str = "./data/syndication_mappings"
+        storage_path: str = "./data",
     ):
         """Initialize the interaction sync service.
 
@@ -45,16 +42,13 @@ class InteractionSyncService:
             mastodon_clients: List of MastodonClient instances
             bluesky_clients: List of BlueskyClient instances
             storage_path: Directory path for storing interaction data
-            mappings_path: Directory path for syndication mapping files
         """
         self.mastodon_clients = mastodon_clients or []
         self.bluesky_clients = bluesky_clients or []
         self.storage_path = storage_path
-        self.mappings_path = mappings_path
 
-        # Create storage directories if they don't exist
+        # Create storage directory if it doesn't exist
         os.makedirs(self.storage_path, mode=0o755, exist_ok=True)
-        os.makedirs(self.mappings_path, mode=0o755, exist_ok=True)
         self.data_store = InteractionDataStore(self.storage_path)
 
         logger.info(
@@ -635,46 +629,7 @@ class InteractionSyncService:
         Returns:
             Mapping dictionary or None if not found
         """
-        mapping = self.data_store.get_syndication_mapping(ghost_post_id)
-        if mapping is not None:
-            return mapping
-
-        mapping_file = os.path.join(self.mappings_path, f"{ghost_post_id}.json")
-
-        # Preferred filesystem fallback: mapping filename matches Ghost post ID
-        if os.path.exists(mapping_file):
-            try:
-                with open(mapping_file, 'r') as f:
-                    mapping = json.load(f)
-                self.data_store.put_syndication_mapping(ghost_post_id, mapping)
-                return mapping
-            except Exception as e:
-                logger.error(f"Failed to load mapping file {mapping_file}: {e}")
-                return None
-
-        # Legacy filesystem fallback: slug-based mapping filenames
-        try:
-            for entry in os.scandir(self.mappings_path):
-                if not entry.is_file() or not entry.name.endswith(".json"):
-                    continue
-
-                try:
-                    with open(entry.path, 'r') as f:
-                        mapping = json.load(f)
-                except Exception:
-                    continue
-
-                if mapping.get("ghost_post_id") == ghost_post_id:
-                    logger.debug(
-                        f"Loaded legacy syndication mapping for {ghost_post_id} "
-                        f"from {entry.name}"
-                    )
-                    self.data_store.put_syndication_mapping(ghost_post_id, mapping)
-                    return mapping
-        except Exception as e:
-            logger.error(f"Failed to scan mapping directory {self.mappings_path}: {e}")
-
-        return None
+        return self.data_store.get_syndication_mapping(ghost_post_id)
 
     def _load_existing_interaction_data(self, ghost_post_id: str) -> Dict[str, Any]:
         """
@@ -696,7 +651,7 @@ class InteractionSyncService:
 
     def _store_interaction_data(self, ghost_post_id: str, data: Dict[str, Any]) -> None:
         """
-        Store interaction data to file.
+        Store interaction data in SQLite.
 
         Args:
             ghost_post_id: Ghost post ID
@@ -734,8 +689,8 @@ class InteractionSyncService:
         Discover syndication mapping by searching recent posts for Ghost post URL.
 
         This method searches through recent Mastodon and Bluesky posts to find
-        any that link back to the specified Ghost post. If found, it creates
-        a syndication mapping file for future use.
+        any that link back to the specified Ghost post. If found, it stores
+        syndication mappings in SQLite for future use.
 
         IMPORTANT: This method preserves existing mappings. If a mapping already
         exists for an account, that account is skipped during discovery to avoid
@@ -839,7 +794,6 @@ class InteractionSyncService:
                                     platform="mastodon",
                                     account_name=client.account_name,
                                     post_data=post_data,
-                                    mappings_path=self.mappings_path,
                                     storage_path=self.storage_path
                                 )
 
@@ -909,7 +863,6 @@ class InteractionSyncService:
                                     platform="bluesky",
                                     account_name=client.account_name,
                                     post_data=post_data,
-                                    mappings_path=self.mappings_path,
                                     storage_path=self.storage_path
                                 )
 
@@ -988,8 +941,7 @@ def store_syndication_mapping(
     platform: str,
     account_name: str,
     post_data: Dict[str, Any],
-    mappings_path: str = "./data/syndication_mappings",
-    storage_path: str = "./data/interactions",
+    storage_path: str = "./data",
     split_info: Optional[Dict[str, Any]] = None
 ) -> None:
     """
@@ -1010,7 +962,6 @@ def store_syndication_mapping(
         account_name: Account name on the platform
         post_data: Platform-specific post data (status_id, post_url for Mastodon;
                   post_uri, post_url for Bluesky)
-        mappings_path: Directory path for storing mapping files
         storage_path: Directory path for SQLite interaction storage
         split_info: Optional split post metadata:
             - is_split: True if this is part of a split post
@@ -1037,18 +988,10 @@ def store_syndication_mapping(
         ...     split_info={"is_split": True, "split_index": 0, "total_splits": 3}
         ... )
     """
-    os.makedirs(mappings_path, mode=0o755, exist_ok=True)
     data_store = InteractionDataStore(storage_path)
-    mapping_file = os.path.join(mappings_path, f"{ghost_post_id}.json")
 
-    # Load existing mapping from SQLite, then JSON as fallback
+    # Load existing mapping from SQLite
     mapping = data_store.get_syndication_mapping(ghost_post_id)
-    if mapping is None and os.path.exists(mapping_file):
-        try:
-            with open(mapping_file, 'r') as f:
-                mapping = json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load existing mapping {mapping_file}: {e}")
 
     if mapping is None:
         mapping = {
@@ -1095,13 +1038,13 @@ def store_syndication_mapping(
         logger.info(
             f"Stored split syndication mapping for {platform}/{account_name} "
             f"(split {split_info.get('split_index', 0) + 1}/{split_info.get('total_splits', 1)}) "
-            f"to {mapping_file}"
+            f"to SQLite"
         )
     else:
         # Non-split post - store as single entry (original behavior)
         mapping["platforms"][platform][account_name] = post_data
 
-        logger.info(f"Stored syndication mapping for {platform}/{account_name} to {mapping_file}")
+        logger.info(f"Stored syndication mapping for {platform}/{account_name} to SQLite")
 
     # Normalize platform keys before persisting
     platforms = mapping.get("platforms", {})
@@ -1110,11 +1053,5 @@ def store_syndication_mapping(
         "bluesky": platforms.get("bluesky", {}),
     }
 
-    # Save mapping to SQLite and JSON for compatibility
+    # Save mapping to SQLite
     data_store.put_syndication_mapping(ghost_post_id, mapping)
-
-    try:
-        with open(mapping_file, 'w') as f:
-            json.dump(mapping, f, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to store syndication mapping to {mapping_file}: {e}")

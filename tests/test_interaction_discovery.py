@@ -29,6 +29,7 @@ import shutil
 from social.mastodon_client import MastodonClient
 from social.bluesky_client import BlueskyClient
 from interactions.interaction_sync import InteractionSyncService, store_syndication_mapping
+from interactions.storage import InteractionDataStore
 
 
 class TestMastodonGetRecentPosts(unittest.TestCase):
@@ -221,7 +222,9 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
         """Set up test fixtures."""
         # Create temporary directory for test data
         self.test_dir = tempfile.mkdtemp()
+        self.storage_path = os.path.join(self.test_dir, "interactions")
         self.mappings_path = os.path.join(self.test_dir, "mappings")
+        os.makedirs(self.storage_path, exist_ok=True)
         os.makedirs(self.mappings_path, exist_ok=True)
 
     def tearDown(self):
@@ -261,7 +264,7 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
         sync_service = InteractionSyncService(
             mastodon_clients=[mastodon_client],
             bluesky_clients=[],
-            mappings_path=self.mappings_path
+            storage_path=self.storage_path,
         )
 
         # Test discovery
@@ -274,13 +277,9 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
         # Verify mapping was found
         self.assertTrue(found)
 
-        # Verify mapping file was created
-        mapping_file = os.path.join(self.mappings_path, "abc123.json")
-        self.assertTrue(os.path.exists(mapping_file))
-
-        # Verify mapping contents
-        with open(mapping_file, 'r') as f:
-            mapping = json.load(f)
+        # Verify mapping contents were stored in SQLite
+        mapping = InteractionDataStore(self.storage_path).get_syndication_mapping("abc123")
+        self.assertIsNotNone(mapping)
 
         self.assertEqual(mapping['ghost_post_id'], 'abc123')
         self.assertIn('personal', mapping['platforms']['mastodon'])
@@ -327,7 +326,7 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
         sync_service = InteractionSyncService(
             mastodon_clients=[],
             bluesky_clients=[bluesky_client],
-            mappings_path=self.mappings_path
+            storage_path=self.storage_path,
         )
 
         # Test discovery
@@ -340,13 +339,9 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
         # Verify mapping was found
         self.assertTrue(found)
 
-        # Verify mapping file was created
-        mapping_file = os.path.join(self.mappings_path, "def456.json")
-        self.assertTrue(os.path.exists(mapping_file))
-
-        # Verify mapping contents
-        with open(mapping_file, 'r') as f:
-            mapping = json.load(f)
+        # Verify mapping contents were stored in SQLite
+        mapping = InteractionDataStore(self.storage_path).get_syndication_mapping("def456")
+        self.assertIsNotNone(mapping)
 
         self.assertEqual(mapping['ghost_post_id'], 'def456')
         self.assertIn('main', mapping['platforms']['bluesky'])
@@ -385,7 +380,7 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
         sync_service = InteractionSyncService(
             mastodon_clients=[mastodon_client],
             bluesky_clients=[],
-            mappings_path=self.mappings_path
+            storage_path=self.storage_path,
         )
 
         # Test discovery
@@ -398,9 +393,9 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
         # Verify mapping was NOT found
         self.assertFalse(found)
 
-        # Verify no mapping file was created
-        mapping_file = os.path.join(self.mappings_path, "notfound123.json")
-        self.assertFalse(os.path.exists(mapping_file))
+        # Verify no mapping was created
+        mapping = InteractionDataStore(self.storage_path).get_syndication_mapping("notfound123")
+        self.assertIsNone(mapping)
 
     @patch("social.mastodon_client.Mastodon")
     def test_discover_mapping_preserves_existing(self, mock_mastodon_class):
@@ -420,9 +415,7 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
             }
         }
 
-        mapping_file = os.path.join(self.mappings_path, "existing123.json")
-        with open(mapping_file, 'w') as f:
-            json.dump(existing_mapping, f)
+        InteractionDataStore(self.storage_path).put_syndication_mapping("existing123", existing_mapping)
 
         # Mock Mastodon API
         mock_api = MagicMock()
@@ -447,7 +440,7 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
         sync_service = InteractionSyncService(
             mastodon_clients=[mastodon_client],
             bluesky_clients=[],
-            mappings_path=self.mappings_path
+            storage_path=self.storage_path,
         )
 
         # Test discovery
@@ -464,14 +457,13 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
         mock_api.account_statuses.assert_not_called()
 
         # Verify existing mapping is still intact
-        with open(mapping_file, 'r') as f:
-            final_mapping = json.load(f)
-
+        final_mapping = InteractionDataStore(self.storage_path).get_syndication_mapping("existing123")
+        self.assertIsNotNone(final_mapping)
         self.assertEqual(final_mapping['platforms']['mastodon']['personal']['status_id'], '999')
 
     @patch("social.mastodon_client.Mastodon")
-    def test_discover_mapping_preserves_existing_with_legacy_filename(self, mock_mastodon_class):
-        """Test that discovery preserves existing mappings stored in legacy-named files."""
+    def test_discover_mapping_preserves_existing_from_sqlite(self, mock_mastodon_class):
+        """Test that discovery preserves existing mappings already stored in SQLite."""
         legacy_mapping = {
             "ghost_post_id": "existing-legacy-123",
             "ghost_post_url": "https://blog.example.com/my-post/",
@@ -486,9 +478,10 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
             }
         }
 
-        legacy_mapping_file = os.path.join(self.mappings_path, "my-post.json")
-        with open(legacy_mapping_file, 'w') as f:
-            json.dump(legacy_mapping, f)
+        InteractionDataStore(self.storage_path).put_syndication_mapping(
+            "existing-legacy-123",
+            legacy_mapping,
+        )
 
         mock_api = MagicMock()
         mock_mastodon_class.return_value = mock_api
@@ -510,7 +503,7 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
         sync_service = InteractionSyncService(
             mastodon_clients=[mastodon_client],
             bluesky_clients=[],
-            mappings_path=self.mappings_path
+            storage_path=self.storage_path,
         )
 
         found = sync_service.discover_syndication_mapping(
@@ -522,9 +515,8 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
         self.assertFalse(found)
         mock_api.account_statuses.assert_not_called()
 
-        with open(legacy_mapping_file, 'r') as f:
-            final_mapping = json.load(f)
-
+        final_mapping = InteractionDataStore(self.storage_path).get_syndication_mapping("existing-legacy-123")
+        self.assertIsNotNone(final_mapping)
         self.assertEqual(final_mapping['platforms']['mastodon']['personal']['status_id'], '999')
 
 
@@ -534,7 +526,9 @@ class TestStoreSyndicationMappingPreservation(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.test_dir = tempfile.mkdtemp()
+        self.storage_path = os.path.join(self.test_dir, "interactions")
         self.mappings_path = os.path.join(self.test_dir, "mappings")
+        os.makedirs(self.storage_path, exist_ok=True)
         os.makedirs(self.mappings_path, exist_ok=True)
 
     def tearDown(self):
@@ -558,9 +552,7 @@ class TestStoreSyndicationMappingPreservation(unittest.TestCase):
             }
         }
 
-        mapping_file = os.path.join(self.mappings_path, "test123.json")
-        with open(mapping_file, 'w') as f:
-            json.dump(existing_mapping, f)
+        InteractionDataStore(self.storage_path).put_syndication_mapping("test123", existing_mapping)
 
         # Add Bluesky mapping
         store_syndication_mapping(
@@ -572,12 +564,12 @@ class TestStoreSyndicationMappingPreservation(unittest.TestCase):
                 "post_uri": "at://did:plc:test/app.bsky.feed.post/abc",
                 "post_url": "https://bsky.app/profile/user/post/abc"
             },
-            mappings_path=self.mappings_path
+            storage_path=self.storage_path,
         )
 
         # Verify both platforms exist
-        with open(mapping_file, 'r') as f:
-            final_mapping = json.load(f)
+        final_mapping = InteractionDataStore(self.storage_path).get_syndication_mapping("test123")
+        self.assertIsNotNone(final_mapping)
 
         self.assertIn("mastodon", final_mapping["platforms"])
         self.assertIn("bluesky", final_mapping["platforms"])
@@ -605,9 +597,7 @@ class TestStoreSyndicationMappingPreservation(unittest.TestCase):
             }
         }
 
-        mapping_file = os.path.join(self.mappings_path, "test456.json")
-        with open(mapping_file, 'w') as f:
-            json.dump(existing_mapping, f)
+        InteractionDataStore(self.storage_path).put_syndication_mapping("test456", existing_mapping)
 
         # Add third Mastodon account
         store_syndication_mapping(
@@ -619,12 +609,12 @@ class TestStoreSyndicationMappingPreservation(unittest.TestCase):
                 "status_id": "333",
                 "post_url": "https://mastodon.archive/@user/333"
             },
-            mappings_path=self.mappings_path
+            storage_path=self.storage_path,
         )
 
         # Verify all three accounts exist
-        with open(mapping_file, 'r') as f:
-            final_mapping = json.load(f)
+        final_mapping = InteractionDataStore(self.storage_path).get_syndication_mapping("test456")
+        self.assertIsNotNone(final_mapping)
 
         self.assertEqual(len(final_mapping["platforms"]["mastodon"]), 3)
         self.assertIn("personal", final_mapping["platforms"]["mastodon"])
@@ -632,9 +622,7 @@ class TestStoreSyndicationMappingPreservation(unittest.TestCase):
         self.assertIn("archive", final_mapping["platforms"]["mastodon"])
 
     def test_store_mapping_persists_to_sqlite(self):
-        """Test that storing a mapping writes to SQLite as well as JSON."""
-        storage_path = os.path.join(self.test_dir, "interactions")
-
+        """Test that storing a mapping writes to SQLite."""
         store_syndication_mapping(
             ghost_post_id="db123",
             ghost_post_url="https://blog.example.com/post/",
@@ -644,13 +632,9 @@ class TestStoreSyndicationMappingPreservation(unittest.TestCase):
                 "status_id": "444",
                 "post_url": "https://mastodon.social/@user/444"
             },
-            mappings_path=self.mappings_path,
-            storage_path=storage_path
+            storage_path=self.storage_path
         )
-
-        from interactions.storage import InteractionDataStore
-
-        data_store = InteractionDataStore(storage_path)
+        data_store = InteractionDataStore(self.storage_path)
         mapping = data_store.get_syndication_mapping("db123")
 
         self.assertIsNotNone(mapping)

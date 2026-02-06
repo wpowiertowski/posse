@@ -194,3 +194,24 @@ class InteractionDataStore:
             logger.error(
                 f"Failed to store syndication mapping for {ghost_post_id} in SQLite: {e}"
             )
+
+    def list_syndication_mappings(self) -> list[Dict[str, Any]]:
+        """Return all syndication mappings stored in SQLite."""
+        mappings: list[Dict[str, Any]] = []
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT ghost_post_id, payload FROM syndication_mappings"
+                ).fetchall()
+            for row in rows:
+                try:
+                    mapping = json.loads(row["payload"])
+                except json.JSONDecodeError:
+                    logger.error(
+                        f"Invalid syndication mapping payload JSON for {row['ghost_post_id']}"
+                    )
+                    continue
+                mappings.append(mapping)
+        except sqlite3.Error as e:
+            logger.error(f"Failed to list syndication mappings from SQLite: {e}")
+        return mappings
