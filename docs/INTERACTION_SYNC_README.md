@@ -226,6 +226,8 @@ python scripts/migrate_interactions_to_sqlite.py --storage-path ./data/interacti
 
 The script creates/updates `./data/interactions/interactions.db` and migrates each `*.json` interaction file into `interaction_data` with upsert semantics.
 
+Canonical payload schemas for both `interaction_data` and `syndication_mappings` are documented in `src/schema/interactions_db_schema.json`.
+
 ## API Endpoints
 
 ### GET /api/interactions/<post_id>

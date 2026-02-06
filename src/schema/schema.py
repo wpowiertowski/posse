@@ -111,3 +111,14 @@ def _load_schema(schema_filename: str) -> Dict[str, Any]:
 # Contains required fields (id, title, slug, content, url, timestamps)
 # and optional fields (tags, authors, featured status, meta fields)
 GHOST_POST_SCHEMA = _load_schema("ghost_post_schema.json")
+INTERACTIONS_DB_SCHEMA = _load_schema("interactions_db_schema.json")
+INTERACTION_DATA_PAYLOAD_SCHEMA = {
+    "$schema": INTERACTIONS_DB_SCHEMA["$schema"],
+    "$defs": INTERACTIONS_DB_SCHEMA["$defs"],
+    **INTERACTIONS_DB_SCHEMA["$defs"]["interaction_payload"],
+}
+SYNDICATION_MAPPING_PAYLOAD_SCHEMA = {
+    "$schema": INTERACTIONS_DB_SCHEMA["$schema"],
+    "$defs": INTERACTIONS_DB_SCHEMA["$defs"],
+    **INTERACTIONS_DB_SCHEMA["$defs"]["syndication_mapping_payload"],
+}

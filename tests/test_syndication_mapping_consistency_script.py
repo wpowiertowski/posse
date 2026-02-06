@@ -22,7 +22,8 @@ def test_consistency_script_passes_for_matching_json_and_db(tmp_path):
                     "status_id": "42",
                     "post_url": "https://mastodon.social/@user/42",
                 }
-            }
+            },
+            "bluesky": {},
         },
     }
 
@@ -65,7 +66,8 @@ def test_consistency_script_fails_on_mismatch(tmp_path):
                     "status_id": "42",
                     "post_url": "https://mastodon.social/@user/42",
                 }
-            }
+            },
+            "bluesky": {},
         },
     }
 
@@ -77,7 +79,8 @@ def test_consistency_script_fails_on_mismatch(tmp_path):
                     "status_id": "43",
                     "post_url": "https://mastodon.social/@user/43",
                 }
-            }
+            },
+            "bluesky": {},
         },
     }
 

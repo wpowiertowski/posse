@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://posse.example/schemas/interactions-db-schema.json",
+  "title": "interactions.db payload schemas",
+  "description": "Canonical JSON schemas for payloads stored in the interactions.db SQLite tables.",
+  "type": "object",
+  "required": ["tables"],
+  "additionalProperties": false,
+  "properties": {
+    "tables": {
+      "type": "object",
+      "required": ["interaction_data", "syndication_mappings"],
+      "additionalProperties": false,
+      "properties": {
+        "interaction_data": {
+          "type": "object",
+          "required": ["primary_key", "timestamp_field", "payload"],
+          "additionalProperties": false,
+          "properties": {
+            "primary_key": { "const": "ghost_post_id" },
+            "timestamp_field": { "const": "updated_at" },
+            "payload": { "$ref": "#/$defs/interaction_payload" }
+          }
+        },
+        "syndication_mappings": {
+          "type": "object",
+          "required": ["primary_key", "timestamp_field", "payload"],
+          "additionalProperties": false,
+          "properties": {
+            "primary_key": { "const": "ghost_post_id" },
+            "timestamp_field": { "const": "syndicated_at" },
+            "payload": { "$ref": "#/$defs/syndication_mapping_payload" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "interaction_payload": {
+      "type": "object",
+      "required": ["ghost_post_id", "updated_at", "syndication_links", "platforms"],
+      "additionalProperties": true,
+      "properties": {
+        "ghost_post_id": { "type": "string", "minLength": 1 },
+        "updated_at": { "type": "string", "minLength": 1 },
+        "syndication_links": {
+          "type": "object",
+          "required": ["mastodon", "bluesky"],
+          "additionalProperties": false,
+          "properties": {
+            "mastodon": { "type": "object", "additionalProperties": true },
+            "bluesky": { "type": "object", "additionalProperties": true }
+          }
+        },
+        "platforms": {
+          "type": "object",
+          "required": ["mastodon", "bluesky"],
+          "additionalProperties": false,
+          "properties": {
+            "mastodon": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/platform_interaction_record"
+              }
+            },
+            "bluesky": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/platform_interaction_record"
+              }
+            }
+          }
+        }
+      }
+    },
+    "platform_interaction_record": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "syndication_mapping_payload": {
+      "type": "object",
+      "required": ["ghost_post_id", "ghost_post_url", "syndicated_at", "platforms"],
+      "additionalProperties": true,
+      "properties": {
+        "ghost_post_id": { "type": "string", "minLength": 1 },
+        "ghost_post_url": { "type": "string", "minLength": 1 },
+        "syndicated_at": { "type": "string", "minLength": 1 },
+        "platforms": {
+          "type": "object",
+          "required": ["mastodon", "bluesky"],
+          "additionalProperties": false,
+          "properties": {
+            "mastodon": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/syndication_account_mapping"
+              }
+            },
+            "bluesky": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/syndication_account_mapping"
+              }
+            }
+          }
+        }
+      }
+    },
+    "syndication_account_mapping": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["post_url"],
+          "additionalProperties": true,
+          "properties": {
+            "post_url": { "type": "string", "minLength": 1 },
+            "status_id": { "type": "string", "minLength": 1 },
+            "post_uri": { "type": "string", "minLength": 1 }
+          },
+          "anyOf": [
+            { "required": ["status_id"] },
+            { "required": ["post_uri"] }
+          ]
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["post_url"],
+            "additionalProperties": true,
+            "properties": {
+              "post_url": { "type": "string", "minLength": 1 },
+              "status_id": { "type": "string", "minLength": 1 },
+              "post_uri": { "type": "string", "minLength": 1 }
+            },
+            "anyOf": [
+              { "required": ["status_id"] },
+              { "required": ["post_uri"] }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "tables": {
+        "interaction_data": {
+          "primary_key": "ghost_post_id",
+          "timestamp_field": "updated_at",
+          "payload": {
+            "ghost_post_id": "507f1f77bcf86cd799439011",
+            "updated_at": "2026-01-27T10:00:00Z",
+            "syndication_links": {
+              "mastodon": {},
+              "bluesky": {}
+            },
+            "platforms": {
+              "mastodon": {},
+              "bluesky": {}
+            }
+          }
+        },
+        "syndication_mappings": {
+          "primary_key": "ghost_post_id",
+          "timestamp_field": "syndicated_at",
+          "payload": {
+            "ghost_post_id": "507f1f77bcf86cd799439011",
+            "ghost_post_url": "https://blog.example.com/my-post/",
+            "syndicated_at": "2026-01-27T08:00:00Z",
+            "platforms": {
+              "mastodon": {},
+              "bluesky": {}
+            }
+          }
+        }
+      }
+    }
+  ]
+}

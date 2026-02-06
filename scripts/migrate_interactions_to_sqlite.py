@@ -7,6 +7,37 @@ import os
 import sqlite3
 from pathlib import Path
 
+from jsonschema import ValidationError, validate
+
+
+def _load_interaction_payload_schema() -> dict:
+    schema_path = Path(__file__).resolve().parents[1] / "src" / "schema" / "interactions_db_schema.json"
+    with open(schema_path, "r") as f:
+        schema = json.load(f)
+    return {
+        "$schema": schema["$schema"],
+        "$defs": schema["$defs"],
+        **schema["$defs"]["interaction_payload"],
+    }
+
+
+INTERACTION_PAYLOAD_SCHEMA = _load_interaction_payload_schema()
+
+
+def _normalize_interaction_payload(payload: dict) -> dict:
+    normalized = dict(payload)
+    platforms = normalized.get("platforms") if isinstance(normalized.get("platforms"), dict) else {}
+    links = normalized.get("syndication_links") if isinstance(normalized.get("syndication_links"), dict) else {}
+    normalized["platforms"] = {
+        "mastodon": platforms.get("mastodon", {}),
+        "bluesky": platforms.get("bluesky", {}),
+    }
+    normalized["syndication_links"] = {
+        "mastodon": links.get("mastodon", {}),
+        "bluesky": links.get("bluesky", {}),
+    }
+    return normalized
+
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
@@ -38,11 +69,10 @@ def migrate(storage_path: Path, dry_run: bool = False) -> tuple[int, int]:
             try:
                 with open(path, "r") as f:
                     payload = json.load(f)
-                if payload.get("ghost_post_id"):
-                    migrated += 1
-                else:
-                    skipped += 1
-            except Exception:
+                payload = _normalize_interaction_payload(payload)
+                validate(instance=payload, schema=INTERACTION_PAYLOAD_SCHEMA)
+                migrated += 1
+            except (ValidationError, OSError, json.JSONDecodeError, sqlite3.Error, TypeError, KeyError):
                 skipped += 1
         return migrated, skipped
 
@@ -56,7 +86,9 @@ def migrate(storage_path: Path, dry_run: bool = False) -> tuple[int, int]:
                 with open(path, "r") as f:
                     payload = json.load(f)
 
-                ghost_post_id = payload.get("ghost_post_id") or path.stem
+                payload = _normalize_interaction_payload(payload)
+                validate(instance=payload, schema=INTERACTION_PAYLOAD_SCHEMA)
+                ghost_post_id = payload["ghost_post_id"]
                 updated_at = str(payload.get("updated_at", ""))
                 conn.execute(
                     """
@@ -69,7 +101,7 @@ def migrate(storage_path: Path, dry_run: bool = False) -> tuple[int, int]:
                     (ghost_post_id, json.dumps(payload), updated_at),
                 )
                 migrated += 1
-            except Exception:
+            except (ValidationError, OSError, json.JSONDecodeError, sqlite3.Error, TypeError, KeyError):
                 skipped += 1
 
     return migrated, skipped
