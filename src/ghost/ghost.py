@@ -871,6 +871,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         """
         import random
         from interactions.interaction_sync import InteractionSyncService
+        from interactions.storage import InteractionDataStore
 
         # =================================================================
         # Security: Rate Limiting (per IP)
@@ -919,20 +920,12 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data/interactions")
         mappings_path = current_app.config.get("SYNDICATION_MAPPINGS_PATH", "./data/syndication_mappings")
 
-        # Construct file paths with validated post ID
-        interaction_file = os.path.join(storage_path, f"{ghost_post_id}.json")
+        # Construct file path with validated post ID
         mapping_file = os.path.join(mappings_path, f"{ghost_post_id}.json")
 
         # =================================================================
         # Security: Path Traversal Protection (defense in depth)
         # =================================================================
-        if not is_safe_path(storage_path, interaction_file):
-            logger.warning(f"Path traversal attempt blocked for interaction file: {ghost_post_id}")
-            return jsonify({
-                "status": "error",
-                "message": "Invalid post ID format"
-            }), 400
-
         if not is_safe_path(mappings_path, mapping_file):
             logger.warning(f"Path traversal attempt blocked for mapping file: {ghost_post_id}")
             return jsonify({
@@ -940,27 +933,12 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                 "message": "Invalid post ID format"
             }), 400
 
-        # Check for existing interaction data
-        if os.path.exists(interaction_file):
-            try:
-                with open(interaction_file, 'r') as f:
-                    interactions = json.load(f)
-
-                logger.debug(f"Retrieved interactions for post: {ghost_post_id}")
-                return jsonify(interactions), 200
-
-            except json.JSONDecodeError as e:
-                logger.error(f"Malformed JSON in interaction file for {ghost_post_id}: {e}")
-                return jsonify({
-                    "status": "error",
-                    "message": "Failed to load interaction data"
-                }), 500
-            except Exception as e:
-                logger.error(f"Failed to load interactions for {ghost_post_id}: {e}")
-                return jsonify({
-                    "status": "error",
-                    "message": "Failed to load interaction data"
-                }), 500
+        # Check for existing interaction data in SQLite
+        interaction_store = InteractionDataStore(storage_path)
+        interactions = interaction_store.get(ghost_post_id)
+        if interactions:
+            logger.debug(f"Retrieved interactions for post: {ghost_post_id}")
+            return jsonify(interactions), 200
 
         # Check for syndication mapping without interaction data
         if os.path.exists(mapping_file):

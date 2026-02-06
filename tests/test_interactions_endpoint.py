@@ -29,6 +29,7 @@ from queue import Queue
 from unittest.mock import MagicMock, patch
 
 from ghost.ghost import create_app, clear_rate_limit_caches
+from interactions.storage import InteractionDataStore
 
 
 @pytest.fixture
@@ -131,9 +132,8 @@ def test_get_interactions_with_existing_data(app_with_discovery):
         }
     }
 
-    interaction_file = os.path.join(test_dirs["storage_path"], "507f1f77bcf86cd799439001.json")
-    with open(interaction_file, 'w') as f:
-        json.dump(interaction_data, f)
+    store = InteractionDataStore(test_dirs["storage_path"])
+    store.put("507f1f77bcf86cd799439001", interaction_data)
 
     # Test endpoint
     with app.test_client() as client:
