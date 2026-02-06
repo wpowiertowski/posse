@@ -635,17 +635,46 @@ class InteractionSyncService:
         Returns:
             Mapping dictionary or None if not found
         """
+        mapping = self.data_store.get_syndication_mapping(ghost_post_id)
+        if mapping is not None:
+            return mapping
+
         mapping_file = os.path.join(self.mappings_path, f"{ghost_post_id}.json")
 
-        if not os.path.exists(mapping_file):
-            return None
+        # Preferred filesystem fallback: mapping filename matches Ghost post ID
+        if os.path.exists(mapping_file):
+            try:
+                with open(mapping_file, 'r') as f:
+                    mapping = json.load(f)
+                self.data_store.put_syndication_mapping(ghost_post_id, mapping)
+                return mapping
+            except Exception as e:
+                logger.error(f"Failed to load mapping file {mapping_file}: {e}")
+                return None
 
+        # Legacy filesystem fallback: slug-based mapping filenames
         try:
-            with open(mapping_file, 'r') as f:
-                return json.load(f)
+            for entry in os.scandir(self.mappings_path):
+                if not entry.is_file() or not entry.name.endswith(".json"):
+                    continue
+
+                try:
+                    with open(entry.path, 'r') as f:
+                        mapping = json.load(f)
+                except Exception:
+                    continue
+
+                if mapping.get("ghost_post_id") == ghost_post_id:
+                    logger.debug(
+                        f"Loaded legacy syndication mapping for {ghost_post_id} "
+                        f"from {entry.name}"
+                    )
+                    self.data_store.put_syndication_mapping(ghost_post_id, mapping)
+                    return mapping
         except Exception as e:
-            logger.error(f"Failed to load mapping file {mapping_file}: {e}")
-            return None
+            logger.error(f"Failed to scan mapping directory {self.mappings_path}: {e}")
+
+        return None
 
     def _load_existing_interaction_data(self, ghost_post_id: str) -> Dict[str, Any]:
         """
@@ -810,7 +839,8 @@ class InteractionSyncService:
                                     platform="mastodon",
                                     account_name=client.account_name,
                                     post_data=post_data,
-                                    mappings_path=self.mappings_path
+                                    mappings_path=self.mappings_path,
+                                    storage_path=self.storage_path
                                 )
 
                                 mapping_found = True
@@ -879,7 +909,8 @@ class InteractionSyncService:
                                     platform="bluesky",
                                     account_name=client.account_name,
                                     post_data=post_data,
-                                    mappings_path=self.mappings_path
+                                    mappings_path=self.mappings_path,
+                                    storage_path=self.storage_path
                                 )
 
                                 mapping_found = True
@@ -958,6 +989,7 @@ def store_syndication_mapping(
     account_name: str,
     post_data: Dict[str, Any],
     mappings_path: str = "./data/syndication_mappings",
+    storage_path: str = "./data/interactions",
     split_info: Optional[Dict[str, Any]] = None
 ) -> None:
     """
@@ -979,6 +1011,7 @@ def store_syndication_mapping(
         post_data: Platform-specific post data (status_id, post_url for Mastodon;
                   post_uri, post_url for Bluesky)
         mappings_path: Directory path for storing mapping files
+        storage_path: Directory path for SQLite interaction storage
         split_info: Optional split post metadata:
             - is_split: True if this is part of a split post
             - split_index: Index of this post in the split (0-based)
@@ -1005,22 +1038,19 @@ def store_syndication_mapping(
         ... )
     """
     os.makedirs(mappings_path, mode=0o755, exist_ok=True)
+    data_store = InteractionDataStore(storage_path)
     mapping_file = os.path.join(mappings_path, f"{ghost_post_id}.json")
 
-    # Load existing mapping or create new
-    if os.path.exists(mapping_file):
+    # Load existing mapping from SQLite, then JSON as fallback
+    mapping = data_store.get_syndication_mapping(ghost_post_id)
+    if mapping is None and os.path.exists(mapping_file):
         try:
             with open(mapping_file, 'r') as f:
                 mapping = json.load(f)
         except Exception as e:
             logger.error(f"Failed to load existing mapping {mapping_file}: {e}")
-            mapping = {
-                "ghost_post_id": ghost_post_id,
-                "ghost_post_url": ghost_post_url,
-                "syndicated_at": datetime.now(ZoneInfo("UTC")).isoformat(),
-                "platforms": {}
-            }
-    else:
+
+    if mapping is None:
         mapping = {
             "ghost_post_id": ghost_post_id,
             "ghost_post_url": ghost_post_url,
@@ -1073,7 +1103,9 @@ def store_syndication_mapping(
 
         logger.info(f"Stored syndication mapping for {platform}/{account_name} to {mapping_file}")
 
-    # Save mapping
+    # Save mapping to SQLite and JSON for compatibility
+    data_store.put_syndication_mapping(ghost_post_id, mapping)
+
     try:
         with open(mapping_file, 'w') as f:
             json.dump(mapping, f, indent=2)
