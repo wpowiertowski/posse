@@ -24,7 +24,7 @@ interactions:
   enabled: true                    # Enable/disable interaction syncing
   sync_interval_minutes: 30        # How often to sync (in minutes)
   max_post_age_days: 30           # Maximum age of posts to sync
-  cache_directory: "./data/interactions"  # Where to store interaction data
+  cache_directory: "./data"  # Directory containing interactions.db
 
   # Privacy settings (optional)
   show_reply_content: true         # Show full comment text
@@ -38,7 +38,7 @@ interactions:
 | `enabled` | `true` | Enable or disable interaction syncing |
 | `sync_interval_minutes` | `30` | How frequently to check for new interactions |
 | `max_post_age_days` | `30` | Stop syncing posts older than this |
-| `cache_directory` | `./data/interactions` | Directory to store interaction data |
+| `cache_directory` | `./data` | Directory containing `interactions.db` |
 
 ### Ghost Content API (Recommended)
 
@@ -89,7 +89,7 @@ docker compose restart
 or
 
 ```bash
-make restart
+docker compose up -d --force-recreate app
 ```
 
 ### Step 3: Add Widget to Ghost
@@ -198,35 +198,15 @@ The JavaScript widget:
 - Falls back gracefully if data unavailable
 
 
-## Interaction Storage Migration (JSON → SQLite)
+## Interaction Storage
 
-Interaction payloads are now stored in a single SQLite database instead of one JSON file per post.
+Interaction payloads and syndication mappings are stored exclusively in SQLite:
 
-### Why this is minimally invasive
-- No API response shape changes (`/api/interactions/<post_id>` remains the same).
-- Syndication mapping files stay as JSON (`data/syndication_mappings/*.json`).
-- Legacy interaction JSON files must be migrated once with the provided script before old payloads become queryable.
+- Database file: `<cache_directory>/interactions.db`
+- Interaction table: `interaction_data`
+- Mapping table: `syndication_mappings`
 
-### Migration cost
-- **Operational cost:** Low. SQLite is built into Python and requires no extra service.
-- **Data migration cost:** Low. One-time script performs idempotent upserts.
-- **Rollback cost:** Moderate. Reverting to JSON reads would require app code rollback; keep JSON backups during rollout.
-
-### One-time migration script
-
-```bash
-python scripts/migrate_interactions_to_sqlite.py --storage-path ./data/interactions
-```
-
-Preview without writing:
-
-```bash
-python scripts/migrate_interactions_to_sqlite.py --storage-path ./data/interactions --dry-run
-```
-
-The script creates/updates `./data/interactions/interactions.db` and migrates each `*.json` interaction file into `interaction_data` with upsert semantics.
-
-Canonical payload schemas for both `interaction_data` and `syndication_mappings` are documented in `src/schema/interactions_db_schema.json`.
+Canonical payload schemas for both tables are documented in `src/schema/interactions_db_schema.json`.
 
 ## API Endpoints
 
@@ -336,17 +316,15 @@ const CONFIG = {
 
 ### Widget Not Appearing
 
-1. **Check if post has been syndicated:**
+1. **Check if post has a syndication mapping in SQLite:**
    ```bash
-   ls data/syndication_mappings/
+   sqlite3 data/interactions.db "SELECT ghost_post_id FROM syndication_mappings LIMIT 20;"
    ```
-   You should see a file named `<post-id>.json`
 
-2. **Check if interactions have been synced:**
+2. **Check if interactions have been synced in SQLite:**
    ```bash
-   ls data/interactions/
+   sqlite3 data/interactions.db "SELECT ghost_post_id, updated_at FROM interaction_data ORDER BY updated_at DESC LIMIT 20;"
    ```
-   You should see a file named `<post-id>.json`
 
 3. **Check API endpoint:**
    ```bash
@@ -402,10 +380,10 @@ The interaction sync feature respects the following privacy principles:
 ## Performance
 
 - **No Page Load Impact**: Widget loads asynchronously
-- **Efficient Caching**: Interaction data cached as JSON files
+- **Efficient Caching**: Interaction data cached in SQLite payload rows
 - **Smart Syncing**: Older posts synced less frequently
 - **Rate Limit Friendly**: Respects API rate limits
-- **Minimal Storage**: JSON files typically < 50 KB per post
+- **Minimal Storage**: Per-post payloads are compact JSON blobs in SQLite
 
 ## Advanced Usage
 
@@ -432,14 +410,14 @@ If you want real-time updates (future enhancement), you could:
 
 ### Export Interaction Data
 
-Interaction data is stored as JSON and can be exported:
+Interaction data is stored in SQLite and can be exported:
 
 ```bash
-# Copy all interaction data
-tar -czf interactions-backup.tar.gz data/interactions/
+# Backup full interactions database
+cp data/interactions.db interactions-backup.db
 
-# Convert to CSV (example)
-jq -r '.platforms.mastodon[].favorites' data/interactions/*.json
+# Export interaction payload rows (example)
+sqlite3 -json data/interactions.db "SELECT ghost_post_id, payload FROM interaction_data;" > interaction_data.json
 ```
 
 ## Security
@@ -472,7 +450,6 @@ Completed:
 - [x] Dark mode support
 
 Planned features:
-- [ ] Database storage for better querying
 - [ ] Analytics dashboard
 - [ ] Real-time updates via WebSockets
 - [ ] Moderation tools

@@ -104,12 +104,11 @@ reposts = client.app.bsky.feed.get_reposted_by({
 
 ### 2. Data Storage
 
-Store interaction data in two ways:
+Store interaction data in SQLite:
 
-#### Option A: File-based Storage (Simpler)
-- Store interactions as JSON files
-- One file per Ghost post: `interactions/{ghost_post_id}.json`
-- Served statically via Flask
+- Database file: `<cache_directory>/interactions.db`
+- `interaction_data` table contains one normalized JSON payload per Ghost post
+- API responses are served from SQLite-backed reads
 
 ```json
 {
@@ -148,12 +147,11 @@ Store interaction data in two ways:
 }
 ```
 
-#### Option B: Database Storage (More Scalable)
-- Add SQLite database for interaction storage
-- Tables: `posts`, `interactions`, `replies`
-- Better for querying and analytics
-
-**Recommendation**: Use a minimally invasive SQLite payload store (`interactions.db`) while keeping existing mapping JSON files unchanged.
+#### Storage Model (Implemented)
+- SQLite database for both interaction payloads and syndication mappings
+- Database file: `<cache_directory>/interactions.db`
+- Tables: `interaction_data`, `syndication_mappings`
+- Payloads are JSON blobs validated against `src/schema/interactions_db_schema.json`
 
 ### 3. Mapping System
 
@@ -187,7 +185,7 @@ def _syndicate_to_social_media(post_data):
         )
 ```
 
-Store mappings in `syndication_mappings/{ghost_post_id}.json`:
+Store mappings in SQLite table `syndication_mappings` (payload shape shown below):
 
 ```json
 {
@@ -442,7 +440,7 @@ A JavaScript widget that embeds in Ghost posts to display interactions.
 ### Phase 2: Data Collection (Week 2)
 1. Implement Mastodon interaction retrieval
 2. Implement Bluesky interaction retrieval
-3. Create file-based storage for interaction data
+3. Persist interaction and mapping payloads in SQLite
 4. Add sync scheduler with configurable intervals
 
 ### Phase 3: Widget Development (Week 3)
@@ -468,7 +466,7 @@ interactions:
   sync_recent_posts_only: true
   max_post_age_days: 30
   max_replies_per_post: 10
-  cache_directory: "./interactions"
+  cache_directory: "./data"  # interactions.db lives here
 
   # Privacy settings
   show_reply_content: true
@@ -509,6 +507,7 @@ The following planned enhancements have been implemented:
 3. **Automatic Syndication Discovery**: Discovers mappings for posts syndicated before interaction sync was enabled
 4. **Webmentions Support**: Widget displays likes, reposts, and comments from webmention.io
 5. **Dark Mode**: Widget supports automatic dark mode via CSS media queries
+6. **SQLite-only Runtime Storage**: interactions and mappings are stored/retrieved exclusively from `interactions.db`
 
 ## Future Enhancements
 
@@ -519,7 +518,6 @@ The following planned enhancements have been implemented:
 5. **Moderation Tools**: Hide/block specific interactions
 6. **Export/Import**: Backup interaction data
 7. **WebSub/Webhooks**: Real-time updates instead of polling
-8. **Database Migration**: Move to SQLite for better performance
 
 ## Technical Dependencies
 
@@ -557,6 +555,6 @@ No new dependencies required! Uses existing:
 
 This architecture provides a complete solution for syncing social media interactions back to Ghost posts. It leverages existing infrastructure, requires no new dependencies, and provides a clean separation of concerns.
 
-The file-based storage approach keeps things simple initially, while the modular design allows for future enhancements like database storage or real-time updates.
+The SQLite payload-store approach keeps runtime storage simple while supporting future enhancements like analytics and real-time updates.
 
 The Ghost widget is self-contained and can be easily integrated using Ghost's built-in code injection features, making it accessible to users without requiring theme modifications.

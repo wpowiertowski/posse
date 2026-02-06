@@ -238,6 +238,7 @@ Display social media engagement from Mastodon and Bluesky directly on your Ghost
      enabled: true
      sync_interval_minutes: 30
      max_post_age_days: 30
+     cache_directory: "./data"  # interactions.db is stored here
    ```
 
 2. **Configure Ghost Content API** (recommended for automatic syndication discovery):
