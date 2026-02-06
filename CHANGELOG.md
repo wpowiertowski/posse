@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.1.1] - 2026-02-06
+
+### Changed
+
+- Interaction and syndication mapping runtime storage is now SQLite-only (`interactions.db`)
+- Interaction scheduler now reads tracked posts from SQLite mappings instead of filesystem JSON scans
+- Interaction storage path now resolves directly from `interactions.cache_directory` (database at cache directory root)
+- Removed legacy JSON migration and mapping consistency scripts/tests tied to transitional storage flow
+
+### Documentation
+
+- Updated interaction sync documentation and examples to reflect SQLite-only storage and current configuration
+
+
 ## [1.1.0] - 2026-02-03
 
 ### Major Feature: Social Interaction Syncing
@@ -134,10 +148,10 @@ Key capabilities:
 - Secure credential management using Docker secrets
 - JSON schema validation for all webhook payloads
 
-[Unreleased]: https://github.com/wpowiertowski/posse/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/wpowiertowski/posse/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/wpowiertowski/posse/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/wpowiertowski/posse/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.3
 [1.0.2]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.2
 [1.0.1]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.1
 [1.0.0]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.0
-
