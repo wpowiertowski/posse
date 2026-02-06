@@ -584,6 +584,7 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                                         "status_id": result_id,
                                         "post_url": result_url
                                     },
+                                    storage_path=current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data/interactions"),
                                     split_info=split_info
                                 )
                             elif platform.lower() == "bluesky" and result_uri:
@@ -596,6 +597,7 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                                         "post_uri": result_uri,
                                         "post_url": result_url
                                     },
+                                    storage_path=current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data/interactions"),
                                     split_info=split_info
                                 )
                         except Exception as mapping_error:

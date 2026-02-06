@@ -940,12 +940,15 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             logger.debug(f"Retrieved interactions for post: {ghost_post_id}")
             return jsonify(interactions), 200
 
-        # Check for syndication mapping without interaction data
-        if os.path.exists(mapping_file):
-            try:
+        # Check for syndication mapping (SQLite first, JSON fallback) without interaction data
+        try:
+            mapping = interaction_store.get_syndication_mapping(ghost_post_id)
+            if mapping is None and os.path.exists(mapping_file):
                 with open(mapping_file, 'r') as f:
                     mapping = json.load(f)
+                interaction_store.put_syndication_mapping(ghost_post_id, mapping)
 
+            if mapping is not None:
                 # Build syndication_links from mapping
                 syndication_links = {"mastodon": {}, "bluesky": {}}
 
@@ -975,18 +978,18 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     "message": "Syndication links available, no interaction data yet"
                 }), 200
 
-            except json.JSONDecodeError as e:
-                logger.error(f"Malformed JSON in mapping file for {ghost_post_id}: {e}")
-                return jsonify({
-                    "status": "error",
-                    "message": "Failed to load syndication mapping"
-                }), 500
-            except Exception as e:
-                logger.error(f"Failed to load syndication mapping for {ghost_post_id}: {e}")
-                return jsonify({
-                    "status": "error",
-                    "message": "Failed to load syndication mapping"
-                }), 500
+        except json.JSONDecodeError as e:
+            logger.error(f"Malformed JSON in mapping file for {ghost_post_id}: {e}")
+            return jsonify({
+                "status": "error",
+                "message": "Failed to load syndication mapping"
+            }), 500
+        except Exception as e:
+            logger.error(f"Failed to load syndication mapping for {ghost_post_id}: {e}")
+            return jsonify({
+                "status": "error",
+                "message": "Failed to load syndication mapping"
+            }), 500
 
         # =================================================================
         # Security: Discovery Rate Limiting

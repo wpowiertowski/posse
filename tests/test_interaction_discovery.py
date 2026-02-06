@@ -469,6 +469,64 @@ class TestDiscoverSyndicationMapping(unittest.TestCase):
 
         self.assertEqual(final_mapping['platforms']['mastodon']['personal']['status_id'], '999')
 
+    @patch("social.mastodon_client.Mastodon")
+    def test_discover_mapping_preserves_existing_with_legacy_filename(self, mock_mastodon_class):
+        """Test that discovery preserves existing mappings stored in legacy-named files."""
+        legacy_mapping = {
+            "ghost_post_id": "existing-legacy-123",
+            "ghost_post_url": "https://blog.example.com/my-post/",
+            "syndicated_at": "2026-01-01T00:00:00.000Z",
+            "platforms": {
+                "mastodon": {
+                    "personal": {
+                        "status_id": "999",
+                        "post_url": "https://mastodon.social/@testuser/999"
+                    }
+                }
+            }
+        }
+
+        legacy_mapping_file = os.path.join(self.mappings_path, "my-post.json")
+        with open(legacy_mapping_file, 'w') as f:
+            json.dump(legacy_mapping, f)
+
+        mock_api = MagicMock()
+        mock_mastodon_class.return_value = mock_api
+        mock_api.account_verify_credentials.return_value = {
+            'id': '12345',
+            'username': 'testuser'
+        }
+
+        # Should be skipped because mapping already exists for this account,
+        # even though the filename is legacy/slug-based.
+        mock_api.account_statuses.return_value = []
+
+        mastodon_client = MastodonClient(
+            instance_url="https://mastodon.social",
+            access_token="test_token",
+            account_name="personal"
+        )
+
+        sync_service = InteractionSyncService(
+            mastodon_clients=[mastodon_client],
+            bluesky_clients=[],
+            mappings_path=self.mappings_path
+        )
+
+        found = sync_service.discover_syndication_mapping(
+            ghost_post_id="existing-legacy-123",
+            ghost_post_url="https://blog.example.com/my-post/",
+            max_posts_to_search=50
+        )
+
+        self.assertFalse(found)
+        mock_api.account_statuses.assert_not_called()
+
+        with open(legacy_mapping_file, 'r') as f:
+            final_mapping = json.load(f)
+
+        self.assertEqual(final_mapping['platforms']['mastodon']['personal']['status_id'], '999')
+
 
 class TestStoreSyndicationMappingPreservation(unittest.TestCase):
     """Test suite for store_syndication_mapping() data preservation."""
@@ -572,6 +630,31 @@ class TestStoreSyndicationMappingPreservation(unittest.TestCase):
         self.assertIn("personal", final_mapping["platforms"]["mastodon"])
         self.assertIn("photos", final_mapping["platforms"]["mastodon"])
         self.assertIn("archive", final_mapping["platforms"]["mastodon"])
+
+    def test_store_mapping_persists_to_sqlite(self):
+        """Test that storing a mapping writes to SQLite as well as JSON."""
+        storage_path = os.path.join(self.test_dir, "interactions")
+
+        store_syndication_mapping(
+            ghost_post_id="db123",
+            ghost_post_url="https://blog.example.com/post/",
+            platform="mastodon",
+            account_name="personal",
+            post_data={
+                "status_id": "444",
+                "post_url": "https://mastodon.social/@user/444"
+            },
+            mappings_path=self.mappings_path,
+            storage_path=storage_path
+        )
+
+        from interactions.storage import InteractionDataStore
+
+        data_store = InteractionDataStore(storage_path)
+        mapping = data_store.get_syndication_mapping("db123")
+
+        self.assertIsNotNone(mapping)
+        self.assertEqual(mapping["platforms"]["mastodon"]["personal"]["status_id"], "444")
 
 
 if __name__ == '__main__':
