@@ -8,7 +8,42 @@ import os
 import sqlite3
 from typing import Any, Dict, Optional
 
+from jsonschema import ValidationError, validate
+from schema import INTERACTION_DATA_PAYLOAD_SCHEMA, SYNDICATION_MAPPING_PAYLOAD_SCHEMA
+
 logger = logging.getLogger(__name__)
+
+
+def _normalize_interaction_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(data)
+    platforms = normalized.get("platforms")
+    if not isinstance(platforms, dict):
+        platforms = {}
+    normalized["platforms"] = {
+        "mastodon": platforms.get("mastodon", {}),
+        "bluesky": platforms.get("bluesky", {}),
+    }
+
+    links = normalized.get("syndication_links")
+    if not isinstance(links, dict):
+        links = {}
+    normalized["syndication_links"] = {
+        "mastodon": links.get("mastodon", {}),
+        "bluesky": links.get("bluesky", {}),
+    }
+    return normalized
+
+
+def _normalize_syndication_mapping_payload(mapping: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(mapping)
+    platforms = normalized.get("platforms")
+    if not isinstance(platforms, dict):
+        platforms = {}
+    normalized["platforms"] = {
+        "mastodon": platforms.get("mastodon", {}),
+        "bluesky": platforms.get("bluesky", {}),
+    }
+    return normalized
 
 
 class InteractionDataStore:
@@ -74,6 +109,13 @@ class InteractionDataStore:
 
     def put(self, ghost_post_id: str, data: Dict[str, Any]) -> None:
         """Upsert interaction payload by post ID."""
+        data = _normalize_interaction_payload(data)
+        try:
+            validate(instance=data, schema=INTERACTION_DATA_PAYLOAD_SCHEMA)
+        except ValidationError as e:
+            logger.error(f"Invalid interaction payload for {ghost_post_id}: {e.message}")
+            return
+
         updated_at = str(data.get("updated_at", ""))
         payload = json.dumps(data)
 
@@ -126,6 +168,13 @@ class InteractionDataStore:
 
     def put_syndication_mapping(self, ghost_post_id: str, mapping: Dict[str, Any]) -> None:
         """Upsert syndication mapping by post ID."""
+        mapping = _normalize_syndication_mapping_payload(mapping)
+        try:
+            validate(instance=mapping, schema=SYNDICATION_MAPPING_PAYLOAD_SCHEMA)
+        except ValidationError as e:
+            logger.error(f"Invalid syndication mapping payload for {ghost_post_id}: {e.message}")
+            return
+
         syndicated_at = str(mapping.get("syndicated_at", ""))
         payload = json.dumps(mapping)
 

@@ -30,7 +30,7 @@ def test_syndication_mapping_store_put_get(tmp_path):
         "ghost_post_id": "507f1f77bcf86cd799439099",
         "ghost_post_url": "https://blog.example.com/post/",
         "syndicated_at": "2026-01-01T00:00:00Z",
-        "platforms": {"mastodon": {"personal": {"status_id": "1", "post_url": "https://masto/1"}}},
+        "platforms": {"mastodon": {"personal": {"status_id": "1", "post_url": "https://masto/1"}}, "bluesky": {}},
     }
 
     store.put_syndication_mapping(mapping["ghost_post_id"], mapping)
@@ -44,4 +44,33 @@ def test_syndication_mapping_store_returns_none_when_record_missing(tmp_path):
 
     loaded = store.get_syndication_mapping("507f1f77bcf86cd799439098")
 
+    assert loaded is None
+
+
+def test_interaction_store_rejects_invalid_payload(tmp_path):
+    store = InteractionDataStore(str(tmp_path))
+    invalid_payload = {
+        "ghost_post_id": "",
+        "updated_at": "2026-01-01T00:00:00Z",
+        "platforms": {"mastodon": {}, "bluesky": {}},
+    }
+
+    store.put("invalid", invalid_payload)
+
+    loaded = store.get("invalid")
+    assert loaded is None
+
+
+def test_syndication_mapping_store_rejects_invalid_payload(tmp_path):
+    store = InteractionDataStore(str(tmp_path))
+    invalid_mapping = {
+        "ghost_post_id": "",
+        "ghost_post_url": "https://blog.example.com/post/",
+        "syndicated_at": "2026-01-01T00:00:00Z",
+        "platforms": {"mastodon": {}},
+    }
+
+    store.put_syndication_mapping("invalid", invalid_mapping)
+
+    loaded = store.get_syndication_mapping("invalid")
     assert loaded is None

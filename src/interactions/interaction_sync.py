@@ -1103,6 +1103,13 @@ def store_syndication_mapping(
 
         logger.info(f"Stored syndication mapping for {platform}/{account_name} to {mapping_file}")
 
+    # Normalize platform keys before persisting
+    platforms = mapping.get("platforms", {})
+    mapping["platforms"] = {
+        "mastodon": platforms.get("mastodon", {}),
+        "bluesky": platforms.get("bluesky", {}),
+    }
+
     # Save mapping to SQLite and JSON for compatibility
     data_store.put_syndication_mapping(ghost_post_id, mapping)
 

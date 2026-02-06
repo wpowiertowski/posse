@@ -32,6 +32,14 @@ Error Handling:
     will fail with a clear error message pointing to the expected
     file location. This fail-fast behavior prevents runtime errors.
 """
-from .schema import GHOST_POST_SCHEMA
+from .schema import (
+    GHOST_POST_SCHEMA,
+    INTERACTION_DATA_PAYLOAD_SCHEMA,
+    SYNDICATION_MAPPING_PAYLOAD_SCHEMA,
+)
 
-__all__ = ["GHOST_POST_SCHEMA"]
+__all__ = [
+    "GHOST_POST_SCHEMA",
+    "INTERACTION_DATA_PAYLOAD_SCHEMA",
+    "SYNDICATION_MAPPING_PAYLOAD_SCHEMA",
+]
