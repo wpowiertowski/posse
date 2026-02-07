@@ -99,6 +99,12 @@ indieweb:
     tag: "indiewebnews"  # Tag slug that triggers submission
     timeout: 30  # Request timeout in seconds
 
+# Webmention Receiver Configuration
+# Accept incoming webmentions (replies, mentions) for Ghost blog posts
+# Requires ghost.content_api.url to be set so target URLs can be validated
+webmention:
+  receiver_enabled: true  # Enable/disable the webmention receiving endpoint
+
 # Social Interaction Sync Configuration
 # Sync interactions (likes, reposts, comments) from social media back to Ghost
 interactions:

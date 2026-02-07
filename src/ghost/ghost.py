@@ -448,6 +448,10 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     app.config["LLM_CLIENT"] = llm_client
     app.config["GHOST_API_CLIENT"] = ghost_api_client
 
+    # Register webmention receiver routes
+    from indieweb.webmention_receiver import register_webmention_routes
+    register_webmention_routes(app, config)
+
     # =================================================================
     # Security Configuration
     # =================================================================
