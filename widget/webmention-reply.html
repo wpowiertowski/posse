@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Send a Webmention Reply</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #f8fafc; color: #0f172a; }
+    .wrap { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.25rem; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+    h1 { margin-top: 0; font-size: 1.5rem; }
+    label { display: block; margin: 1rem 0 0.35rem; font-weight: 600; }
+    input, textarea { width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.6rem 0.75rem; font: inherit; }
+    textarea { min-height: 140px; resize: vertical; }
+    button { margin-top: 1rem; background: #2563eb; color: white; border: 0; border-radius: 8px; padding: 0.65rem 0.9rem; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: 0.7; cursor: wait; }
+    .hint { color: #475569; font-size: 0.95rem; }
+    .status { margin-top: 1rem; padding: 0.75rem; border-radius: 8px; display: none; }
+    .ok { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+    .error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    code { background: #f1f5f9; padding: 0.1rem 0.3rem; border-radius: 4px; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #020617; color: #e2e8f0; }
+      .card { background: #0f172a; border-color: #334155; }
+      .hint { color: #94a3b8; }
+      input, textarea { background: #020617; color: #e2e8f0; border-color: #334155; }
+      code { background: #1e293b; }
+      .ok { background: #14532d; color: #dcfce7; border-color: #166534; }
+      .error { background: #7f1d1d; color: #fee2e2; border-color: #991b1b; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1>Send a Webmention reply</h1>
+      <p class="hint">This page submits your reply to a Webmention relay endpoint. It is designed for readers who do not have their own website.</p>
+
+      <form id="reply-form">
+        <label for="target">Post URL you are replying to</label>
+        <input id="target" name="target" type="url" required>
+
+        <label for="name">Your name</label>
+        <input id="name" name="name" type="text" required maxlength="80">
+
+        <label for="url">Your profile URL (optional)</label>
+        <input id="url" name="url" type="url" placeholder="https://example.com/about">
+
+        <label for="content">Reply</label>
+        <textarea id="content" name="content" required minlength="2" maxlength="5000"></textarea>
+
+        <label for="relayEndpoint">Relay endpoint</label>
+        <input id="relayEndpoint" name="relayEndpoint" type="url" required>
+        <p class="hint">The relay must accept <code>POST application/json</code> with <code>target</code>, <code>author_name</code>, <code>author_url</code>, and <code>content</code>, publish a source URL, and then send the Webmention to Ghost.</p>
+
+        <button type="submit" id="submit">Send reply</button>
+      </form>
+
+      <div class="status" id="status"></div>
+    </section>
+  </main>
+
+  <script>
+    (function() {
+      const form = document.getElementById('reply-form');
+      const targetInput = document.getElementById('target');
+      const relayEndpointInput = document.getElementById('relayEndpoint');
+      const statusEl = document.getElementById('status');
+      const submitBtn = document.getElementById('submit');
+
+      const params = new URLSearchParams(window.location.search);
+      const target = params.get('target');
+      if (target) {
+        targetInput.value = target;
+      }
+
+      const configuredRelay = params.get('relay');
+      if (configuredRelay) {
+        relayEndpointInput.value = configuredRelay;
+      }
+
+      function showStatus(type, message) {
+        statusEl.className = `status ${type}`;
+        statusEl.textContent = message;
+        statusEl.style.display = 'block';
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        submitBtn.disabled = true;
+        statusEl.style.display = 'none';
+
+        const payload = {
+          target: targetInput.value,
+          author_name: document.getElementById('name').value,
+          author_url: document.getElementById('url').value,
+          content: document.getElementById('content').value,
+        };
+
+        try {
+          const response = await fetch(relayEndpointInput.value, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Relay returned HTTP ${response.status}`);
+          }
+
+          const data = await response.json();
+          if (!data.success) {
+            throw new Error(data.error || 'Relay failed to send webmention');
+          }
+
+          const sourceUrl = data.source_url ? ` Source: ${data.source_url}` : '';
+          showStatus('ok', `Reply sent successfully.${sourceUrl}`);
+          form.reset();
+          if (target) {
+            targetInput.value = target;
+          }
+          if (configuredRelay) {
+            relayEndpointInput.value = configuredRelay;
+          }
+        } catch (error) {
+          showStatus('error', `Could not send your reply: ${error.message}`);
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

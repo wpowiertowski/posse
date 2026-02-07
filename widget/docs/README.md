@@ -12,6 +12,7 @@ The widget displays:
   - Facepile of likes and reposts (from webmention.io)
   - Combined comment threads from both POSSE platforms and Webmentions
   - Empty state with "Reply on Mastodon/Bluesky" and "Send a Webmention" options
+  - Optional self-hosted reply form for readers without their own site
   - "Join the conversation" section with platform-specific reply links
 - **Disqus integration** (optional): Traditional comment system support
 
@@ -34,6 +35,7 @@ The widget displays:
 2. Configure custom theme settings (in `package.json`):
    - `posse_api_url`: Your POSSE service API URL
    - `webmention_domain`: Your domain for webmentions
+   - `webmention_reply_url`: URL to your webmention reply page (defaults to `/webmention-reply.html`)
    - `enable_disqus` (boolean): Enable Disqus comments
    - `disqus_shortname`: Your Disqus shortname
 
@@ -42,6 +44,7 @@ The widget displays:
    - `{{url absolute="true"}}` - Absolute post URL
    - `{{@custom.posse_api_url}}` - POSSE API URL from theme settings
    - `{{@custom.webmention_domain}}` - Webmention domain from theme settings
+   - `{{@custom.webmention_reply_url}}` - Reply form URL from theme settings
    - `{{@custom.enable_disqus}}` - Disqus enable flag
    - `{{@custom.disqus_shortname}}` - Disqus shortname
 
@@ -76,7 +79,8 @@ The widget displays:
 - **Split Post Handling**: Handles Mastodon/Bluesky thread splits, uses first post URL
 - **Platform Icons**: Displays SVG icons for Mastodon, Bluesky, and generic webmentions
 - Shows "Reply on Mastodon/Bluesky" buttons in both empty state and below comments
-- Provides "Send a Webmention" option linking to commentpara.de
+- Provides "Send a Webmention" option linking to your configurable reply page
+- Includes a static starter page at `widget/webmention-reply.html` that posts replies to a relay endpoint
 
 ### Disqus Integration (Optional)
 - Supports traditional Disqus comment system
@@ -96,3 +100,19 @@ The widget displays:
 - Ensures syndication links are available even when loaded at different times
 - Coordinates refresh cycles between widgets
 
+
+## Anonymous reply page
+
+Use `widget/webmention-reply.html` as a starter for a no-account reply flow.
+
+### Why a relay endpoint is required
+A valid Webmention needs a **source URL** that contains a link to the target post. A static page alone cannot create a unique, crawlable source per reply, so the form submits to a relay service that should:
+
+1. Store the reply and publish it at a public source URL
+2. Ensure that source URL links to the target post
+3. Discover the Ghost Webmention endpoint
+4. Send `application/x-www-form-urlencoded` Webmention payload (`source`, `target`)
+
+The form accepts a `relay` query parameter so you can prefill the endpoint, for example:
+
+`/webmention-reply.html?target=https://example.com/post&relay=https://relay.example.com/webmention-replies`

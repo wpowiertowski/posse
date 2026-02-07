@@ -8,7 +8,7 @@
     {{/if}}
 
     {{!-- Webmentions Section --}}
-    <div id="webmentions-widget" data-target="{{url absolute="true"}}" data-domain="{{@custom.webmention_domain}}">
+    <div id="webmentions-widget" data-target="{{url absolute="true"}}" data-domain="{{@custom.webmention_domain}}" data-reply-url="{{@custom.webmention_reply_url}}">
         <div class="webmentions-container">
             <h3 class="webmentions-title">{{t "Responses"}}</h3>
             <div class="webmentions-facepile">
@@ -224,8 +224,14 @@
         const WM_CONFIG = {
             target: webmentionsWidget.dataset.target,
             domain: webmentionsWidget.dataset.domain || 'behindtheviewfinder.com',
+            replyUrl: webmentionsWidget.dataset.replyUrl || '/webmention-reply.html',
             refreshInterval: 300000
         };
+
+        function buildWebmentionReplyUrl() {
+            const separator = WM_CONFIG.replyUrl.includes('?') ? '&' : '?';
+            return `${WM_CONFIG.replyUrl}${separator}target=${encodeURIComponent(WM_CONFIG.target)}`;
+        }
 
         function escapeHtmlWm(text) {
             if (!text) return '';
@@ -386,7 +392,7 @@
             }
 
             // Webmention row
-            const webmentionFormUrl = `https://commentpara.de/?url=${encodeURIComponent(WM_CONFIG.target)}`;
+            const webmentionFormUrl = buildWebmentionReplyUrl();
             html += '<div class="webmentions-respond-row">';
             html += `<a href="${webmentionFormUrl}" target="_blank" rel="noopener" class="respond-option respond-option-webmention">`;
             html += '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
@@ -663,7 +669,7 @@
             }
 
             // Webmention row
-            const webmentionFormUrl = `https://commentpara.de/?url=${encodeURIComponent(WM_CONFIG.target)}`;
+            const webmentionFormUrl = buildWebmentionReplyUrl();
             html += '<div class="webmentions-respond-row">';
             html += `<a href="${webmentionFormUrl}" target="_blank" rel="noopener" class="respond-option respond-option-webmention">`;
             html += '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
