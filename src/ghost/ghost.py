@@ -1196,6 +1196,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             return jsonify({"error": "Webmention reply form is not enabled"}), 404
 
         import os as _os
+        from urllib.parse import urlparse
         static_dir = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "static")
         html_path = _os.path.join(static_dir, "reply.html")
 
@@ -1205,6 +1206,30 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         except FileNotFoundError:
             logger.error(f"Reply form HTML not found at {html_path}")
             return jsonify({"error": "Reply form not available"}), 500
+
+        # Resolve blog theme CSS URL from allowed origins and current target.
+        # This keeps the reply form visually aligned with the Ghost theme.
+        allowed_origins = current_app.config.get("REPLY_ALLOWED_TARGET_ORIGINS", [])
+        target_url = request.args.get("url") or request.args.get("target") or ""
+        blog_origin = ""
+
+        if target_url:
+            try:
+                parsed_target = urlparse(target_url)
+                candidate_origin = f"{parsed_target.scheme}://{parsed_target.netloc}"
+                if candidate_origin in allowed_origins:
+                    blog_origin = candidate_origin
+            except Exception:
+                blog_origin = ""
+
+        if not blog_origin and allowed_origins:
+            blog_origin = allowed_origins[0]
+
+        if blog_origin:
+            css_link = f'<link rel="stylesheet" type="text/css" href="{blog_origin}/assets/css/style.css">'
+            html_content = html_content.replace("__BLOG_CSS_LINK__", css_link)
+        else:
+            html_content = html_content.replace("__BLOG_CSS_LINK__", "")
 
         # Inject Turnstile site key via data attribute on the container div
         turnstile_key = current_app.config.get("REPLY_TURNSTILE_SITE_KEY", "")
@@ -1219,10 +1244,11 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             "Content-Security-Policy": (
                 "default-src 'none'; "
                 "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; "
-                "style-src 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline' https:; "
                 "connect-src 'self'; "
                 "frame-src https://challenges.cloudflare.com; "
-                "img-src 'self' data:"
+                "img-src 'self' data: https:; "
+                "font-src 'self' data: https:"
             ),
             "X-Content-Type-Options": "nosniff",
             "X-Frame-Options": "DENY",

@@ -5,55 +5,58 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Send a Webmention</title>
     <meta name="robots" content="noindex, nofollow">
+    __BLOG_CSS_LINK__
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
+            font-family: var(--font-body, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif);
+            background: var(--color-bg, #f8f8f8);
+            color: var(--color-text, #111);
             min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 2rem 1rem;
         }
 
-        .container { width: 100%; max-width: 560px; }
+        .reply-main { padding: 3rem 1rem; }
+        .container { width: 100%; max-width: 760px; margin: 0 auto; }
+        .reply-card {
+            border: 1px solid var(--color-border, rgba(0,0,0,0.12));
+            border-radius: 8px;
+            padding: 1.5rem;
+            background: var(--color-bg-alt, #fff);
+        }
 
         h1 {
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 1.4rem;
+            font-size: 1.8rem;
             margin-bottom: 0.5rem;
-            color: #fff;
+            color: var(--color-text-highlight, #111);
         }
 
         .subtitle {
-            color: #888;
+            color: var(--color-text, #444);
             font-size: 0.9rem;
             margin-bottom: 1.5rem;
             line-height: 1.5;
         }
-        .subtitle a { color: #7c7cff; text-decoration: none; }
+        .subtitle a { color: var(--color-primary, #111); text-decoration: underline; }
         .subtitle a:hover { text-decoration: underline; }
 
         .target-info {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.1);
+            background: var(--color-bg, #fff);
+            border: 1px solid var(--color-border, rgba(0,0,0,0.14));
             border-radius: 8px;
             padding: 0.75rem 1rem;
             margin-bottom: 1.5rem;
             font-size: 0.85rem;
             word-break: break-all;
         }
-        .target-info .label { color: #888; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
-        .target-info .url { color: #7c7cff; margin-top: 0.25rem; }
+        .target-info .label { color: var(--color-secondary, #666); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .target-info .url { color: var(--color-primary, #111); margin-top: 0.25rem; }
 
         form { display: flex; flex-direction: column; gap: 1rem; }
 
         label {
             font-size: 0.85rem;
-            color: #aaa;
+            color: var(--color-secondary, #666);
             display: block;
             margin-bottom: 0.3rem;
         }
@@ -63,35 +66,36 @@
         textarea {
             width: 100%;
             padding: 0.7rem 0.9rem;
-            background: rgba(255,255,255,0.07);
-            border: 1px solid rgba(255,255,255,0.15);
+            background: var(--color-bg, #fff);
+            border: 1px solid var(--color-border, rgba(0,0,0,0.16));
             border-radius: 6px;
-            color: #e0e0e0;
+            color: var(--color-text, #111);
             font-size: 0.95rem;
             font-family: inherit;
             transition: border-color 0.2s;
         }
-        input:focus, textarea:focus { outline: none; border-color: #7c7cff; }
+        input:focus, textarea:focus { outline: none; border-color: var(--color-primary, #111); }
 
         textarea { resize: vertical; min-height: 120px; }
 
-        .field-hint { font-size: 0.75rem; color: #666; margin-top: 0.2rem; }
+        .field-hint { font-size: 0.75rem; color: var(--color-secondary, #666); margin-top: 0.2rem; }
 
         /* Honeypot - hidden from real users */
         .hp-field { position: absolute; left: -9999px; opacity: 0; height: 0; width: 0; }
 
         .submit-btn {
             padding: 0.75rem 1.5rem;
-            background: #7c7cff;
-            color: #fff;
-            border: none;
-            border-radius: 6px;
+            width: 100%;
+            background: var(--color-primary, #111);
+            color: var(--color-bg, #fff);
+            border: 1px solid var(--color-primary, #111);
+            border-radius: 3px;
             font-size: 1rem;
-            font-weight: 600;
+            font-weight: var(--font-weight-medium, 500);
             cursor: pointer;
-            transition: background 0.2s, opacity 0.2s;
+            transition: opacity 0.2s, transform 0.2s;
         }
-        .submit-btn:hover { background: #6a6aee; }
+        .submit-btn:hover { transform: translateY(-1px); }
         .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .status {
@@ -107,76 +111,80 @@
         .info-section {
             margin-top: 2rem;
             padding-top: 1.5rem;
-            border-top: 1px solid rgba(255,255,255,0.08);
+            border-top: 1px solid var(--color-border, rgba(0,0,0,0.12));
             font-size: 0.8rem;
-            color: #666;
+            color: var(--color-secondary, #666);
             line-height: 1.6;
         }
-        .info-section a { color: #7c7cff; text-decoration: none; }
+        .info-section a { color: var(--color-primary, #111); text-decoration: underline; }
         .info-section a:hover { text-decoration: underline; }
 
-        .char-count { font-size: 0.75rem; color: #666; text-align: right; margin-top: 0.2rem; }
+        .char-count { font-size: 0.75rem; color: var(--color-secondary, #666); text-align: right; margin-top: 0.2rem; }
         .char-count.warn { color: #f85149; }
 
         .cf-turnstile { margin-top: 0.25rem; }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1>Send a Webmention</h1>
-        <p class="subtitle">
-            Reply to a post using <a href="https://indieweb.org/Webmention" target="_blank" rel="noopener">Webmention</a>.
-            Your reply will appear in the responses section.
-        </p>
+<body class="post-template">
+    <main id="main" class="content outer reply-main">
+        <div class="container">
+            <article class="reply-card post-content">
+                <h1>Send a Webmention</h1>
+                <p class="subtitle">
+                    Reply to a post using <a href="https://indieweb.org/Webmention" target="_blank" rel="noopener">Webmention</a>.
+                    Your reply will appear in the responses section.
+                </p>
 
-        <div class="target-info" id="target-info" style="display:none">
-            <div class="label">Replying to</div>
-            <div class="url" id="target-url"></div>
+                <div class="target-info" id="target-info" style="display:none">
+                    <div class="label">Replying to</div>
+                    <div class="url" id="target-url"></div>
+                </div>
+
+                <form id="reply-form" method="POST">
+                    <div>
+                        <label for="author_name">Name *</label>
+                        <input type="text" id="author_name" name="author_name" required maxlength="100" autocomplete="name" placeholder="Your name">
+                    </div>
+
+                    <div>
+                        <label for="author_url">Website <span style="color:var(--color-secondary, #666)">(optional)</span></label>
+                        <input type="url" id="author_url" name="author_url" maxlength="500" autocomplete="url" placeholder="https://your-site.com">
+                        <div class="field-hint">If you have a personal site, it will be linked from your reply.</div>
+                    </div>
+
+                    <div>
+                        <label for="content">Reply *</label>
+                        <textarea id="content" name="content" required maxlength="2000" placeholder="Write your reply..."></textarea>
+                        <div class="char-count" id="char-count">0 / 2000</div>
+                    </div>
+
+                    <!-- Honeypot field - bots will fill this in, humans won't see it -->
+                    <div class="hp-field" aria-hidden="true">
+                        <label for="website">Website</label>
+                        <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+                    </div>
+
+                    <input type="hidden" name="target" id="target-input">
+
+                    <!-- Cloudflare Turnstile CAPTCHA widget -->
+                    <div class="cf-turnstile" id="turnstile-container"></div>
+
+                    <button type="submit" class="submit-btn button button-solid" id="submit-btn">Send Reply</button>
+                </form>
+
+                <div class="status" id="status"></div>
+
+                <div class="info-section">
+                    <p>
+                        <strong>What is a Webmention?</strong><br>
+                        A Webmention is a web standard (W3C) for conversations across websites.
+                        When you reply here, your response is sent as a webmention to the original post
+                        and will appear in its responses section.
+                    </p>
+                </div>
+            </article>
         </div>
-
-        <form id="reply-form" method="POST">
-            <div>
-                <label for="author_name">Name *</label>
-                <input type="text" id="author_name" name="author_name" required maxlength="100" autocomplete="name" placeholder="Your name">
-            </div>
-
-            <div>
-                <label for="author_url">Website <span style="color:#666">(optional)</span></label>
-                <input type="url" id="author_url" name="author_url" maxlength="500" autocomplete="url" placeholder="https://your-site.com">
-                <div class="field-hint">If you have a personal site, it will be linked from your reply.</div>
-            </div>
-
-            <div>
-                <label for="content">Reply *</label>
-                <textarea id="content" name="content" required maxlength="2000" placeholder="Write your reply..."></textarea>
-                <div class="char-count" id="char-count">0 / 2000</div>
-            </div>
-
-            <!-- Honeypot field - bots will fill this in, humans won't see it -->
-            <div class="hp-field" aria-hidden="true">
-                <label for="website">Website</label>
-                <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
-            </div>
-
-            <input type="hidden" name="target" id="target-input">
-
-            <!-- Cloudflare Turnstile CAPTCHA widget -->
-            <div class="cf-turnstile" id="turnstile-container"></div>
-
-            <button type="submit" class="submit-btn" id="submit-btn">Send Reply</button>
-        </form>
-
-        <div class="status" id="status"></div>
-
-        <div class="info-section">
-            <p>
-                <strong>What is a Webmention?</strong><br>
-                A Webmention is a web standard (W3C) for conversations across websites.
-                When you reply here, your response is sent as a webmention to the original post
-                and will appear in its responses section.
-            </p>
-        </div>
-    </div>
+    </main>
 
     <script>
         (function() {
