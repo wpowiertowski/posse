@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Send a Webmention</title>
+    <meta name="robots" content="noindex, nofollow">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem 1rem;
+        }
+
+        .container { width: 100%; max-width: 560px; }
+
+        h1 {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 1.4rem;
+            margin-bottom: 0.5rem;
+            color: #fff;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+            line-height: 1.5;
+        }
+        .subtitle a { color: #7c7cff; text-decoration: none; }
+        .subtitle a:hover { text-decoration: underline; }
+
+        .target-info {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.85rem;
+            word-break: break-all;
+        }
+        .target-info .label { color: #888; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .target-info .url { color: #7c7cff; margin-top: 0.25rem; }
+
+        form { display: flex; flex-direction: column; gap: 1rem; }
+
+        label {
+            font-size: 0.85rem;
+            color: #aaa;
+            display: block;
+            margin-bottom: 0.3rem;
+        }
+
+        input[type="text"],
+        input[type="url"],
+        textarea {
+            width: 100%;
+            padding: 0.7rem 0.9rem;
+            background: rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 6px;
+            color: #e0e0e0;
+            font-size: 0.95rem;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+        input:focus, textarea:focus { outline: none; border-color: #7c7cff; }
+
+        textarea { resize: vertical; min-height: 120px; }
+
+        .field-hint { font-size: 0.75rem; color: #666; margin-top: 0.2rem; }
+
+        /* Honeypot - hidden from real users */
+        .hp-field { position: absolute; left: -9999px; opacity: 0; height: 0; width: 0; }
+
+        .submit-btn {
+            padding: 0.75rem 1.5rem;
+            background: #7c7cff;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, opacity 0.2s;
+        }
+        .submit-btn:hover { background: #6a6aee; }
+        .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .status {
+            margin-top: 1rem;
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            display: none;
+        }
+        .status.success { display: block; background: rgba(46,160,67,0.15); border: 1px solid rgba(46,160,67,0.3); color: #3fb950; }
+        .status.error { display: block; background: rgba(248,81,73,0.15); border: 1px solid rgba(248,81,73,0.3); color: #f85149; }
+
+        .info-section {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            font-size: 0.8rem;
+            color: #666;
+            line-height: 1.6;
+        }
+        .info-section a { color: #7c7cff; text-decoration: none; }
+        .info-section a:hover { text-decoration: underline; }
+
+        .char-count { font-size: 0.75rem; color: #666; text-align: right; margin-top: 0.2rem; }
+        .char-count.warn { color: #f85149; }
+
+        .cf-turnstile { margin-top: 0.25rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Send a Webmention</h1>
+        <p class="subtitle">
+            Reply to a post using <a href="https://indieweb.org/Webmention" target="_blank" rel="noopener">Webmention</a>.
+            Your reply will appear in the responses section.
+        </p>
+
+        <div class="target-info" id="target-info" style="display:none">
+            <div class="label">Replying to</div>
+            <div class="url" id="target-url"></div>
+        </div>
+
+        <form id="reply-form" method="POST">
+            <div>
+                <label for="author_name">Name *</label>
+                <input type="text" id="author_name" name="author_name" required maxlength="100" autocomplete="name" placeholder="Your name">
+            </div>
+
+            <div>
+                <label for="author_url">Website <span style="color:#666">(optional)</span></label>
+                <input type="url" id="author_url" name="author_url" maxlength="500" autocomplete="url" placeholder="https://your-site.com">
+                <div class="field-hint">If you have a personal site, it will be linked from your reply.</div>
+            </div>
+
+            <div>
+                <label for="content">Reply *</label>
+                <textarea id="content" name="content" required maxlength="2000" placeholder="Write your reply..."></textarea>
+                <div class="char-count" id="char-count">0 / 2000</div>
+            </div>
+
+            <!-- Honeypot field - bots will fill this in, humans won't see it -->
+            <div class="hp-field" aria-hidden="true">
+                <label for="website">Website</label>
+                <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+            </div>
+
+            <input type="hidden" name="target" id="target-input">
+
+            <!-- Cloudflare Turnstile CAPTCHA widget -->
+            <div class="cf-turnstile" id="turnstile-container"></div>
+
+            <button type="submit" class="submit-btn" id="submit-btn">Send Reply</button>
+        </form>
+
+        <div class="status" id="status"></div>
+
+        <div class="info-section">
+            <p>
+                <strong>What is a Webmention?</strong><br>
+                A Webmention is a web standard (W3C) for conversations across websites.
+                When you reply here, your response is sent as a webmention to the original post
+                and will appear in its responses section.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // Configuration is injected by the server as data attributes
+            var container = document.querySelector('.container');
+            var TURNSTILE_SITE_KEY = container.getAttribute('data-turnstile-key') || '';
+
+            // Parse target URL from query string
+            var params = new URLSearchParams(window.location.search);
+            var target = params.get('url') || params.get('target') || '';
+
+            if (target) {
+                try {
+                    var parsed = new URL(target);
+                    document.getElementById('target-url').textContent = parsed.href;
+                    document.getElementById('target-info').style.display = 'block';
+                    document.getElementById('target-input').value = parsed.href;
+                } catch (e) {
+                    showStatus('Invalid target URL.', 'error');
+                    document.getElementById('submit-btn').disabled = true;
+                }
+            } else {
+                showStatus('No target URL specified. Please use the "Send a Webmention" button from a blog post.', 'error');
+                document.getElementById('submit-btn').disabled = true;
+            }
+
+            // Character counter
+            var contentEl = document.getElementById('content');
+            var charCountEl = document.getElementById('char-count');
+            contentEl.addEventListener('input', function() {
+                var len = this.value.length;
+                charCountEl.textContent = len + ' / 2000';
+                charCountEl.classList.toggle('warn', len > 1800);
+            });
+
+            // Load Turnstile if site key is configured
+            if (TURNSTILE_SITE_KEY) {
+                var script = document.createElement('script');
+                script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+                script.async = true;
+                script.defer = true;
+                document.head.appendChild(script);
+
+                var tc = document.getElementById('turnstile-container');
+                tc.setAttribute('data-sitekey', TURNSTILE_SITE_KEY);
+                tc.setAttribute('data-theme', 'dark');
+            }
+
+            // Form submission
+            var form = document.getElementById('reply-form');
+            var submitBtn = document.getElementById('submit-btn');
+
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Sending...';
+                hideStatus();
+
+                var formData = {
+                    author_name: form.author_name.value.trim(),
+                    author_url: form.author_url.value.trim(),
+                    content: form.content.value.trim(),
+                    target: form.target.value,
+                    website: form.website.value
+                };
+
+                // Turnstile token
+                var turnstileResponse = document.querySelector('[name="cf-turnstile-response"]');
+                if (turnstileResponse) {
+                    formData['cf-turnstile-response'] = turnstileResponse.value;
+                }
+
+                fetch('./api/webmention/reply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                })
+                .then(function(res) { return res.json().then(function(data) { return { ok: res.ok, data: data }; }); })
+                .then(function(result) {
+                    if (result.ok) {
+                        showStatus('Reply sent! It may take a few minutes to appear in the responses.', 'success');
+                        form.reset();
+                        charCountEl.textContent = '0 / 2000';
+                    } else {
+                        showStatus(result.data.error || 'Something went wrong. Please try again.', 'error');
+                    }
+                    if (window.turnstile) window.turnstile.reset();
+                })
+                .catch(function() {
+                    showStatus('Network error. Please check your connection and try again.', 'error');
+                })
+                .finally(function() {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Send Reply';
+                });
+            });
+
+            function showStatus(message, type) {
+                var el = document.getElementById('status');
+                el.textContent = message;
+                el.className = 'status ' + type;
+            }
+
+            function hideStatus() {
+                var el = document.getElementById('status');
+                el.className = 'status';
+                el.textContent = '';
+            }
+        })();
+    </script>
+</body>
+</html>

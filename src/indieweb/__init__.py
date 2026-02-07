@@ -31,12 +31,20 @@ Configuration (config.yml):
         tag: "indiewebnews"
 """
 
-from indieweb.webmention import IndieWebNewsClient, WebmentionResult, send_to_indieweb_news
+from indieweb.webmention import (
+    IndieWebNewsClient,
+    WebmentionResult,
+    send_to_indieweb_news,
+    discover_webmention_endpoint,
+    send_webmention,
+)
 from indieweb.utils import has_indieweb_tag
 
 __all__ = [
     "IndieWebNewsClient",
     "WebmentionResult",
     "send_to_indieweb_news",
+    "discover_webmention_endpoint",
+    "send_webmention",
     "has_indieweb_tag",
 ]

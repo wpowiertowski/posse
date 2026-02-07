@@ -89,6 +89,27 @@ class InteractionDataStore:
                     "CREATE INDEX IF NOT EXISTS idx_syndication_syndicated_at "
                     "ON syndication_mappings(syndicated_at)"
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS webmention_replies (
+                        id TEXT PRIMARY KEY,
+                        author_name TEXT NOT NULL,
+                        author_url TEXT,
+                        content TEXT NOT NULL,
+                        target TEXT NOT NULL,
+                        ip_hash TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_replies_target "
+                    "ON webmention_replies(target)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_replies_created_at "
+                    "ON webmention_replies(created_at)"
+                )
         except sqlite3.Error as e:
             logger.error(f"Failed to initialize interactions database {self.db_path}: {e}")
 
@@ -194,6 +215,52 @@ class InteractionDataStore:
             logger.error(
                 f"Failed to store syndication mapping for {ghost_post_id} in SQLite: {e}"
             )
+
+    def put_reply(self, reply: Dict[str, Any]) -> None:
+        """Store a webmention reply."""
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO webmention_replies (id, author_name, author_url, content, target, ip_hash, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        reply["id"],
+                        reply["author_name"],
+                        reply.get("author_url", ""),
+                        reply["content"],
+                        reply["target"],
+                        reply.get("ip_hash", ""),
+                        reply["created_at"],
+                    ),
+                )
+        except sqlite3.Error as e:
+            logger.error(f"Failed to store reply {reply.get('id')}: {e}")
+            raise
+
+    def get_reply(self, reply_id: str) -> Optional[Dict[str, Any]]:
+        """Get a webmention reply by ID."""
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT id, author_name, author_url, content, target, ip_hash, created_at "
+                    "FROM webmention_replies WHERE id = ?",
+                    (reply_id,),
+                ).fetchone()
+                if row:
+                    return {
+                        "id": row["id"],
+                        "author_name": row["author_name"],
+                        "author_url": row["author_url"],
+                        "content": row["content"],
+                        "target": row["target"],
+                        "ip_hash": row["ip_hash"],
+                        "created_at": row["created_at"],
+                    }
+        except sqlite3.Error as e:
+            logger.error(f"Failed to read reply {reply_id}: {e}")
+        return None
 
     def list_syndication_mappings(self) -> list[Dict[str, Any]]:
         """Return all syndication mappings stored in SQLite."""

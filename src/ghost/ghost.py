@@ -484,7 +484,33 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     app.config["INTERNAL_API_TOKEN"] = internal_token
     if internal_token:
         logger.info("Internal API token configured for protected endpoints")
-    
+
+    # =================================================================
+    # Webmention Reply Configuration
+    # =================================================================
+    reply_config = config.get("webmention_reply", {})
+    app.config["REPLY_ENABLED"] = reply_config.get("enabled", False)
+    app.config["REPLY_ALLOWED_TARGET_ORIGINS"] = reply_config.get("allowed_target_origins", [])
+    app.config["REPLY_BLOG_NAME"] = reply_config.get("blog_name", "Blog")
+    app.config["REPLY_TURNSTILE_SITE_KEY"] = reply_config.get("turnstile_site_key", "")
+    app.config["REPLY_RATE_LIMIT"] = reply_config.get("rate_limit", 5)
+    app.config["REPLY_RATE_WINDOW"] = reply_config.get("rate_limit_window_seconds", 3600)
+
+    # Turnstile secret key (from file or config)
+    turnstile_secret = reply_config.get("turnstile_secret_key", "")
+    if not turnstile_secret:
+        turnstile_file = reply_config.get("turnstile_secret_key_file", "")
+        if turnstile_file:
+            from config import read_secret_file as _read_secret
+            turnstile_secret = _read_secret(turnstile_file) or ""
+    app.config["REPLY_TURNSTILE_SECRET_KEY"] = turnstile_secret
+
+    # Storage path for replies (same SQLite DB as interactions)
+    app.config["INTERACTIONS_STORAGE_PATH"] = config.get("interactions", {}).get("cache_directory", "./data")
+
+    if app.config["REPLY_ENABLED"]:
+        logger.info(f"Webmention reply form enabled for origins: {app.config['REPLY_ALLOWED_TARGET_ORIGINS']}")
+
     @app.route("/webhook/ghost/post-updated", methods=["POST"])
     def receive_ghost_post_update():
         """Webhook endpoint to receive Ghost post update notifications.
@@ -1148,6 +1174,203 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                 "status": "error",
                 "message": "Failed to sync interactions"
             }), 500
+
+    # =================================================================
+    # Webmention Reply Endpoints
+    # =================================================================
+
+    @app.route("/webmention", methods=["GET"])
+    def serve_reply_form():
+        """Serve the webmention reply form.
+
+        Returns the static HTML reply form page. The Turnstile site key
+        is injected as a data attribute so the form can load the CAPTCHA.
+
+        Query Parameters:
+            url: The target post URL to reply to
+        """
+        if not current_app.config.get("REPLY_ENABLED"):
+            return jsonify({"error": "Webmention reply form is not enabled"}), 404
+
+        import os as _os
+        static_dir = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "static")
+        html_path = _os.path.join(static_dir, "reply.html")
+
+        try:
+            with open(html_path, "r") as f:
+                html_content = f.read()
+        except FileNotFoundError:
+            logger.error(f"Reply form HTML not found at {html_path}")
+            return jsonify({"error": "Reply form not available"}), 500
+
+        # Inject Turnstile site key via data attribute on the container div
+        turnstile_key = current_app.config.get("REPLY_TURNSTILE_SITE_KEY", "")
+        if turnstile_key:
+            html_content = html_content.replace(
+                '<div class="container">',
+                f'<div class="container" data-turnstile-key="{turnstile_key}">',
+            )
+
+        return html_content, 200, {
+            "Content-Type": "text/html; charset=utf-8",
+            "Content-Security-Policy": (
+                "default-src 'none'; "
+                "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; "
+                "style-src 'unsafe-inline'; "
+                "connect-src 'self'; "
+                "frame-src https://challenges.cloudflare.com; "
+                "img-src 'self' data:"
+            ),
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Referrer-Policy": "strict-origin-when-cross-origin",
+        }
+
+    @app.route("/api/webmention/reply", methods=["POST"])
+    def submit_reply():
+        """Accept a webmention reply submission.
+
+        Validates the submission, stores the reply in SQLite, and sends
+        a webmention from the reply's h-entry page to the target post.
+
+        Request Body (JSON):
+            author_name: Name of the reply author (required)
+            author_url: Website URL of the author (optional)
+            content: Reply text (required, 2-2000 chars)
+            target: URL of the post being replied to (required)
+            website: Honeypot field (must be empty)
+            cf-turnstile-response: Turnstile CAPTCHA token (if configured)
+
+        Returns:
+            JSON response with reply ID on success, error message on failure.
+        """
+        import threading
+        from indieweb.reply import (
+            validate_reply,
+            is_honeypot_filled,
+            verify_turnstile,
+            build_reply_record,
+            REPLY_RATE_LIMIT as DEFAULT_REPLY_RATE_LIMIT,
+            REPLY_RATE_WINDOW_SECONDS as DEFAULT_REPLY_RATE_WINDOW,
+        )
+        from indieweb.webmention import send_webmention as send_wm
+        from interactions.storage import InteractionDataStore
+
+        if not current_app.config.get("REPLY_ENABLED"):
+            return jsonify({"error": "Webmention replies are not enabled"}), 404
+
+        # Rate limiting (per IP, separate window for replies)
+        client_ip = (
+            request.headers.get("X-Real-IP")
+            or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+            or request.remote_addr
+        )
+
+        reply_limit = current_app.config.get("REPLY_RATE_LIMIT", DEFAULT_REPLY_RATE_LIMIT)
+        reply_window = current_app.config.get("REPLY_RATE_WINDOW", DEFAULT_REPLY_RATE_WINDOW)
+
+        # Use a dedicated rate limit cache key prefix for replies
+        reply_rate_key = f"reply:{client_ip}"
+        if check_request_rate_limit(reply_rate_key, limit=reply_limit, window=reply_window):
+            logger.warning(f"Reply rate limit exceeded for IP: {client_ip}")
+            return jsonify({"error": "Too many replies. Please try again later."}), 429
+        record_request(reply_rate_key)
+
+        # Parse body
+        if not request.is_json:
+            return jsonify({"error": "Content-Type must be application/json"}), 400
+
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"error": "Invalid JSON body."}), 400
+
+        # Honeypot check - silently accept to look like success to bots
+        if is_honeypot_filled(data):
+            logger.info(f"Honeypot triggered from IP: {client_ip}")
+            return jsonify({"ok": True, "id": "accepted"}), 200
+
+        # Validate fields
+        allowed_origins = current_app.config.get("REPLY_ALLOWED_TARGET_ORIGINS", [])
+        errors = validate_reply(data, allowed_origins)
+        if errors:
+            return jsonify({"error": errors[0]}), 400
+
+        # Verify Turnstile if configured
+        turnstile_secret = current_app.config.get("REPLY_TURNSTILE_SECRET_KEY", "")
+        if turnstile_secret:
+            token = data.get("cf-turnstile-response", "")
+            if not token:
+                return jsonify({"error": "CAPTCHA verification required."}), 400
+            if not verify_turnstile(token, client_ip, turnstile_secret):
+                return jsonify({"error": "CAPTCHA verification failed. Please try again."}), 403
+
+        # Build and store reply
+        reply = build_reply_record(data, client_ip)
+
+        storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data")
+        store = InteractionDataStore(storage_path)
+        try:
+            store.put_reply(reply)
+        except Exception as e:
+            logger.error(f"Failed to store reply: {e}")
+            return jsonify({"error": "Failed to store reply."}), 500
+
+        logger.info(f"Reply stored: id={reply['id']}, target={reply['target']}, author={reply['author_name']}")
+
+        # Send webmention in background thread
+        source_url = request.url_root.rstrip("/") + f"/reply/{reply['id']}"
+        target_url = reply["target"]
+
+        def _send():
+            try:
+                result = send_wm(source_url, target_url)
+                if result.success:
+                    logger.info(f"Webmention sent for reply {reply['id']}: {result.message}")
+                else:
+                    logger.warning(f"Webmention failed for reply {reply['id']}: {result.message}")
+            except Exception as exc:
+                logger.error(f"Webmention send error for reply {reply['id']}: {exc}")
+
+        thread = threading.Thread(target=_send, daemon=True)
+        thread.start()
+
+        return jsonify({"ok": True, "id": reply["id"]}), 200
+
+    @app.route("/reply/<reply_id>", methods=["GET"])
+    def serve_reply_page(reply_id: str):
+        """Serve a stored reply as an h-entry page.
+
+        This page is the source URL for the webmention. webmention.io
+        fetches this page, parses the h-entry microformats, and extracts
+        the reply content and u-in-reply-to link.
+
+        Args:
+            reply_id: The reply ID (alphanumeric, 16 chars).
+        """
+        import re as _re
+        from indieweb.reply import render_reply_hentry
+        from interactions.storage import InteractionDataStore
+
+        # Validate reply ID format
+        if not _re.match(r'^[a-zA-Z0-9]{10,30}$', reply_id):
+            return "Not Found", 404
+
+        storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data")
+        store = InteractionDataStore(storage_path)
+        reply = store.get_reply(reply_id)
+
+        if not reply:
+            return "Not Found", 404
+
+        blog_name = current_app.config.get("REPLY_BLOG_NAME", "Blog")
+        html_content = render_reply_hentry(reply, blog_name)
+
+        return html_content, 200, {
+            "Content-Type": "text/html; charset=utf-8",
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Cache-Control": "public, max-age=86400",
+        }
 
     return app
 
