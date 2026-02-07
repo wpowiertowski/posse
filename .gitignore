@@ -209,3 +209,6 @@ __marimo__/
 # Secrets directory (never commit)
 secrets/
 pushover_*.txt
+
+# Runtime data directory
+data/
