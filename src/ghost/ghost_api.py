@@ -8,7 +8,7 @@ import logging
 import requests
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,8 @@ class GhostContentAPIClient:
         api_url: str,
         api_key: str,
         api_version: str = "v5.0",
-        timeout: int = 30
+        timeout: int = 30,
+        timezone_name: str = "UTC",
     ):
         """
         Initialize the Ghost Content API client.
@@ -41,17 +42,33 @@ class GhostContentAPIClient:
             api_key: Ghost Content API key
             api_version: Ghost API version (default: v5.0)
             timeout: Request timeout in seconds
+            timezone_name: IANA timezone name used for date cutoffs
         """
         self.api_url = api_url.rstrip('/')
         self.api_key = api_key
         self.api_version = api_version
         self.timeout = timeout
+        self.timezone_name = self._normalize_timezone_name(timezone_name)
+        self.timezone = ZoneInfo(self.timezone_name)
         self.enabled = bool(api_url and api_key)
 
         if self.enabled:
-            logger.info(f"GhostContentAPIClient initialized for {self.api_url}")
+            logger.info(f"GhostContentAPIClient initialized for {self.api_url} (timezone={self.timezone_name})")
         else:
             logger.warning("GhostContentAPIClient disabled - missing api_url or api_key")
+
+    @staticmethod
+    def _normalize_timezone_name(timezone_name: str) -> str:
+        """Return a valid timezone name, falling back to UTC."""
+        if not isinstance(timezone_name, str) or not timezone_name.strip():
+            return "UTC"
+        candidate = timezone_name.strip()
+        try:
+            ZoneInfo(candidate)
+        except ZoneInfoNotFoundError:
+            logger.warning(f"Unknown timezone '{candidate}' for Ghost API client, falling back to UTC")
+            return "UTC"
+        return candidate
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "GhostContentAPIClient":
@@ -66,6 +83,7 @@ class GhostContentAPIClient:
         """
         ghost_config = config.get("ghost", {})
         content_api_config = ghost_config.get("content_api", {})
+        from config import get_timezone_name
 
         api_url = content_api_config.get("url", "")
         api_key = content_api_config.get("key", "")
@@ -83,7 +101,8 @@ class GhostContentAPIClient:
             api_url=api_url,
             api_key=api_key,
             api_version=content_api_config.get("version", "v5.0"),
-            timeout=content_api_config.get("timeout", 30)
+            timeout=content_api_config.get("timeout", 30),
+            timezone_name=get_timezone_name(config),
         )
 
     def _build_url(self, endpoint: str) -> str:
@@ -238,7 +257,7 @@ class GhostContentAPIClient:
             return []
 
         # Calculate cutoff date
-        cutoff_date = datetime.now(ZoneInfo("UTC")) - timedelta(days=max_age_days)
+        cutoff_date = datetime.now(self.timezone) - timedelta(days=max_age_days)
         cutoff_str = cutoff_date.strftime("%Y-%m-%d")
 
         # Build filter for published posts after cutoff date

@@ -9,7 +9,7 @@ import threading
 import time
 from typing import Optional, List, Any, Dict
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from interactions.interaction_sync import InteractionSyncService
 from interactions.storage import InteractionDataStore
@@ -43,7 +43,8 @@ class InteractionScheduler:
         sync_interval_minutes: int = 30,
         max_post_age_days: int = 30,
         enabled: bool = True,
-        ghost_api_client: Optional[Any] = None
+        ghost_api_client: Optional[Any] = None,
+        timezone_name: str = "UTC",
     ):
         """
         Initialize the interaction scheduler.
@@ -54,12 +55,15 @@ class InteractionScheduler:
             max_post_age_days: Maximum age of posts to sync (default: 30 days)
             enabled: Whether scheduler is enabled (default: True)
             ghost_api_client: Optional Ghost Content API client for post discovery
+            timezone_name: IANA timezone name used for scheduler time calculations
         """
         self.sync_service = sync_service
         self.sync_interval_minutes = sync_interval_minutes
         self.max_post_age_days = max_post_age_days
         self.enabled = enabled
         self.ghost_api_client = ghost_api_client
+        self.timezone_name = self._normalize_timezone_name(timezone_name)
+        self.timezone = ZoneInfo(self.timezone_name)
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         # Cache for Ghost posts to reduce API calls
@@ -73,8 +77,26 @@ class InteractionScheduler:
             f"interval={sync_interval_minutes}min, "
             f"max_age={max_post_age_days}days, "
             f"enabled={enabled}, "
-            f"ghost_api={ghost_status}"
+            f"ghost_api={ghost_status}, "
+            f"timezone={self.timezone_name}"
         )
+
+    @staticmethod
+    def _normalize_timezone_name(timezone_name: str) -> str:
+        """Return a valid timezone name, falling back to UTC."""
+        if not isinstance(timezone_name, str) or not timezone_name.strip():
+            return "UTC"
+        candidate = timezone_name.strip()
+        try:
+            ZoneInfo(candidate)
+        except ZoneInfoNotFoundError:
+            logger.warning(f"Unknown timezone '{candidate}' for scheduler, falling back to UTC")
+            return "UTC"
+        return candidate
+
+    def _now(self) -> datetime:
+        """Return current datetime in scheduler timezone."""
+        return datetime.now(self.timezone)
 
     def start(self) -> None:
         """Start the scheduler in a background thread."""
@@ -235,7 +257,7 @@ class InteractionScheduler:
                 return 0.0
 
             syndicated_at = datetime.fromisoformat(syndicated_at_str.replace('Z', '+00:00'))
-            now = datetime.now(ZoneInfo("UTC"))
+            now = self._now()
             age = now - syndicated_at
             return age.total_seconds() / 86400  # Convert to days
 
@@ -267,11 +289,11 @@ class InteractionScheduler:
         elif post_age_days < 7:
             # Sync every 2nd cycle for posts 2-7 days old
             # Use hour of day to determine if we should sync
-            return datetime.now(ZoneInfo("UTC")).hour % 2 == 0
+            return self._now().hour % 2 == 0
         else:
             # Sync every 4th cycle for posts 7-30 days old
             # Use hour of day to determine if we should sync
-            return datetime.now(ZoneInfo("UTC")).hour % 4 == 0
+            return self._now().hour % 4 == 0
 
     def trigger_manual_sync(self, ghost_post_id: str) -> None:
         """
@@ -302,7 +324,7 @@ class InteractionScheduler:
         if not self.ghost_api_client or not self.ghost_api_client.enabled:
             return {}
 
-        now = datetime.now(ZoneInfo("UTC"))
+        now = self._now()
 
         # Check if cache is still valid
         if (self._ghost_posts_cache_time and
@@ -424,7 +446,7 @@ class InteractionScheduler:
             try:
                 published_at_str = ghost_post["published_at"]
                 published_at = datetime.fromisoformat(published_at_str.replace('Z', '+00:00'))
-                now = datetime.now(ZoneInfo("UTC"))
+                now = self._now()
                 age = now - published_at
                 return age.total_seconds() / 86400
             except Exception as e:

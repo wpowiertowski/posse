@@ -1,6 +1,10 @@
 # POSSE Multi-Account Configuration Example
 # This is a comprehensive example showing multi-account setup for Mastodon and Bluesky
 
+# Timezone for generated timestamps (IANA name, e.g. UTC or America/Los_Angeles)
+# Default: UTC
+timezone: "UTC"
+
 # CORS Configuration (Optional)
 # Enable cross-origin requests for the API endpoints (needed for browser-based widgets)
 cors:

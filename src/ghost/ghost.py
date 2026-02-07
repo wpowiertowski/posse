@@ -98,7 +98,7 @@ from jsonschema import validate, ValidationError, Draft7Validator
 
 from schema import GHOST_POST_SCHEMA
 from notifications.pushover import PushoverNotifier
-from config import load_config
+from config import load_config, get_timezone_name
 
 # Logging is configured in posse.py main() - this module uses the configured logger
 logger = logging.getLogger(__name__)
@@ -422,6 +422,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     # Reads from config.yml and Docker secrets
     if config is None:
         config = load_config()
+    timezone_name = get_timezone_name(config)
 
     # Configure CORS to allow requests from the blog domain(s)
     # Read origins from config.yml
@@ -447,6 +448,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     app.config["BLUESKY_CLIENTS"] = bluesky_clients or []
     app.config["LLM_CLIENT"] = llm_client
     app.config["GHOST_API_CLIENT"] = ghost_api_client
+    app.config["TIMEZONE"] = timezone_name
 
     # =================================================================
     # Security Configuration
@@ -1059,6 +1061,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     mastodon_clients=mastodon_clients,
                     bluesky_clients=bluesky_clients,
                     storage_path=storage_path,
+                    timezone_name=current_app.config.get("TIMEZONE", "UTC"),
                 )
 
                 # Attempt to discover syndication mapping
@@ -1305,7 +1308,11 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                 return jsonify({"error": "CAPTCHA verification failed. Please try again."}), 403
 
         # Build and store reply
-        reply = build_reply_record(data, client_ip)
+        reply = build_reply_record(
+            data,
+            client_ip,
+            timezone_name=current_app.config.get("TIMEZONE", "UTC"),
+        )
 
         storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data")
         store = InteractionDataStore(storage_path)

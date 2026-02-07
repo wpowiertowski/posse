@@ -21,6 +21,7 @@ import string
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 
@@ -166,7 +167,7 @@ def verify_turnstile(token: str, client_ip: str, secret_key: str) -> bool:
         return False
 
 
-def build_reply_record(data: Dict[str, Any], client_ip: str) -> Dict[str, Any]:
+def build_reply_record(data: Dict[str, Any], client_ip: str, timezone_name: str = "UTC") -> Dict[str, Any]:
     """Build a reply record ready for storage.
 
     Args:
@@ -177,6 +178,16 @@ def build_reply_record(data: Dict[str, Any], client_ip: str) -> Dict[str, Any]:
         Reply dict with id, author_name, author_url, content, target,
         ip_hash, and created_at fields.
     """
+    if not isinstance(timezone_name, str) or not timezone_name.strip():
+        timezone_name = "UTC"
+    else:
+        timezone_name = timezone_name.strip()
+    try:
+        tzinfo = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        logger.warning(f"Unknown timezone '{timezone_name}' for webmention replies, falling back to UTC")
+        tzinfo = ZoneInfo("UTC")
+
     return {
         "id": generate_reply_id(),
         "author_name": sanitize_text(data.get("author_name", ""), MAX_AUTHOR_NAME_LENGTH),
@@ -184,7 +195,7 @@ def build_reply_record(data: Dict[str, Any], client_ip: str) -> Dict[str, Any]:
         "content": sanitize_text(data.get("content", ""), MAX_CONTENT_LENGTH),
         "target": data["target"].strip(),
         "ip_hash": hash_ip(client_ip),
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "created_at": datetime.now(tzinfo).isoformat(),
     }
 
 

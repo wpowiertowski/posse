@@ -205,6 +205,15 @@ class TestUtilities:
     def test_sanitize_text_truncates(self):
         assert sanitize_text("hello world", 5) == "hello"
 
+    def test_build_reply_record_uses_configured_timezone(self):
+        reply = build_reply_record(
+            VALID_REPLY,
+            "127.0.0.1",
+            timezone_name="America/Los_Angeles",
+        )
+        # PST/PDT offsets vary by date; either offset is valid.
+        assert reply["created_at"].endswith("-08:00") or reply["created_at"].endswith("-07:00")
+
 
 # =========================================================================
 # Unit Tests: Storage
