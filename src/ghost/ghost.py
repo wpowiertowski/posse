@@ -1228,8 +1228,28 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         if blog_origin:
             css_link = f'<link rel="stylesheet" type="text/css" href="{blog_origin}/assets/css/style.css">'
             html_content = html_content.replace("__BLOG_CSS_LINK__", css_link)
+            fonts_style = (
+                "<style>"
+                "@font-face {"
+                "font-family: 'Montserrat';"
+                "font-style: normal;"
+                "font-weight: 400 700;"
+                "font-display: swap;"
+                f"src: url({blog_origin}/assets/fonts/Montserrat.woff2) format('woff2');"
+                "}"
+                "@font-face {"
+                "font-family: 'Montserrat';"
+                "font-style: italic;"
+                "font-weight: 400 700;"
+                "font-display: swap;"
+                f"src: url({blog_origin}/assets/fonts/Montserrat-Italic.woff2) format('woff2');"
+                "}"
+                "</style>"
+            )
+            html_content = html_content.replace("__BLOG_FONTS_STYLE__", fonts_style)
         else:
             html_content = html_content.replace("__BLOG_CSS_LINK__", "")
+            html_content = html_content.replace("__BLOG_FONTS_STYLE__", "")
 
         # Inject Turnstile site key via data attribute on the container div
         turnstile_key = current_app.config.get("REPLY_TURNSTILE_SITE_KEY", "")
