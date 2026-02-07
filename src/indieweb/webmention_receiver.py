@@ -13,8 +13,17 @@ W3C Webmention Spec: https://www.w3.org/TR/webmention/
 Receiving flow:
     1. Receive POST with source and target parameters
     2. Validate that target is a Ghost post URL
-    3. Asynchronously verify that source links to target
+    3. Verify that source links to target
     4. Store the webmention for later retrieval
+
+Widget integration:
+    The Ghost theme interactions widget can submit webmentions by POSTing
+    to /webmention with source (user's URL) and target (current post URL).
+    The endpoint supports both application/x-www-form-urlencoded and
+    application/json content types. CORS is handled by Flask-CORS globally.
+
+    The widget should auto-fill the target parameter with the current
+    Ghost post's canonical URL (window.location.href or a data attribute).
 
 Usage:
     The receiver is registered as a Flask route in ghost.py via
@@ -195,11 +204,19 @@ def _verify_source_links_to_target(source_url: str, target_url: str) -> tuple[bo
 def register_webmention_routes(app, config: Dict[str, Any]) -> None:
     """Register webmention receiver routes on the Flask app.
 
+    Registers:
+        - POST /webmention: Receive webmentions (W3C spec)
+        - GET /webmention: Endpoint discovery info
+        - GET /api/webmentions/<path>: Retrieve webmentions for a post
+
+    Also adds a Link header to all responses for webmention endpoint
+    discovery per the W3C spec (section 3.1.2).
+
     Args:
         app: Flask application instance
         config: Application configuration dictionary
     """
-    from flask import request, jsonify
+    from flask import request, jsonify, make_response
 
     # Extract blog URL from Ghost config
     ghost_config = config.get("ghost", {})
@@ -227,12 +244,30 @@ def register_webmention_routes(app, config: Dict[str, Any]) -> None:
     store = WebmentionStore()
     app.config["WEBMENTION_STORE"] = store
 
+    # Add Link header for webmention endpoint discovery on all responses
+    # Per W3C Webmention spec section 3.1.2: Sender discovers receiver's
+    # webmention endpoint via Link header or <link> element.
+    @app.after_request
+    def add_webmention_link_header(response):
+        """Add Link header advertising the webmention endpoint."""
+        response.headers.setdefault(
+            "Link",
+            f'</webmention>; rel="webmention"'
+        )
+        return response
+
     @app.route("/webmention", methods=["POST"])
     def receive_webmention():
         """W3C Webmention receiving endpoint.
 
-        Accepts POST requests with source and target parameters
-        (application/x-www-form-urlencoded or JSON).
+        Accepts POST requests with source and target parameters.
+        Supports both application/x-www-form-urlencoded (W3C spec default)
+        and application/json (for the Ghost interactions widget).
+
+        The Ghost interactions widget submits webmentions by:
+        1. Auto-filling target with the current post's canonical URL
+        2. Accepting source URL input from the user
+        3. POSTing to this endpoint as JSON
 
         Per the spec:
             - source: URL of the page that mentions the target
@@ -241,7 +276,6 @@ def register_webmention_routes(app, config: Dict[str, Any]) -> None:
         Returns:
             - 202 Accepted: Webmention accepted for processing
             - 400 Bad Request: Missing/invalid parameters
-            - 200 OK: On GET, returns endpoint info
         """
         # Parse source and target from form data or JSON
         if request.content_type and "json" in request.content_type:
@@ -316,20 +350,26 @@ def register_webmention_routes(app, config: Dict[str, Any]) -> None:
             )
 
         # Return 202 Accepted per W3C spec
-        return jsonify({
+        # Include verification_error so the widget can display feedback
+        response_data = {
             "status": "accepted",
-            "message": "Webmention received",
+            "message": "Webmention received and verified" if verified else "Webmention received but verification failed",
             "source": source,
             "target": target,
             "verified": verified,
-        }), 202
+        }
+        if not verified and error:
+            response_data["verification_error"] = error
+
+        return jsonify(response_data), 202
 
     @app.route("/webmention", methods=["GET"])
     def webmention_info():
         """Webmention endpoint discovery info.
 
-        Returns information about the webmention endpoint, useful for
-        endpoint discovery and testing.
+        Returns information about the webmention endpoint and the blog
+        it serves. The widget can use this to verify it's pointing at
+        the correct POSSE instance.
         """
         return jsonify({
             "status": "ok",
@@ -342,12 +382,19 @@ def register_webmention_routes(app, config: Dict[str, Any]) -> None:
     def get_webmentions(target_path: str):
         """Retrieve webmentions for a specific Ghost post.
 
+        The widget can call this to display received webmentions
+        alongside social media interactions.
+
         Args:
             target_path: The path portion of the Ghost post URL
                         (e.g., "my-post/" for https://blog.example.com/my-post/)
 
         Returns:
-            JSON list of webmentions for the target
+            JSON with webmentions for the target, each containing:
+            - source: URL of the mentioning page
+            - target: The Ghost post URL
+            - verified: Whether the source was verified
+            - received_at: Unix timestamp
         """
         # Reconstruct full target URL
         target_url = f"{blog_url}/{target_path}"

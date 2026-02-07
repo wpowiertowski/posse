@@ -437,6 +437,60 @@ class TestWebmentionEndpoint:
         assert mentions[0].verified is False
 
 
+    @patch("indieweb.webmention_receiver._verify_source_links_to_target")
+    def test_unverified_response_includes_error(self, mock_verify, client):
+        """Widget can display the verification error to the user."""
+        mock_verify.return_value = (False, "Source does not contain a link to the target URL")
+
+        response = client.post("/webmention", data={
+            "source": "https://other.site/no-link",
+            "target": "https://blog.example.com/my-post/",
+        })
+
+        assert response.status_code == 202
+        data = response.get_json()
+        assert data["verified"] is False
+        assert "verification_error" in data
+        assert "does not contain a link" in data["verification_error"]
+
+    @patch("indieweb.webmention_receiver._verify_source_links_to_target")
+    def test_verified_response_no_error(self, mock_verify, client):
+        """Successful verification should not include verification_error."""
+        mock_verify.return_value = (True, None)
+
+        response = client.post("/webmention", data={
+            "source": "https://other.site/reply",
+            "target": "https://blog.example.com/my-post/",
+        })
+
+        assert response.status_code == 202
+        data = response.get_json()
+        assert data["verified"] is True
+        assert "verification_error" not in data
+
+
+class TestWebmentionLinkHeader:
+    """Tests for the Link header advertising the webmention endpoint."""
+
+    def test_link_header_on_health(self, client):
+        """All responses should include the Link header for discovery."""
+        response = client.get("/health")
+        assert 'rel="webmention"' in response.headers.get("Link", "")
+
+    def test_link_header_on_webmention_get(self, client):
+        response = client.get("/webmention")
+        assert 'rel="webmention"' in response.headers.get("Link", "")
+
+    @patch("indieweb.webmention_receiver._verify_source_links_to_target")
+    def test_link_header_on_webmention_post(self, mock_verify, client):
+        mock_verify.return_value = (True, None)
+        response = client.post("/webmention", data={
+            "source": "https://other.site/reply",
+            "target": "https://blog.example.com/my-post/",
+        })
+        assert 'rel="webmention"' in response.headers.get("Link", "")
+
+
 class TestWebmentionGetEndpoint:
     """Tests for the GET /webmention endpoint."""
 
