@@ -1,9 +1,8 @@
 """
-IndieWeb News webmention sender.
+Webmention protocol implementation.
 
-Sends webmentions to IndieWeb News for posts tagged with 'indiewebnews'.
-The Ghost theme must include the u-syndication link to news.indieweb.org
-for the webmention to be accepted.
+Provides both generic W3C Webmention sending (with endpoint discovery)
+and the IndieWeb News-specific client.
 
 Webmention is a W3C standard for notifying a URL when you link to it.
 The protocol is simple:
@@ -13,19 +12,13 @@ The protocol is simple:
 
     source={your-post-url}&target={linked-url}
 
-For IndieWeb News, the endpoint is https://news.indieweb.org/en/webmention.
-
 Usage:
-    >>> from indieweb.webmention import IndieWebNewsClient
+    >>> from indieweb.webmention import send_webmention, IndieWebNewsClient
+    >>> # Generic webmention with endpoint discovery
+    >>> result = send_webmention("https://reply.example.com/reply/abc", "https://blog.example.com/post")
+    >>> # IndieWeb News specific
     >>> client = IndieWebNewsClient()
     >>> result = client.send_webmention("https://blog.example.com/my-post")
-    >>> if result.success:
-    ...     print("Webmention accepted")
-
-Expected Responses:
-    - Success (HTTP 200/201/202): Webmention accepted
-    - Error - No Link Found (HTTP 400): u-syndication link missing from post
-    - Error - Source Not Found (HTTP 400): Post URL returned 404
 
 References:
     - W3C Webmention: https://www.w3.org/TR/webmention/
@@ -33,8 +26,10 @@ References:
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
+from urllib.parse import urljoin
 
 import requests
 
@@ -249,3 +244,162 @@ def send_to_indieweb_news(post_url: str, config: Optional[Dict[str, Any]] = None
         client = IndieWebNewsClient()
 
     return client.send_webmention(post_url)
+
+
+# =========================================================================
+# Generic W3C Webmention: endpoint discovery + sending
+# =========================================================================
+
+def discover_webmention_endpoint(target_url: str, timeout: float = 30.0) -> Optional[str]:
+    """Discover the webmention endpoint for a target URL.
+
+    Follows the W3C Webmention discovery algorithm:
+    1. Check HTTP Link header for rel="webmention"
+    2. Parse HTML for <link rel="webmention"> or <a rel="webmention">
+
+    Args:
+        target_url: The URL to discover the webmention endpoint for.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        The absolute webmention endpoint URL, or None if not found.
+    """
+    try:
+        response = requests.get(
+            target_url,
+            headers={"Accept": "text/html"},
+            timeout=timeout,
+            allow_redirects=True,
+        )
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to fetch target for webmention discovery: {target_url}, error={e}")
+        return None
+
+    # 1. Check Link header
+    link_header = response.headers.get("Link", "")
+    if link_header:
+        # Match: <URL>; rel="webmention"  or  <URL>; rel=webmention
+        match = re.search(r'<([^>]+)>;\s*rel="?webmention"?', link_header)
+        if match:
+            return urljoin(target_url, match.group(1))
+
+    # 2. Parse HTML for <link> or <a> with rel="webmention"
+    html = response.text
+    # <link rel="webmention" href="...">
+    pattern1 = re.search(
+        r'<link[^>]+rel=["\']?webmention["\']?[^>]+href=["\']([^"\']+)["\']',
+        html, re.IGNORECASE,
+    )
+    if pattern1:
+        return urljoin(target_url, pattern1.group(1))
+
+    # <link href="..." rel="webmention">
+    pattern2 = re.search(
+        r'<link[^>]+href=["\']([^"\']+)["\'][^>]+rel=["\']?webmention["\']?',
+        html, re.IGNORECASE,
+    )
+    if pattern2:
+        return urljoin(target_url, pattern2.group(1))
+
+    # <a rel="webmention" href="...">
+    pattern3 = re.search(
+        r'<a[^>]+rel=["\']?webmention["\']?[^>]+href=["\']([^"\']+)["\']',
+        html, re.IGNORECASE,
+    )
+    if pattern3:
+        return urljoin(target_url, pattern3.group(1))
+
+    logger.info(f"No webmention endpoint found for: {target_url}")
+    return None
+
+
+def send_webmention(source_url: str, target_url: str, timeout: float = 30.0) -> WebmentionResult:
+    """Send a webmention from source to target with automatic endpoint discovery.
+
+    Discovers the webmention endpoint from the target URL, then sends
+    the webmention per W3C spec.
+
+    Args:
+        source_url: The URL of the page that mentions the target.
+        target_url: The URL being mentioned (the blog post).
+        timeout: Request timeout in seconds.
+
+    Returns:
+        WebmentionResult with success status and details.
+
+    Example:
+        >>> result = send_webmention(
+        ...     "https://reply.example.com/reply/abc123",
+        ...     "https://blog.example.com/my-post"
+        ... )
+        >>> if result.success:
+        ...     print("Webmention sent!")
+    """
+    # Discover endpoint
+    endpoint = discover_webmention_endpoint(target_url, timeout=timeout)
+    if not endpoint:
+        return WebmentionResult(
+            success=False,
+            status_code=0,
+            message=f"No webmention endpoint found for {target_url}",
+        )
+
+    logger.info(f"Sending webmention: source={source_url}, target={target_url}, endpoint={endpoint}")
+
+    try:
+        response = requests.post(
+            endpoint,
+            data={"source": source_url, "target": target_url},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=timeout,
+        )
+
+        if response.ok:
+            location = response.headers.get("Location")
+            logger.info(
+                f"Webmention accepted: source={source_url}, target={target_url}, "
+                f"status_code={response.status_code}, location={location}"
+            )
+            return WebmentionResult(
+                success=True,
+                status_code=response.status_code,
+                message="Webmention accepted",
+                location=location,
+            )
+
+        # Parse error
+        error_msg = _parse_error_response(response)
+        logger.warning(
+            f"Webmention rejected: source={source_url}, target={target_url}, "
+            f"status_code={response.status_code}, error={error_msg}"
+        )
+        return WebmentionResult(
+            success=False,
+            status_code=response.status_code,
+            message=error_msg,
+        )
+
+    except requests.exceptions.Timeout:
+        logger.error(f"Webmention request timed out: endpoint={endpoint}")
+        return WebmentionResult(success=False, status_code=0, message="Request timed out")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Webmention request failed: endpoint={endpoint}, error={e}")
+        return WebmentionResult(success=False, status_code=0, message=f"Request failed: {e}")
+
+
+def _parse_error_response(response: requests.Response) -> str:
+    """Parse error message from an HTTP response."""
+    try:
+        data = response.json()
+        if "error" in data:
+            return data.get("error_description", data["error"])
+    except Exception:
+        pass
+    try:
+        text = response.text.strip()
+        if text and len(text) < 200:
+            return f"HTTP {response.status_code}: {text}"
+    except Exception:
+        pass
+    return f"HTTP {response.status_code}: {response.reason}"

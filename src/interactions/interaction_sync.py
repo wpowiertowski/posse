@@ -9,7 +9,7 @@ import os
 import re
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from requests.exceptions import Timeout, RequestException
 
 from interactions.storage import InteractionDataStore
@@ -35,6 +35,7 @@ class InteractionSyncService:
         mastodon_clients: Optional[List[Any]] = None,
         bluesky_clients: Optional[List[Any]] = None,
         storage_path: str = "./data",
+        timezone_name: str = "UTC",
     ):
         """Initialize the interaction sync service.
 
@@ -42,10 +43,13 @@ class InteractionSyncService:
             mastodon_clients: List of MastodonClient instances
             bluesky_clients: List of BlueskyClient instances
             storage_path: Directory path for storing interaction data
+            timezone_name: IANA timezone name used for generated timestamps
         """
         self.mastodon_clients = mastodon_clients or []
         self.bluesky_clients = bluesky_clients or []
         self.storage_path = storage_path
+        self.timezone_name = self._normalize_timezone_name(timezone_name)
+        self.timezone = ZoneInfo(self.timezone_name)
 
         # Create storage directory if it doesn't exist
         os.makedirs(self.storage_path, mode=0o755, exist_ok=True)
@@ -54,8 +58,26 @@ class InteractionSyncService:
         logger.info(
             f"InteractionSyncService initialized with "
             f"{len(self.mastodon_clients)} Mastodon clients and "
-            f"{len(self.bluesky_clients)} Bluesky clients"
+            f"{len(self.bluesky_clients)} Bluesky clients "
+            f"(timezone={self.timezone_name})"
         )
+
+    @staticmethod
+    def _normalize_timezone_name(timezone_name: str) -> str:
+        """Return a valid timezone name, falling back to UTC."""
+        if not isinstance(timezone_name, str) or not timezone_name.strip():
+            return "UTC"
+        candidate = timezone_name.strip()
+        try:
+            ZoneInfo(candidate)
+        except ZoneInfoNotFoundError:
+            logger.warning(f"Unknown timezone '{candidate}' for interaction sync, falling back to UTC")
+            return "UTC"
+        return candidate
+
+    def _now_isoformat(self) -> str:
+        """Return current time in the configured timezone as ISO-8601."""
+        return datetime.now(self.timezone).isoformat()
 
     def sync_post_interactions(self, ghost_post_id: str) -> Dict[str, Any]:
         """
@@ -117,7 +139,7 @@ class InteractionSyncService:
         # Initialize result structure, preserving existing data as fallback
         interactions = {
             "ghost_post_id": ghost_post_id,
-            "updated_at": datetime.now(ZoneInfo("UTC")).isoformat(),
+            "updated_at": self._now_isoformat(),
             "syndication_links": {
                 "mastodon": existing_data.get("syndication_links", {}).get("mastodon", {}),
                 "bluesky": existing_data.get("syndication_links", {}).get("bluesky", {})
@@ -331,7 +353,7 @@ class InteractionSyncService:
                 "reblogs": status.get("reblogs_count", 0),
                 "replies": status.get("replies_count", 0),
                 "reply_previews": reply_previews,
-                "updated_at": datetime.now(ZoneInfo("UTC")).isoformat()
+                "updated_at": self._now_isoformat()
             }
 
         except Timeout as e:
@@ -421,7 +443,7 @@ class InteractionSyncService:
             "reblogs": total_reblogs,
             "replies": total_replies,
             "reply_previews": all_reply_previews[:20],  # Limit to 20 across all splits
-            "updated_at": datetime.now(ZoneInfo("UTC")).isoformat()
+            "updated_at": self._now_isoformat()
         }
 
     def _sync_bluesky_interactions(
@@ -500,7 +522,7 @@ class InteractionSyncService:
                     "reposts": repost_count,
                     "replies": reply_count,
                     "reply_previews": reply_previews,
-                    "updated_at": datetime.now(ZoneInfo("UTC")).isoformat()
+                    "updated_at": self._now_isoformat()
                 }
 
             except Exception as e:
@@ -601,7 +623,7 @@ class InteractionSyncService:
             "reposts": total_reposts,
             "replies": total_replies,
             "reply_previews": all_reply_previews[:20],  # Limit to 20 across all splits
-            "updated_at": datetime.now(ZoneInfo("UTC")).isoformat()
+            "updated_at": self._now_isoformat()
         }
 
     def _find_client(self, clients: List[Any], account_name: str) -> Optional[Any]:
@@ -668,7 +690,7 @@ class InteractionSyncService:
         """Return empty interaction data structure."""
         return {
             "ghost_post_id": ghost_post_id,
-            "updated_at": datetime.now(ZoneInfo("UTC")).isoformat(),
+            "updated_at": self._now_isoformat(),
             "syndication_links": {
                 "mastodon": {},
                 "bluesky": {}
@@ -794,7 +816,8 @@ class InteractionSyncService:
                                     platform="mastodon",
                                     account_name=client.account_name,
                                     post_data=post_data,
-                                    storage_path=self.storage_path
+                                    storage_path=self.storage_path,
+                                    timezone_name=self.timezone_name,
                                 )
 
                                 mapping_found = True
@@ -863,7 +886,8 @@ class InteractionSyncService:
                                     platform="bluesky",
                                     account_name=client.account_name,
                                     post_data=post_data,
-                                    storage_path=self.storage_path
+                                    storage_path=self.storage_path,
+                                    timezone_name=self.timezone_name,
                                 )
 
                                 mapping_found = True
@@ -942,7 +966,8 @@ def store_syndication_mapping(
     account_name: str,
     post_data: Dict[str, Any],
     storage_path: str = "./data",
-    split_info: Optional[Dict[str, Any]] = None
+    split_info: Optional[Dict[str, Any]] = None,
+    timezone_name: str = "UTC",
 ) -> None:
     """
     Store syndication mapping when a post is syndicated to a platform.
@@ -968,6 +993,7 @@ def store_syndication_mapping(
             - split_index: Index of this post in the split (0-based)
             - total_splits: Total number of split posts
             - image_url: URL of the image for this split
+        timezone_name: IANA timezone name used for generated timestamps
 
     Example:
         >>> # After posting to Mastodon (non-split)
@@ -994,10 +1020,11 @@ def store_syndication_mapping(
     mapping = data_store.get_syndication_mapping(ghost_post_id)
 
     if mapping is None:
+        tz_name = InteractionSyncService._normalize_timezone_name(timezone_name)
         mapping = {
             "ghost_post_id": ghost_post_id,
             "ghost_post_url": ghost_post_url,
-            "syndicated_at": datetime.now(ZoneInfo("UTC")).isoformat(),
+            "syndicated_at": datetime.now(ZoneInfo(tz_name)).isoformat(),
             "platforms": {}
         }
 

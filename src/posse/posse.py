@@ -432,17 +432,19 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
     bluesky_clients = bluesky_clients or []
 
     # Import here to avoid circular imports
-    from config import load_config
+    from config import load_config, get_timezone_name
     from llm import LLMClient
     
     # Load config and initialize notifier with error handling for test environments
     try:
         config = load_config()
+        timezone_name = get_timezone_name(config)
         notifier = PushoverNotifier.from_config(config)
         llm_client = LLMClient.from_config(config)
     except Exception as e:
         logger.warning(f"Failed to initialize notifier (this is expected in test environments): {e}")
         # Create a disabled notifier as fallback
+        timezone_name = "UTC"
         notifier = PushoverNotifier(config_enabled=False)
         llm_client = LLMClient(url="", enabled=False)
     
@@ -585,7 +587,8 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                                         "post_url": result_url
                                     },
                                     storage_path=current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data"),
-                                    split_info=split_info
+                                    split_info=split_info,
+                                    timezone_name=timezone_name,
                                 )
                             elif platform.lower() == "bluesky" and result_uri:
                                 store_syndication_mapping(
@@ -598,7 +601,8 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                                         "post_url": result_url
                                     },
                                     storage_path=current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data"),
-                                    split_info=split_info
+                                    split_info=split_info,
+                                    timezone_name=timezone_name,
                                 )
                         except Exception as mapping_error:
                             logger.warning(f"Failed to store syndication mapping: {mapping_error}")
@@ -822,7 +826,7 @@ def main(debug: bool = False) -> None:
     # Import dependencies
     from gunicorn.app.base import BaseApplication
     from ghost.ghost import create_app
-    from config import load_config
+    from config import load_config, get_timezone_name
     from social.mastodon_client import MastodonClient
     from social.bluesky_client import BlueskyClient
     import sys
@@ -873,6 +877,7 @@ def main(debug: bool = False) -> None:
     # Load configuration
     logger.info("Loading configuration from config.yml")
     config = load_config()
+    timezone_name = get_timezone_name(config)
     
     # Initialize Pushover notifier
     notifier = PushoverNotifier.from_config(config)
@@ -939,6 +944,7 @@ def main(debug: bool = False) -> None:
         mastodon_clients=mastodon_clients,
         bluesky_clients=bluesky_clients,
         storage_path=storage_path,
+        timezone_name=timezone_name,
     )
 
     logger.info("Initializing interaction scheduler")
@@ -947,7 +953,8 @@ def main(debug: bool = False) -> None:
         sync_interval_minutes=sync_interval_minutes,
         max_post_age_days=max_post_age_days,
         enabled=interactions_enabled,
-        ghost_api_client=ghost_api_client
+        ghost_api_client=ghost_api_client,
+        timezone_name=timezone_name,
     )
 
     if interactions_enabled:

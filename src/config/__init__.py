@@ -15,9 +15,11 @@ import yaml
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 logger = logging.getLogger(__name__)
+DEFAULT_TIMEZONE = "UTC"
 
 
 def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
@@ -61,6 +63,11 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     try:
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
+            if not isinstance(config, dict):
+                logger.warning("Configuration root must be a mapping, using default configuration")
+                return get_default_config()
+            # Validate timezone at load time to keep behavior consistent everywhere.
+            config["timezone"] = get_timezone_name(config)
             logger.info(f"Loaded configuration from {config_path}")
             return config or {}
     except FileNotFoundError:
@@ -78,6 +85,7 @@ def get_default_config() -> Dict[str, Any]:
         Dictionary with default configuration values
     """
     return {
+        "timezone": DEFAULT_TIMEZONE,
         "cors": {
             "enabled": False,
             "origins": []
@@ -88,6 +96,28 @@ def get_default_config() -> Dict[str, Any]:
             "user_key_file": "/run/secrets/pushover_user_key"
         }
     }
+
+
+def get_timezone_name(config: Dict[str, Any]) -> str:
+    """Return a validated timezone name from config, with UTC fallback."""
+    tz_name = config.get("timezone", DEFAULT_TIMEZONE)
+    if not isinstance(tz_name, str) or not tz_name.strip():
+        logger.warning(f"Invalid timezone configuration {tz_name!r}; falling back to {DEFAULT_TIMEZONE}")
+        return DEFAULT_TIMEZONE
+
+    tz_name = tz_name.strip()
+    try:
+        ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        logger.warning(f"Unknown timezone '{tz_name}'; falling back to {DEFAULT_TIMEZONE}")
+        return DEFAULT_TIMEZONE
+
+    return tz_name
+
+
+def get_timezone(config: Dict[str, Any]) -> ZoneInfo:
+    """Return a validated ZoneInfo instance from config."""
+    return ZoneInfo(get_timezone_name(config))
 
 
 def read_secret_file(filepath: str) -> Optional[str]:

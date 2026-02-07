@@ -69,6 +69,10 @@ docker pull wpowiertowski/posse:latest
 Create a `config.yml` file in the project root (use `config.example.yml` as a template):
 
 ```yaml
+# Optional: Timezone for generated timestamps (IANA format)
+# Defaults to UTC when omitted or invalid
+timezone: "UTC"
+
 # Optional: Enable LLM for automatic alt text generation
 llm:
   enabled: false  # Set to true to enable automatic alt text generation

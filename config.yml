@@ -75,6 +75,24 @@ pushover:
 #   max_post_age_days: 30
 #   cache_directory: "./data"
 
+# Webmention Reply Form Configuration
+# Enable a self-hosted reply form that allows visitors without their own
+# websites to send webmentions (replies) to your blog posts.
+#
+# The reply is stored locally and served as an h-entry page, then a
+# webmention is sent to your blog's webmention endpoint (e.g. webmention.io).
+#
+# Example configuration:
+# webmention_reply:
+#   enabled: true
+#   blog_name: "Behind the Viewfinder"
+#   allowed_target_origins:
+#     - "https://behindtheviewfinder.com"
+#   rate_limit: 5                  # Max replies per IP per hour
+#   rate_limit_window_seconds: 3600
+#   turnstile_site_key: ""         # Cloudflare Turnstile public key
+#   turnstile_secret_key_file: /run/secrets/turnstile_secret_key
+
 # IndieWeb Configuration
 # Enable IndieWeb integration for webmention sending
 #

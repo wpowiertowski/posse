@@ -9,7 +9,13 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from config import load_config, get_default_config, read_secret_file
+from config import (
+    load_config,
+    get_default_config,
+    read_secret_file,
+    get_timezone_name,
+    get_timezone,
+)
 
 
 def test_get_default_config():
@@ -17,6 +23,7 @@ def test_get_default_config():
     config = get_default_config()
     
     assert "pushover" in config
+    assert config["timezone"] == "UTC"
     assert config["pushover"]["enabled"] is False
     assert config["pushover"]["app_token_file"] == "/run/secrets/pushover_app_token"
     assert config["pushover"]["user_key_file"] == "/run/secrets/pushover_user_key"
@@ -91,3 +98,20 @@ def test_read_secret_file_with_whitespace():
         assert secret == "test_secret"
     finally:
         os.unlink(temp_path)
+
+
+def test_get_timezone_name_default():
+    assert get_timezone_name({}) == "UTC"
+
+
+def test_get_timezone_name_valid():
+    assert get_timezone_name({"timezone": "America/Los_Angeles"}) == "America/Los_Angeles"
+
+
+def test_get_timezone_name_invalid_falls_back_to_utc():
+    assert get_timezone_name({"timezone": "Not/A_Real_Zone"}) == "UTC"
+
+
+def test_get_timezone_returns_zoneinfo():
+    tz = get_timezone({"timezone": "America/Los_Angeles"})
+    assert getattr(tz, "key", None) == "America/Los_Angeles"
