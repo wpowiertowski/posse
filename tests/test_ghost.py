@@ -39,6 +39,7 @@ import json
 import pytest
 from pathlib import Path
 from queue import Queue
+from unittest.mock import patch, Mock
 
 # Import Flask app factory and validation functions
 from ghost.ghost import create_app, validate_ghost_post, GhostPostValidationError
@@ -697,3 +698,60 @@ class TestSecurityDiscoveryCooldown:
 
             # Absolute path outside base
             assert is_safe_path(tmpdir, "/etc/passwd") is False
+
+
+def test_webmention_accepts_reply_to_configured_ghost_post():
+    """Webmention endpoint accepts valid replies to configured Ghost posts."""
+    app = create_app(Queue(), config={"ghost": {"content_api": {"url": "https://blog.example.com"}}})
+
+    with patch("ghost.ghost.requests.get") as mock_get:
+        mock_response = Mock()
+        mock_response.text = '<a class="u-in-reply-to" href="https://blog.example.com/posts/target/">reply</a>'
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        with app.test_client() as client:
+            response = client.post("/webmention", data={
+                "source": "https://commenter.example/reply",
+                "target": "https://blog.example.com/posts/target/",
+            })
+
+        assert response.status_code == 202
+        data = response.get_json()
+        assert data["status"] == "success"
+
+
+def test_webmention_rejects_non_ghost_target():
+    """Webmention endpoint rejects targets that are not on configured Ghost host."""
+    app = create_app(Queue(), config={"ghost": {"content_api": {"url": "https://blog.example.com"}}})
+
+    with app.test_client() as client:
+        response = client.post("/webmention", data={
+            "source": "https://commenter.example/reply",
+            "target": "https://other.example/posts/target/",
+        })
+
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data["message"] == "Target must be a Ghost post URL"
+
+
+def test_webmention_rejects_without_in_reply_to_marker():
+    """Webmention endpoint only accepts source documents marking the target as a reply."""
+    app = create_app(Queue(), config={"ghost": {"content_api": {"url": "https://blog.example.com"}}})
+
+    with patch("ghost.ghost.requests.get") as mock_get:
+        mock_response = Mock()
+        mock_response.text = '<a href="https://blog.example.com/posts/target/">plain link</a>'
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        with app.test_client() as client:
+            response = client.post("/webmention", json={
+                "source": "https://commenter.example/reply",
+                "target": "https://blog.example.com/posts/target/",
+            })
+
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data["message"] == "Webmention source must mark the target as in-reply-to"

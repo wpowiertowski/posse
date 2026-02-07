@@ -91,7 +91,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 from queue import Queue
+from urllib.parse import urlparse
 
+import requests
 from flask import Flask, request, jsonify, current_app
 from flask_cors import CORS
 from jsonschema import validate, ValidationError, Draft7Validator
@@ -384,6 +386,31 @@ def sanitize_error_message(error: Exception) -> str:
     # Default generic message
     return "Service temporarily unavailable"
 
+
+def _is_valid_http_url(url: str) -> bool:
+    """Validate that a URL uses HTTP(S) and has a hostname."""
+    if not isinstance(url, str) or not url.strip():
+        return False
+
+    try:
+        parsed = urlparse(url)
+        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
+def _source_has_reply_link(source_html: str, target_url: str) -> bool:
+    """Check source HTML for an in-reply-to reference to the target URL."""
+    escaped_target = re.escape(target_url)
+    reply_patterns = [
+        rf'<a[^>]*href=["\']{escaped_target}["\'][^>]*rel=["\'][^"\']*in-reply-to[^"\']*["\']',
+        rf'<a[^>]*rel=["\'][^"\']*in-reply-to[^"\']*["\'][^>]*href=["\']{escaped_target}["\']',
+        rf'<[^>]*class=["\'][^"\']*u-in-reply-to[^"\']*["\'][^>]*href=["\']{escaped_target}["\']',
+        rf'<[^>]*href=["\']{escaped_target}["\'][^>]*class=["\'][^"\']*u-in-reply-to[^"\']*["\']',
+    ]
+
+    return any(re.search(pattern, source_html, re.IGNORECASE) for pattern in reply_patterns)
+
 # Create validator for better error messages
 # Draft7Validator provides detailed validation error context including
 # the path to the failing field and the specific constraint violated
@@ -484,6 +511,10 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     app.config["INTERNAL_API_TOKEN"] = internal_token
     if internal_token:
         logger.info("Internal API token configured for protected endpoints")
+
+    # Hostname used to validate webmention targets for the public endpoint
+    ghost_site_url = config.get("ghost", {}).get("content_api", {}).get("url")
+    app.config["WEBMENTION_GHOST_HOST"] = (urlparse(ghost_site_url).netloc.lower() if ghost_site_url else None)
     
     @app.route("/webhook/ghost/post-updated", methods=["POST"])
     def receive_ghost_post_update():
@@ -816,6 +847,64 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         """
         return jsonify({"status": "healthy"}), 200
     
+
+
+    @app.route("/webmention", methods=["POST"])
+    def receive_webmention():
+        """Receive webmention requests and only accept replies to Ghost posts."""
+        source = request.form.get("source")
+        target = request.form.get("target")
+
+        if request.is_json:
+            payload = request.get_json(silent=True) or {}
+            source = source or payload.get("source")
+            target = target or payload.get("target")
+
+        if not _is_valid_http_url(source or "") or not _is_valid_http_url(target or ""):
+            return jsonify({
+                "status": "error",
+                "message": "Both source and target must be valid HTTP(S) URLs"
+            }), 400
+
+        target_host = urlparse(target).netloc.lower()
+        ghost_host = current_app.config.get("WEBMENTION_GHOST_HOST")
+        if not ghost_host:
+            return jsonify({
+                "status": "error",
+                "message": "Ghost URL not configured for webmention verification"
+            }), 503
+
+        if target_host != ghost_host:
+            return jsonify({
+                "status": "error",
+                "message": "Target must be a Ghost post URL"
+            }), 400
+
+        try:
+            response = requests.get(
+                source,
+                timeout=10,
+                headers={"User-Agent": "POSSE-Webmention-Receiver/1.0"},
+            )
+            response.raise_for_status()
+        except requests.RequestException:
+            return jsonify({
+                "status": "error",
+                "message": "Unable to fetch source URL"
+            }), 400
+
+        if not _source_has_reply_link(response.text, target):
+            return jsonify({
+                "status": "error",
+                "message": "Webmention source must mark the target as in-reply-to"
+            }), 400
+
+        logger.info(f"Accepted webmention reply: source={source}, target={target}")
+        return jsonify({
+            "status": "success",
+            "message": "Webmention accepted"
+        }), 202
+
     @app.route("/api/interactions/<ghost_post_id>", methods=["GET"])
     def get_interactions(ghost_post_id: str):
         """
