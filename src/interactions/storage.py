@@ -262,6 +262,19 @@ class InteractionDataStore:
             logger.error(f"Failed to read reply {reply_id}: {e}")
         return None
 
+    def delete_reply(self, reply_id: str) -> bool:
+        """Delete a webmention reply by ID."""
+        try:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM webmention_replies WHERE id = ?",
+                    (reply_id,),
+                )
+                return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.error(f"Failed to delete reply {reply_id}: {e}")
+            raise
+
     def list_syndication_mappings(self) -> list[Dict[str, Any]]:
         """Return all syndication mappings stored in SQLite."""
         mappings: list[Dict[str, Any]] = []

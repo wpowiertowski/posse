@@ -101,11 +101,24 @@
             border-radius: 8px;
             padding: 0.75rem 1rem;
             margin-bottom: 1.5rem;
-            font-size: 0.8125rem;
-            word-break: break-all;
         }
-        .target-info .label { color: var(--color-secondary, #666); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
-        .target-info .url { color: var(--color-primary, #111); margin-top: 0.25rem; font-size: 0.8125rem; }
+        .target-info label {
+            margin-bottom: 0.5rem;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .target-lock-input {
+            width: 100%;
+            padding: 0.7rem 0.9rem;
+            background: var(--color-bg-muted, #f4f4f5);
+            border: 1px solid var(--color-border, rgba(0,0,0,0.16));
+            border-radius: 6px;
+            color: var(--color-text-highlight, #111);
+            font-size: 0.8125rem;
+            font-family: inherit;
+            cursor: not-allowed;
+        }
 
         form { display: flex; flex-direction: column; gap: 1rem; }
 
@@ -166,6 +179,22 @@
         .status.success { display: block; background: rgba(46,160,67,0.15); border: 1px solid rgba(46,160,67,0.3); color: #3fb950; }
         .status.error { display: block; background: rgba(248,81,73,0.15); border: 1px solid rgba(248,81,73,0.3); color: #f85149; }
 
+        .validation-message {
+            display: none;
+            margin-bottom: 1.5rem;
+            padding: 0.85rem 1rem;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            background: rgba(248,81,73,0.15);
+            border: 1px solid rgba(248,81,73,0.3);
+            color: #f85149;
+        }
+        .validation-message strong { display: block; margin-bottom: 0.25rem; }
+
+        .container[data-target-valid="false"] #reply-form { display: none; }
+        .container[data-target-valid="false"] #target-info { display: none !important; }
+        .container[data-target-valid="false"] #invalid-target-message { display: block; }
+
         .info-section {
             margin-top: 2rem;
             padding-top: 1.5rem;
@@ -189,13 +218,21 @@
             <article class="reply-card post-content">
                 <h1>Send a Webmention</h1>
                 <p class="subtitle">
-                    Reply to a post using <a href="https://indieweb.org/Webmention" target="_blank" rel="noopener">Webmention</a>.
-                    Your reply will appear in the responses section.
+                    <strong>What is a webmention, you ask?</strong>
+                    A <a href="https://indieweb.org/Webmention" target="_blank" rel="noopener">Webmention</a> lets one website notify another about a reply or mention.
+                    If your site already supports webmentions, reply there instead which will let our blogs interact with each other.
+                    If it does not, this page can send a webmention to my post for you.
                 </p>
 
                 <div class="target-info" id="target-info" style="display:none">
-                    <div class="label">Replying to</div>
-                    <div class="url" id="target-url"></div>
+                    <label for="target-readonly">Replying to</label>
+                    <input type="url" id="target-readonly" class="target-lock-input" readonly aria-readonly="true" tabindex="-1">
+                    <div class="field-hint">This URL is locked. To target a different post, open that post and use its "Send a Webmention" link.</div>
+                </div>
+
+                <div class="validation-message" id="invalid-target-message">
+                    <strong>Cannot open reply form</strong>
+                    <p id="invalid-target-text">__TARGET_ERROR_MESSAGE__</p>
                 </div>
 
                 <form id="reply-form" method="POST">
@@ -234,10 +271,9 @@
 
                 <div class="info-section">
                     <p>
-                        <strong>What is a Webmention?</strong><br>
-                        A Webmention is a web standard (W3C) for conversations across websites.
-                        When you reply here, your response is sent as a webmention to the original post
-                        and will appear in its responses section.
+                        <strong>How this form works</strong><br>
+                        After you submit, this service publishes a small reply page and sends a webmention to the post above.
+                        Once the receiver verifies it, your reply can appear in the post's responses section.
                     </p>
                 </div>
             </article>
@@ -251,6 +287,21 @@
             // Configuration is injected by the server as data attributes
             var container = document.querySelector('.container');
             var TURNSTILE_SITE_KEY = container.getAttribute('data-turnstile-key') || '';
+            var TARGET_VALID = container.getAttribute('data-target-valid');
+            var TARGET_ERROR = container.getAttribute('data-target-error') || '';
+            var form = document.getElementById('reply-form');
+            var submitBtn = document.getElementById('submit-btn');
+            var invalidTargetText = document.getElementById('invalid-target-text');
+
+            if (TARGET_VALID === 'false') {
+                if (TARGET_ERROR && invalidTargetText) {
+                    invalidTargetText.textContent = TARGET_ERROR;
+                }
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                }
+                return;
+            }
 
             // Parse target URL from query string
             var params = new URLSearchParams(window.location.search);
@@ -259,16 +310,16 @@
             if (target) {
                 try {
                     var parsed = new URL(target);
-                    document.getElementById('target-url').textContent = parsed.href;
+                    document.getElementById('target-readonly').value = parsed.href;
                     document.getElementById('target-info').style.display = 'block';
                     document.getElementById('target-input').value = parsed.href;
                 } catch (e) {
                     showStatus('Invalid target URL.', 'error');
-                    document.getElementById('submit-btn').disabled = true;
+                    submitBtn.disabled = true;
                 }
             } else {
                 showStatus('No target URL specified. Please use the "Send a Webmention" button from a blog post.', 'error');
-                document.getElementById('submit-btn').disabled = true;
+                submitBtn.disabled = true;
             }
 
             // Character counter
@@ -294,9 +345,6 @@
             }
 
             // Form submission
-            var form = document.getElementById('reply-form');
-            var submitBtn = document.getElementById('submit-btn');
-
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
 
@@ -326,8 +374,11 @@
                 .then(function(res) { return res.json().then(function(data) { return { ok: res.ok, data: data }; }); })
                 .then(function(result) {
                     if (result.ok) {
+                        var lockedTarget = form.target.value;
                         showStatus('Reply sent! It may take a few minutes to appear in the responses.', 'success');
                         form.reset();
+                        form.target.value = lockedTarget;
+                        document.getElementById('target-readonly').value = lockedTarget;
                         charCountEl.textContent = '0 / 2000';
                     } else {
                         showStatus(result.data.error || 'Something went wrong. Please try again.', 'error');

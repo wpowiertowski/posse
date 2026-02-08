@@ -46,11 +46,13 @@ class WebmentionResult:
         status_code: HTTP status code from the response (0 for connection errors)
         message: Human-readable status message
         location: Optional status URL returned by some endpoints
+        endpoint: Optional webmention endpoint URL used for this send
     """
     success: bool
     status_code: int
     message: str
     location: Optional[str] = None
+    endpoint: Optional[str] = None
 
 
 class IndieWebNewsClient:
@@ -343,6 +345,7 @@ def send_webmention(source_url: str, target_url: str, timeout: float = 30.0) -> 
             success=False,
             status_code=0,
             message=f"No webmention endpoint found for {target_url}",
+            endpoint=None,
         )
 
     logger.info(f"Sending webmention: source={source_url}, target={target_url}, endpoint={endpoint}")
@@ -366,6 +369,7 @@ def send_webmention(source_url: str, target_url: str, timeout: float = 30.0) -> 
                 status_code=response.status_code,
                 message="Webmention accepted",
                 location=location,
+                endpoint=endpoint,
             )
 
         # Parse error
@@ -378,14 +382,15 @@ def send_webmention(source_url: str, target_url: str, timeout: float = 30.0) -> 
             success=False,
             status_code=response.status_code,
             message=error_msg,
+            endpoint=endpoint,
         )
 
     except requests.exceptions.Timeout:
         logger.error(f"Webmention request timed out: endpoint={endpoint}")
-        return WebmentionResult(success=False, status_code=0, message="Request timed out")
+        return WebmentionResult(success=False, status_code=0, message="Request timed out", endpoint=endpoint)
     except requests.exceptions.RequestException as e:
         logger.error(f"Webmention request failed: endpoint={endpoint}, error={e}")
-        return WebmentionResult(success=False, status_code=0, message=f"Request failed: {e}")
+        return WebmentionResult(success=False, status_code=0, message=f"Request failed: {e}", endpoint=endpoint)
 
 
 def _parse_error_response(response: requests.Response) -> str:

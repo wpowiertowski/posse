@@ -83,6 +83,7 @@ Classes:
     GhostPostValidationError: Custom exception for schema validation failures
 """
 import hmac
+import html
 import json
 import logging
 import os
@@ -91,6 +92,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 from queue import Queue
+from urllib.parse import urlparse, unquote
 
 from flask import Flask, request, jsonify, current_app
 from flask_cors import CORS
@@ -180,6 +182,86 @@ def is_safe_path(base_path: str, file_path: str) -> bool:
         return target.is_relative_to(base)
     except (ValueError, RuntimeError):
         return False
+
+
+def normalize_url_for_comparison(url: str) -> str:
+    """Normalize URL for equality checks (ignore query/fragment/trailing slash)."""
+    parsed = urlparse(url.strip())
+    scheme = parsed.scheme.lower()
+    netloc = parsed.netloc.lower()
+    path = parsed.path or "/"
+    if path != "/":
+        path = path.rstrip("/") or "/"
+    return f"{scheme}://{netloc}{path}"
+
+
+def validate_reply_target_post(
+    target_url: str,
+    allowed_origins: list,
+    ghost_api_client: Optional[Any],
+) -> Optional[str]:
+    """Validate target URL points to an allowed, existing canonical Ghost post."""
+    target_url = (target_url or "").strip()
+    if not target_url:
+        return "Target URL is required."
+
+    try:
+        parsed = urlparse(target_url)
+    except Exception:
+        return "Invalid target URL."
+
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return "Invalid target URL."
+
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    if origin not in allowed_origins:
+        return "Target URL is not from an allowed site."
+
+    path_parts = [part for part in parsed.path.split("/") if part]
+    if not path_parts:
+        return "Target URL must point to a post."
+
+    if not ghost_api_client or not getattr(ghost_api_client, "enabled", False):
+        logger.error("Reply target verification unavailable: Ghost Content API client is not configured")
+        return "Reply target verification is unavailable. Please try again later."
+
+    slug = unquote(path_parts[-1]).strip()
+    if not slug:
+        return "Target URL must point to a post."
+
+    post = ghost_api_client.get_post_by_slug(slug)
+    if not post:
+        return "Target post does not exist."
+
+    post_url = (post.get("url") or "").strip()
+    if not post_url:
+        return "Target post does not exist."
+
+    if normalize_url_for_comparison(post_url) != normalize_url_for_comparison(target_url):
+        return "Target URL must match the canonical post URL."
+
+    return None
+
+
+def is_webmention_io_refusal(result: Any) -> bool:
+    """Return True when a webmention failed with a 4xx response from webmention.io."""
+    if not result or getattr(result, "success", False):
+        return False
+
+    status_code = getattr(result, "status_code", 0) or 0
+    if status_code < 400 or status_code >= 500:
+        return False
+
+    endpoint = (getattr(result, "endpoint", "") or "").strip()
+    if not endpoint:
+        return False
+
+    try:
+        host = (urlparse(endpoint).hostname or "").lower()
+    except Exception:
+        return False
+
+    return host == "webmention.io" or host.endswith(".webmention.io")
 
 
 def check_discovery_cooldown(post_id: str) -> bool:
@@ -1196,7 +1278,6 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             return jsonify({"error": "Webmention reply form is not enabled"}), 404
 
         import os as _os
-        from urllib.parse import urlparse
         static_dir = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "static")
         html_path = _os.path.join(static_dir, "reply.html")
 
@@ -1211,6 +1292,25 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         # This keeps the reply form visually aligned with the Ghost theme.
         allowed_origins = current_app.config.get("REPLY_ALLOWED_TARGET_ORIGINS", [])
         target_url = request.args.get("url") or request.args.get("target") or ""
+        target_form_error = None
+        if target_url:
+            target_form_error = validate_reply_target_post(
+                target_url,
+                allowed_origins,
+                current_app.config.get("GHOST_API_CLIENT"),
+            )
+        else:
+            target_form_error = (
+                'The requested post URL is invalid or missing. '
+                'Open a published post and use its "Send a Webmention" link.'
+            )
+
+        if target_form_error:
+            logger.info(
+                f"Reply form target rejected before render: target={target_url or '<missing>'}, "
+                f"error={target_form_error}"
+            )
+
         blog_origin = ""
 
         if target_url:
@@ -1251,13 +1351,28 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             html_content = html_content.replace("__BLOG_CSS_LINK__", "")
             html_content = html_content.replace("__BLOG_FONTS_STYLE__", "")
 
-        # Inject Turnstile site key via data attribute on the container div
+        # Inject container data attributes
         turnstile_key = current_app.config.get("REPLY_TURNSTILE_SITE_KEY", "")
+        container_attrs = []
         if turnstile_key:
-            html_content = html_content.replace(
-                '<div class="container">',
-                f'<div class="container" data-turnstile-key="{turnstile_key}">',
-            )
+            container_attrs.append(f'data-turnstile-key="{html.escape(turnstile_key, quote=True)}"')
+        if target_form_error:
+            container_attrs.append('data-target-valid="false"')
+            container_attrs.append(f'data-target-error="{html.escape(target_form_error, quote=True)}"')
+        else:
+            container_attrs.append('data-target-valid="true"')
+
+        attr_suffix = ""
+        if container_attrs:
+            attr_suffix = " " + " ".join(container_attrs)
+        html_content = html_content.replace(
+            '<div class="container">',
+            f'<div class="container"{attr_suffix}>',
+        )
+        html_content = html_content.replace(
+            "__TARGET_ERROR_MESSAGE__",
+            html.escape(target_form_error or "The requested post URL is invalid."),
+        )
 
         return html_content, 200, {
             "Content-Type": "text/html; charset=utf-8",
@@ -1273,6 +1388,8 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             "X-Content-Type-Options": "nosniff",
             "X-Frame-Options": "DENY",
             "Referrer-Policy": "strict-origin-when-cross-origin",
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
         }
 
     @app.route("/api/webmention/reply", methods=["POST"])
@@ -1353,6 +1470,16 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             if not verify_turnstile(token, client_ip, turnstile_secret):
                 return jsonify({"error": "CAPTCHA verification failed. Please try again."}), 403
 
+        # Enforce that target URL points to a canonical, existing post
+        target_error = validate_reply_target_post(
+            data.get("target", ""),
+            allowed_origins,
+            current_app.config.get("GHOST_API_CLIENT"),
+        )
+        if target_error:
+            status_code = 503 if "unavailable" in target_error.lower() else 400
+            return jsonify({"error": target_error}), status_code
+
         # Build and store reply
         reply = build_reply_record(
             data,
@@ -1370,9 +1497,17 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
 
         logger.info(f"Reply stored: id={reply['id']}, target={reply['target']}, author={reply['author_name']}")
 
-        # Send webmention in background thread
-        source_url = request.url_root.rstrip("/") + f"/reply/{reply['id']}"
+        # Send webmention in background thread. Build source URL from target origin
+        # so canonical HTTPS host is used even behind internal HTTP reverse proxies.
         target_url = reply["target"]
+        source_origin = request.url_root.rstrip("/")
+        try:
+            parsed_target = urlparse(target_url)
+            if parsed_target.scheme in ("http", "https") and parsed_target.netloc:
+                source_origin = f"{parsed_target.scheme}://{parsed_target.netloc}"
+        except Exception:
+            pass
+        source_url = source_origin.rstrip("/") + f"/reply/{reply['id']}"
 
         def _send():
             try:
@@ -1381,6 +1516,23 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     logger.info(f"Webmention sent for reply {reply['id']}: {result.message}")
                 else:
                     logger.warning(f"Webmention failed for reply {reply['id']}: {result.message}")
+                    if is_webmention_io_refusal(result):
+                        try:
+                            removed = store.delete_reply(reply["id"])
+                            if removed:
+                                logger.warning(
+                                    f"Dropped reply {reply['id']} after webmention.io refusal "
+                                    f"(status={result.status_code}, endpoint={result.endpoint})"
+                                )
+                            else:
+                                logger.warning(
+                                    f"Reply {reply['id']} not found while attempting rollback "
+                                    f"after webmention.io refusal"
+                                )
+                        except Exception as cleanup_exc:
+                            logger.error(
+                                f"Failed to delete refused reply {reply['id']} from storage: {cleanup_exc}"
+                            )
             except Exception as exc:
                 logger.error(f"Webmention send error for reply {reply['id']}: {exc}")
 

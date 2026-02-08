@@ -59,12 +59,27 @@ def reply_config():
 
 
 @pytest.fixture
-def app_with_replies(reply_config, tmp_path):
+def ghost_api_client():
+    """Ghost API client fixture that recognizes only known canonical posts."""
+    client = MagicMock()
+    client.enabled = True
+
+    def _get_post_by_slug(slug: str):
+        if slug == "my-post":
+            return {"url": "https://blog.example.com/my-post/"}
+        return None
+
+    client.get_post_by_slug.side_effect = _get_post_by_slug
+    return client
+
+
+@pytest.fixture
+def app_with_replies(reply_config, tmp_path, ghost_api_client):
     """Flask test app with reply endpoints enabled."""
     reply_config["interactions"]["cache_directory"] = str(tmp_path)
     reply_config["webmention_reply"]["storage_path"] = str(tmp_path)
     q = Queue()
-    app = create_app(q, config=reply_config)
+    app = create_app(q, config=reply_config, ghost_api_client=ghost_api_client)
     app.config["INTERACTIONS_STORAGE_PATH"] = str(tmp_path)
     app.config["TESTING"] = True
     return app
@@ -239,6 +254,16 @@ class TestReplyStorage:
         with pytest.raises(Exception):
             store.put_reply(reply)
 
+    def test_delete_reply(self, store):
+        reply = build_reply_record(VALID_REPLY, "127.0.0.1")
+        store.put_reply(reply)
+
+        assert store.delete_reply(reply["id"]) is True
+        assert store.get_reply(reply["id"]) is None
+
+    def test_delete_reply_nonexistent(self, store):
+        assert store.delete_reply("missing-reply-id") is False
+
 
 # =========================================================================
 # Unit Tests: Rendering
@@ -367,12 +392,26 @@ class TestSendWebmention:
 
 class TestReplyFormEndpoint:
     def test_serves_form(self, client):
-        resp = client.get("/webmention?url=https://blog.example.com/post")
+        resp = client.get("/webmention?url=https://blog.example.com/my-post/")
         assert resp.status_code == 200
         assert b"Send a Webmention" in resp.data
+        assert b'data-target-valid="true"' in resp.data
+        assert resp.headers.get("Cache-Control") == "no-store, max-age=0"
         assert b"Content-Security-Policy" in b"\r\n".join(
             f"{k}: {v}".encode() for k, v in resp.headers
         )
+
+    def test_invalid_target_shows_invalid_state(self, client):
+        resp = client.get("/webmention?url=https://blog.example.com/does-not-exist/")
+        assert resp.status_code == 200
+        assert b'data-target-valid="false"' in resp.data
+        assert b"Target post does not exist." in resp.data
+
+    def test_missing_target_shows_invalid_state(self, client):
+        resp = client.get("/webmention")
+        assert resp.status_code == 200
+        assert b'data-target-valid="false"' in resp.data
+        assert b"invalid or missing" in resp.data
 
     def test_disabled_returns_404(self):
         config = {
@@ -387,6 +426,17 @@ class TestReplyFormEndpoint:
 
 
 class TestSubmitReplyEndpoint:
+    class _ImmediateThread:
+        """Thread stub that runs target immediately for deterministic tests."""
+
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+            self.daemon = daemon
+
+        def start(self):
+            if self._target:
+                self._target()
+
     @patch("indieweb.webmention.send_webmention")
     def test_successful_submission(self, mock_send, client):
         mock_send.return_value = WebmentionResult(success=True, status_code=202, message="ok")
@@ -399,6 +449,22 @@ class TestSubmitReplyEndpoint:
         data = resp.get_json()
         assert data["ok"] is True
         assert "id" in data
+
+    @patch("threading.Thread", _ImmediateThread)
+    @patch("indieweb.webmention.send_webmention")
+    def test_source_url_uses_target_origin(self, mock_send, client):
+        mock_send.return_value = WebmentionResult(success=True, status_code=202, message="ok")
+        resp = client.post(
+            "/api/webmention/reply",
+            json=VALID_REPLY,
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        reply_id = resp.get_json()["id"]
+
+        called_source, called_target = mock_send.call_args[0]
+        assert called_source == f"https://blog.example.com/reply/{reply_id}"
+        assert called_target == VALID_REPLY["target"]
 
     def test_missing_name(self, client):
         data = {**VALID_REPLY, "author_name": ""}
@@ -416,6 +482,24 @@ class TestSubmitReplyEndpoint:
         resp = client.post("/api/webmention/reply", json=data, content_type="application/json")
         assert resp.status_code == 400
         assert "allowed" in resp.get_json()["error"].lower()
+
+    def test_target_post_must_exist(self, client):
+        data = {**VALID_REPLY, "target": "https://blog.example.com/does-not-exist/"}
+        resp = client.post("/api/webmention/reply", json=data, content_type="application/json")
+        assert resp.status_code == 400
+        assert "does not exist" in resp.get_json()["error"].lower()
+
+    def test_target_must_match_canonical_post_url(self, client):
+        data = {**VALID_REPLY, "target": "https://blog.example.com/2026/my-post/"}
+        resp = client.post("/api/webmention/reply", json=data, content_type="application/json")
+        assert resp.status_code == 400
+        assert "canonical" in resp.get_json()["error"].lower()
+
+    def test_target_root_url_rejected(self, client):
+        data = {**VALID_REPLY, "target": "https://blog.example.com/"}
+        resp = client.post("/api/webmention/reply", json=data, content_type="application/json")
+        assert resp.status_code == 400
+        assert "must point to a post" in resp.get_json()["error"].lower()
 
     def test_honeypot_silently_accepted(self, client):
         data = {**VALID_REPLY, "website": "http://spam.com"}
@@ -447,6 +531,86 @@ class TestSubmitReplyEndpoint:
             "/api/webmention/reply", json=VALID_REPLY, content_type="application/json"
         )
         assert resp.status_code == 404
+
+    def test_target_verification_unavailable_without_ghost_api(self):
+        config = {
+            "webmention_reply": {
+                "enabled": True,
+                "allowed_target_origins": ["https://blog.example.com"],
+            },
+            "interactions": {"cache_directory": ""},
+            "cors": {"enabled": False},
+            "pushover": {"enabled": False},
+        }
+        app = create_app(Queue(), config=config)
+        app.config["TESTING"] = True
+        with tempfile.TemporaryDirectory() as tmp:
+            app.config["INTERACTIONS_STORAGE_PATH"] = tmp
+            resp = app.test_client().post(
+                "/api/webmention/reply", json=VALID_REPLY, content_type="application/json"
+            )
+            assert resp.status_code == 503
+            assert "verification" in resp.get_json()["error"].lower()
+
+    @patch("threading.Thread", _ImmediateThread)
+    @patch("indieweb.webmention.send_webmention")
+    def test_refused_webmention_io_reply_is_deleted(self, mock_send, client, app_with_replies):
+        mock_send.return_value = WebmentionResult(
+            success=False,
+            status_code=400,
+            message="invalid_source",
+            endpoint="https://webmention.io/behindtheviewfinder.com/webmention",
+        )
+        resp = client.post(
+            "/api/webmention/reply",
+            json=VALID_REPLY,
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        reply_id = resp.get_json()["id"]
+
+        store = InteractionDataStore(app_with_replies.config["INTERACTIONS_STORAGE_PATH"])
+        assert store.get_reply(reply_id) is None
+
+    @patch("threading.Thread", _ImmediateThread)
+    @patch("indieweb.webmention.send_webmention")
+    def test_non_refusal_failure_keeps_reply(self, mock_send, client, app_with_replies):
+        mock_send.return_value = WebmentionResult(
+            success=False,
+            status_code=0,
+            message="Request timed out",
+            endpoint="https://webmention.io/behindtheviewfinder.com/webmention",
+        )
+        resp = client.post(
+            "/api/webmention/reply",
+            json=VALID_REPLY,
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        reply_id = resp.get_json()["id"]
+
+        store = InteractionDataStore(app_with_replies.config["INTERACTIONS_STORAGE_PATH"])
+        assert store.get_reply(reply_id) is not None
+
+    @patch("threading.Thread", _ImmediateThread)
+    @patch("indieweb.webmention.send_webmention")
+    def test_webmention_io_invalid_target_reply_is_deleted(self, mock_send, client, app_with_replies):
+        mock_send.return_value = WebmentionResult(
+            success=False,
+            status_code=404,
+            message="target domain not found on this account",
+            endpoint="https://webmention.io/behindtheviewfinder.com/webmention",
+        )
+        resp = client.post(
+            "/api/webmention/reply",
+            json=VALID_REPLY,
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        reply_id = resp.get_json()["id"]
+
+        store = InteractionDataStore(app_with_replies.config["INTERACTIONS_STORAGE_PATH"])
+        assert store.get_reply(reply_id) is None
 
 
 class TestReplyPageEndpoint:
