@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.1.2] - 2026-02-08
+
+### Added
+
+- Self-hosted webmention reply workflow: reply form (`GET /webmention`), submission API (`POST /api/webmention/reply`), and published h-entry reply pages (`GET /reply/<reply_id>`)
+- SQLite-backed `webmention_replies` table with get/store/delete operations in interaction storage
+- Configurable project timezone (`timezone`) with validation and UTC fallback
+- Comprehensive reply feature tests (`tests/test_webmention_reply.py`) and timezone config coverage in `tests/test_config.py`
+
+### Changed
+
+- Ghost Content API client, interaction sync service, scheduler, and syndication mapping timestamps now use configured timezone instead of fixed UTC
+- Reply target validation now requires allowed origin, existing Ghost post lookup by slug, and canonical URL match before submission is accepted
+- Reply source URL generation now prefers target origin to keep canonical host behavior behind reverse proxies
+- Reply form and reply h-entry pages now reuse Ghost theme assets (stylesheet and Montserrat fonts) for visual consistency
+- `README.md` reorganized into a concise entry point with dedicated feature guides
+- Local runtime `data/` directory is now ignored in `.gitignore`
+
+### Security
+
+- Hardened webmention reply handling for `webmention.io` refusals: stored replies are removed when delivery is rejected with 4xx responses
+- Tightened reply form and reply page HTTP headers (CSP, `X-Content-Type-Options`, `X-Frame-Options`, referrer policy, and cache controls)
+
+### Documentation
+
+- Added focused guides: `docs/SYNDICATION_GUIDE.md`, `docs/WEBMENTION_REPLY_GUIDE.md`, and `docs/INDIEWEB_NEWS_GUIDE.md`
+- Updated README feature list, endpoints, quick-start flow, and guide cross-links
+- Expanded `config.example.yml` and `config.yml` comments for timezone and webmention reply configuration
+
+
 ## [1.1.1] - 2026-02-06
 
 ### Changed
@@ -148,7 +178,8 @@ Key capabilities:
 - Secure credential management using Docker secrets
 - JSON schema validation for all webhook payloads
 
-[Unreleased]: https://github.com/wpowiertowski/posse/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/wpowiertowski/posse/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/wpowiertowski/posse/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/wpowiertowski/posse/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/wpowiertowski/posse/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/wpowiertowski/posse/releases/tag/v1.0.3
