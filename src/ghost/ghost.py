@@ -1264,6 +1264,69 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     # Webmention Reply Endpoints
     # =================================================================
 
+    def _resolve_reply_theme_assets(target_url: str) -> tuple[str, str]:
+        """Build CSS/font injections for reply pages using allowed Ghost origins."""
+        allowed_origins = current_app.config.get("REPLY_ALLOWED_TARGET_ORIGINS", [])
+        blog_origin = ""
+
+        if target_url:
+            try:
+                parsed_target = urlparse(target_url)
+                candidate_origin = f"{parsed_target.scheme}://{parsed_target.netloc}"
+                if candidate_origin in allowed_origins:
+                    blog_origin = candidate_origin
+            except Exception:
+                blog_origin = ""
+
+        if not blog_origin and allowed_origins:
+            blog_origin = allowed_origins[0]
+
+        if not blog_origin:
+            return "", ""
+
+        safe_origin = html.escape(blog_origin.rstrip("/"), quote=True)
+        css_link = f'<link rel="stylesheet" type="text/css" href="{safe_origin}/assets/css/style.css">'
+        fonts_style = (
+            "<style>"
+            "@font-face {"
+            "font-family: 'Montserrat';"
+            "font-style: normal;"
+            "font-weight: 400 700;"
+            "font-display: swap;"
+            f"src: url({safe_origin}/assets/fonts/Montserrat.woff2) format('woff2');"
+            "}"
+            "@font-face {"
+            "font-family: 'Montserrat';"
+            "font-style: italic;"
+            "font-weight: 400 700;"
+            "font-display: swap;"
+            f"src: url({safe_origin}/assets/fonts/Montserrat-Italic.woff2) format('woff2');"
+            "}"
+            "</style>"
+        )
+        return css_link, fonts_style
+
+    def _load_reply_form_style_block() -> str:
+        """Extract the shared inline style block from src/static/reply.html."""
+        import os as _os
+
+        static_dir = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "static")
+        html_path = _os.path.join(static_dir, "reply.html")
+        try:
+            with open(html_path, "r") as f:
+                reply_form_html = f.read()
+        except FileNotFoundError:
+            logger.warning(f"Reply form HTML not found while loading shared styles: {html_path}")
+            return ""
+
+        style_start = reply_form_html.find("<style>")
+        style_end = reply_form_html.find("</style>", style_start)
+        if style_start == -1 or style_end == -1:
+            logger.warning("Shared style block missing in reply form HTML; using fallback reply styles.")
+            return ""
+
+        return reply_form_html[style_start:style_end + len("</style>")]
+
     @app.route("/webmention", methods=["GET"])
     def serve_reply_form():
         """Serve the webmention reply form.
@@ -1288,8 +1351,6 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             logger.error(f"Reply form HTML not found at {html_path}")
             return jsonify({"error": "Reply form not available"}), 500
 
-        # Resolve blog theme CSS URL from allowed origins and current target.
-        # This keeps the reply form visually aligned with the Ghost theme.
         allowed_origins = current_app.config.get("REPLY_ALLOWED_TARGET_ORIGINS", [])
         target_url = request.args.get("url") or request.args.get("target") or ""
         target_form_error = None
@@ -1311,45 +1372,9 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                 f"error={target_form_error}"
             )
 
-        blog_origin = ""
-
-        if target_url:
-            try:
-                parsed_target = urlparse(target_url)
-                candidate_origin = f"{parsed_target.scheme}://{parsed_target.netloc}"
-                if candidate_origin in allowed_origins:
-                    blog_origin = candidate_origin
-            except Exception:
-                blog_origin = ""
-
-        if not blog_origin and allowed_origins:
-            blog_origin = allowed_origins[0]
-
-        if blog_origin:
-            css_link = f'<link rel="stylesheet" type="text/css" href="{blog_origin}/assets/css/style.css">'
-            html_content = html_content.replace("__BLOG_CSS_LINK__", css_link)
-            fonts_style = (
-                "<style>"
-                "@font-face {"
-                "font-family: 'Montserrat';"
-                "font-style: normal;"
-                "font-weight: 400 700;"
-                "font-display: swap;"
-                f"src: url({blog_origin}/assets/fonts/Montserrat.woff2) format('woff2');"
-                "}"
-                "@font-face {"
-                "font-family: 'Montserrat';"
-                "font-style: italic;"
-                "font-weight: 400 700;"
-                "font-display: swap;"
-                f"src: url({blog_origin}/assets/fonts/Montserrat-Italic.woff2) format('woff2');"
-                "}"
-                "</style>"
-            )
-            html_content = html_content.replace("__BLOG_FONTS_STYLE__", fonts_style)
-        else:
-            html_content = html_content.replace("__BLOG_CSS_LINK__", "")
-            html_content = html_content.replace("__BLOG_FONTS_STYLE__", "")
+        css_link, fonts_style = _resolve_reply_theme_assets(target_url)
+        html_content = html_content.replace("__BLOG_CSS_LINK__", css_link)
+        html_content = html_content.replace("__BLOG_FONTS_STYLE__", fonts_style)
 
         # Inject container data attributes
         turnstile_key = current_app.config.get("REPLY_TURNSTILE_SITE_KEY", "")
@@ -1568,12 +1593,26 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             return "Not Found", 404
 
         blog_name = current_app.config.get("REPLY_BLOG_NAME", "Blog")
-        html_content = render_reply_hentry(reply, blog_name)
+        css_link, fonts_style = _resolve_reply_theme_assets(reply.get("target", ""))
+        html_content = render_reply_hentry(
+            reply,
+            blog_name,
+            css_link=css_link,
+            fonts_style=fonts_style,
+            shared_style=_load_reply_form_style_block(),
+        )
 
         return html_content, 200, {
             "Content-Type": "text/html; charset=utf-8",
+            "Content-Security-Policy": (
+                "default-src 'none'; "
+                "style-src 'self' 'unsafe-inline' https:; "
+                "img-src 'self' data: https:; "
+                "font-src 'self' data: https:"
+            ),
             "X-Content-Type-Options": "nosniff",
             "X-Frame-Options": "DENY",
+            "Referrer-Policy": "strict-origin-when-cross-origin",
             "Cache-Control": "public, max-age=86400",
         }
 

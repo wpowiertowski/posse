@@ -199,15 +199,25 @@ def build_reply_record(data: Dict[str, Any], client_ip: str, timezone_name: str 
     }
 
 
-def render_reply_hentry(reply: Dict[str, Any], blog_name: str = "Blog") -> str:
-    """Render a reply as an h-entry HTML page.
+def render_reply_hentry(
+    reply: Dict[str, Any],
+    blog_name: str = "Blog",
+    *,
+    css_link: str = "",
+    fonts_style: str = "",
+    shared_style: str = "",
+) -> str:
+    """Render a stored reply as an h-entry page.
 
-    The generated page contains microformats2 markup (h-entry, h-card,
-    u-in-reply-to) that webmention.io can parse to extract the reply.
+    The output keeps the same microformats2 data while matching the visual
+    shell used by the /webmention page.
 
     Args:
         reply: Reply record from storage.
         blog_name: Display name for the blog.
+        css_link: Optional stylesheet link tag injected by the Flask route.
+        fonts_style: Optional @font-face style tag injected by the Flask route.
+        shared_style: Optional shared style block copied from src/static/reply.html.
 
     Returns:
         Complete HTML page as a string.
@@ -220,7 +230,9 @@ def render_reply_hentry(reply: Dict[str, Any], blog_name: str = "Blog") -> str:
     author_url = reply.get("author_url", "")
     if author_url:
         escaped_url = html.escape(author_url)
-        author_link = f'<a class="p-name u-url" href="{escaped_url}" rel="nofollow noopener">{escaped_name}</a>'
+        author_link = (
+            f'<a class="p-name u-url" href="{escaped_url}" rel="nofollow noopener">{escaped_name}</a>'
+        )
     else:
         author_link = f'<span class="p-name">{escaped_name}</span>'
 
@@ -231,37 +243,146 @@ def render_reply_hentry(reply: Dict[str, Any], blog_name: str = "Blog") -> str:
     except Exception:
         display_date = created
 
+    if not shared_style:
+        shared_style = """<style>
+        :root {
+            --color-white: #fff;
+            --color-gray-100: #f4f4f5;
+            --color-gray-200: #e4e4e7;
+            --color-gray-400: #a1a1aa;
+            --color-gray-600: #52525b;
+            --color-gray-800: #27272a;
+            --color-gray-900: #18181b;
+            --color-bg: var(--color-gray-900);
+            --color-bg-muted: var(--color-gray-800);
+            --color-text: #e4e4e7;
+            --color-text-muted: var(--color-gray-400);
+            --color-text-highlight: var(--color-white);
+            --color-border: var(--color-gray-800);
+            --color-primary: #7c7cff;
+            --font-primary: 'Montserrat', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        }
+        html { font-family: var(--font-primary); font-size: 100%; }
+        body {
+            background: var(--color-bg);
+            color: var(--color-text);
+            min-height: 100vh;
+            line-height: 1.5;
+            margin: 0;
+        }
+        .reply-main { padding: 3rem 1rem; }
+        .container { width: 100%; max-width: 760px; margin: 0 auto; }
+        .reply-card {
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            background: var(--color-bg);
+        }
+        h1 {
+            font-size: 1.125rem;
+            margin: 0 0 1.25rem 0;
+            color: var(--color-text-highlight);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+        .subtitle {
+            color: var(--color-text);
+            font-size: 0.875rem;
+            margin: 0 0 1.5rem 0;
+            line-height: 1.5;
+        }
+        .target-info {
+            background: var(--color-bg);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--color-text-muted);
+        }
+        .info-section {
+            margin-top: 1.5rem;
+            border-top: 1px solid var(--color-border);
+            padding-top: 1rem;
+            color: var(--color-text-muted);
+            font-size: 0.8125rem;
+        }
+        </style>"""
+
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark-mode">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Reply by {escaped_name}</title>
   <meta name="robots" content="noindex, nofollow">
+  {css_link}
+  {fonts_style}
+  {shared_style}
   <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; background: #1a1a2e; color: #e0e0e0; }}
-    .h-entry {{ background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 1.5rem; }}
-    .p-author {{ font-weight: 600; margin-bottom: 0.5rem; }}
-    .p-author a {{ color: #7c7cff; text-decoration: none; }}
-    .e-content {{ line-height: 1.6; margin: 1rem 0; white-space: pre-wrap; }}
-    .meta {{ font-size: 0.8rem; color: #888; }}
-    .meta a {{ color: #7c7cff; text-decoration: none; }}
-    .u-in-reply-to {{ word-break: break-all; }}
+    .reply-view {{ display: flex; flex-direction: column; gap: 1rem; }}
+    .reply-view .target-info {{ margin-bottom: 0; }}
+    .reply-view .p-author {{
+        color: var(--color-text-highlight, #fff);
+        font-weight: 600;
+        line-height: 1.4;
+    }}
+    .reply-view .p-author a {{
+        color: var(--color-primary, #7c7cff);
+        text-decoration: none;
+    }}
+    .reply-view .p-author a:hover {{ text-decoration: underline; }}
+    .reply-view .e-content {{
+        color: var(--color-text-highlight, #fff);
+        line-height: 1.6;
+        white-space: pre-wrap;
+    }}
+    .reply-target-link {{
+        display: block;
+        color: var(--color-primary, #7c7cff);
+        text-decoration: none;
+        word-break: break-word;
+    }}
+    .reply-target-link:hover {{ text-decoration: underline; }}
+    .reply-meta {{
+        margin-top: 0.5rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--color-border, rgba(255,255,255,0.1));
+    }}
+    .reply-meta .dt-published {{ color: var(--color-text-muted, #a1a1aa); }}
   </style>
 </head>
-<body>
-  <article class="h-entry">
-    <div class="p-author h-card">
-      {author_link}
+<body class="post-template">
+  <main id="main" class="content outer reply-main">
+    <div class="container">
+      <article class="reply-card post-content h-entry">
+        <h1>Webmention Reply</h1>
+        <p class="subtitle">This published reply was sent via the webmention form on {escaped_blog}.</p>
+        <div class="reply-view">
+          <div class="target-info">
+            <label>Author</label>
+            <div class="p-author h-card">{author_link}</div>
+          </div>
+          <div class="target-info">
+            <label>Reply</label>
+            <div class="e-content p-name">{escaped_content}</div>
+          </div>
+          <div class="target-info">
+            <label>In reply to</label>
+            <a class="u-in-reply-to reply-target-link" href="{escaped_target}">{escaped_target}</a>
+          </div>
+        </div>
+        <div class="info-section reply-meta">
+          <time class="dt-published" datetime="{created}">{display_date}</time>
+        </div>
+      </article>
     </div>
-    <div class="e-content p-name">{escaped_content}</div>
-    <div class="meta">
-      <time class="dt-published" datetime="{created}">{display_date}</time>
-      &middot; In reply to <a class="u-in-reply-to" href="{escaped_target}">{escaped_target}</a>
-    </div>
-  </article>
-  <p style="margin-top:1rem;font-size:0.8rem;color:#666;">
-    This reply was submitted via the webmention reply form on {escaped_blog}.
-  </p>
+  </main>
 </body>
 </html>"""
