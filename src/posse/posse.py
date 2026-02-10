@@ -197,21 +197,23 @@ def _extract_post_data(post: Dict[str, Any]) -> tuple[str, str, str, List[str], 
     logger.debug(f"Post domain: {post_domain}")
     
     # Extract all unique images from post and their alt text
-    images = set()
+    # Use a dict to track seen images while preserving insertion order
+    seen_images: Dict[str, bool] = {}
     alt_text_map: Dict[str, str] = {}
-    
-    # Add feature_image if present and local
+
+    # Add feature_image if present and local (will be placed first)
     feature_image = post.get("feature_image")
     if feature_image:
         if _is_local_image(feature_image, post_domain):
-            images.add(feature_image)
+            seen_images[feature_image] = True
             # Feature images typically don't have alt text in Ghost
             alt_text_map[feature_image] = post.get("feature_image_alt", "")
         else:
             logger.info(f"Skipping external feature image: {feature_image}")
-    
-    # Extract images and alt text from HTML content
+
+    # Extract images and alt text from HTML content (preserving document order)
     html_content = post.get("html", "")
+    html_image_order: list[str] = []
     if html_content:
         # Use HTML parser for robust image extraction
         parser = ImageExtractor()
@@ -219,7 +221,9 @@ def _extract_post_data(post: Dict[str, Any]) -> tuple[str, str, str, List[str], 
             parser.feed(html_content)
             for img_url, alt_text in parser.images:
                 if _is_local_image(img_url, post_domain):
-                    images.add(img_url)
+                    if img_url not in seen_images:
+                        seen_images[img_url] = True
+                        html_image_order.append(img_url)
                     # Store alt text if provided
                     if alt_text:
                         alt_text_map[img_url] = alt_text
@@ -227,15 +231,15 @@ def _extract_post_data(post: Dict[str, Any]) -> tuple[str, str, str, List[str], 
                     logger.info(f"Skipping external image: {img_url}")
         except Exception as e:
             logger.warning(f"Failed to parse HTML for images: {e}")
-    
-    # Convert to sorted list for consistent ordering, with featured image first
-    images_list = sorted(list(images))
-    
-    # Ensure featured image is first if it exists
-    if feature_image and feature_image in images_list:
-        images_list.remove(feature_image)
-        images_list.insert(0, feature_image)
-    
+
+    # Build final list: featured image first, then remaining in HTML document order
+    images_list: list[str] = []
+    if feature_image and feature_image in seen_images:
+        images_list.append(feature_image)
+    for img_url in html_image_order:
+        if img_url not in images_list:
+            images_list.append(img_url)
+
     images = images_list
     
     # Create media descriptions list matching images order

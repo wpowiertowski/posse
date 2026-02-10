@@ -221,7 +221,7 @@ def test_image_deduplication():
     Verifies:
     1. If the same image appears multiple times in HTML, it's only counted once
     2. If feature_image matches an image in HTML, it's only counted once
-    3. Images are sorted for consistent ordering
+    3. Images preserve HTML document order
     """
     from posse.posse import events_queue
     
