@@ -313,25 +313,25 @@ class TestWebmentionDiscovery:
     @patch("indieweb.webmention.requests.get")
     def test_discover_from_link_header(self, mock_get):
         mock_resp = MagicMock()
-        mock_resp.headers = {"Link": '<https://webmention.io/example/webmention>; rel="webmention"'}
+        mock_resp.headers = {"Link": '<https://wm.example.com/webmention>; rel="webmention"'}
         mock_resp.ok = True
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
 
         endpoint = discover_webmention_endpoint("https://example.com/post")
-        assert endpoint == "https://webmention.io/example/webmention"
+        assert endpoint == "https://wm.example.com/webmention"
 
     @patch("indieweb.webmention.requests.get")
     def test_discover_from_html_link(self, mock_get):
         mock_resp = MagicMock()
         mock_resp.headers = {}
-        mock_resp.text = '<html><head><link rel="webmention" href="https://webmention.io/x/webmention" /></head></html>'
+        mock_resp.text = '<html><head><link rel="webmention" href="https://wm.example.com/x/webmention" /></head></html>'
         mock_resp.ok = True
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
 
         endpoint = discover_webmention_endpoint("https://example.com/post")
-        assert endpoint == "https://webmention.io/x/webmention"
+        assert endpoint == "https://wm.example.com/x/webmention"
 
     @patch("indieweb.webmention.requests.get")
     def test_discover_from_html_link_reverse_attrs(self, mock_get):
@@ -367,11 +367,11 @@ class TestSendWebmention:
     @patch("indieweb.webmention.discover_webmention_endpoint")
     @patch("indieweb.webmention.requests.post")
     def test_successful_send(self, mock_post, mock_discover):
-        mock_discover.return_value = "https://webmention.io/example/webmention"
+        mock_discover.return_value = "https://wm.example.com/webmention"
         mock_resp = MagicMock()
         mock_resp.ok = True
         mock_resp.status_code = 202
-        mock_resp.headers = {"Location": "https://webmention.io/status/123"}
+        mock_resp.headers = {"Location": "https://wm.example.com/status/123"}
         mock_post.return_value = mock_resp
 
         result = send_webmention("https://reply.example.com/reply/abc", "https://blog.example.com/post")
@@ -554,12 +554,12 @@ class TestSubmitReplyEndpoint:
 
     @patch("threading.Thread", _ImmediateThread)
     @patch("indieweb.webmention.send_webmention")
-    def test_refused_webmention_io_reply_is_deleted(self, mock_send, client, app_with_replies):
+    def test_refused_4xx_reply_is_deleted(self, mock_send, client, app_with_replies):
         mock_send.return_value = WebmentionResult(
             success=False,
             status_code=400,
             message="invalid_source",
-            endpoint="https://webmention.io/behindtheviewfinder.com/webmention",
+            endpoint="https://example.com/webmention",
         )
         resp = client.post(
             "/api/webmention/reply",
@@ -579,7 +579,7 @@ class TestSubmitReplyEndpoint:
             success=False,
             status_code=0,
             message="Request timed out",
-            endpoint="https://webmention.io/behindtheviewfinder.com/webmention",
+            endpoint="https://example.com/webmention",
         )
         resp = client.post(
             "/api/webmention/reply",
@@ -594,12 +594,12 @@ class TestSubmitReplyEndpoint:
 
     @patch("threading.Thread", _ImmediateThread)
     @patch("indieweb.webmention.send_webmention")
-    def test_webmention_io_invalid_target_reply_is_deleted(self, mock_send, client, app_with_replies):
+    def test_404_refusal_reply_is_deleted(self, mock_send, client, app_with_replies):
         mock_send.return_value = WebmentionResult(
             success=False,
             status_code=404,
-            message="target domain not found on this account",
-            endpoint="https://webmention.io/behindtheviewfinder.com/webmention",
+            message="target domain not found",
+            endpoint="https://example.com/webmention",
         )
         resp = client.post(
             "/api/webmention/reply",
@@ -611,6 +611,27 @@ class TestSubmitReplyEndpoint:
 
         store = InteractionDataStore(app_with_replies.config["INTERACTIONS_STORAGE_PATH"])
         assert store.get_reply(reply_id) is None
+
+    @patch("threading.Thread", _ImmediateThread)
+    @patch("indieweb.webmention.send_webmention")
+    def test_5xx_failure_keeps_reply(self, mock_send, client, app_with_replies):
+        """Server errors should not delete the reply (may be transient)."""
+        mock_send.return_value = WebmentionResult(
+            success=False,
+            status_code=500,
+            message="Internal Server Error",
+            endpoint="https://example.com/webmention",
+        )
+        resp = client.post(
+            "/api/webmention/reply",
+            json=VALID_REPLY,
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        reply_id = resp.get_json()["id"]
+
+        store = InteractionDataStore(app_with_replies.config["INTERACTIONS_STORAGE_PATH"])
+        assert store.get_reply(reply_id) is not None
 
 
 class TestReplyPageEndpoint:

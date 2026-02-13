@@ -345,24 +345,26 @@ class PushoverNotifier:
             priority=-1  # Low priority (no sound)
         )
 
-    def notify_indieweb_success(self, post_title: str, post_url: str) -> bool:
-        """Send notification when a post is successfully submitted to IndieWeb News.
+    def notify_webmention_success(self, post_title: str, post_url: str, target_name: str = "webmention target") -> bool:
+        """Send notification when a webmention is successfully sent.
 
         Args:
             post_title: Title of the Ghost post
             post_url: URL of the published post
+            target_name: Human-readable name of the webmention target
 
         Returns:
             True if notification sent successfully, False otherwise
 
         Example:
-            >>> notifier.notify_indieweb_success(
-            ...     "My IndieWeb Post",
-            ...     "https://blog.example.com/my-post"
+            >>> notifier.notify_webmention_success(
+            ...     "My Post",
+            ...     "https://blog.example.com/my-post",
+            ...     "IndieWeb News"
             ... )
         """
-        title = "🌐 IndieWeb News"
-        message = f"Post submitted to IndieWeb News:\n{post_title}"
+        title = f"🌐 Webmention: {target_name}"
+        message = f"Webmention accepted by {target_name}:\n{post_title}"
         return self._send_notification(
             title=title,
             message=message,
@@ -371,26 +373,28 @@ class PushoverNotifier:
             url_title="View Post"
         )
 
-    def notify_indieweb_failure(self, post_title: str, post_url: str, error: str) -> bool:
-        """Send notification when IndieWeb News submission fails.
+    def notify_webmention_failure(self, post_title: str, post_url: str, error: str, target_name: str = "webmention target") -> bool:
+        """Send notification when a webmention send fails.
 
         Args:
             post_title: Title of the Ghost post
             post_url: URL of the published post
             error: Error message describing the failure
+            target_name: Human-readable name of the webmention target
 
         Returns:
             True if notification sent successfully, False otherwise
 
         Example:
-            >>> notifier.notify_indieweb_failure(
-            ...     "My IndieWeb Post",
+            >>> notifier.notify_webmention_failure(
+            ...     "My Post",
             ...     "https://blog.example.com/my-post",
-            ...     "no_link_found: The source document does not contain a link to the target"
+            ...     "no_link_found: The source document does not contain a link to the target",
+            ...     "IndieWeb News"
             ... )
         """
-        title = "❌ IndieWeb News Failed"
-        message = f"Failed to submit to IndieWeb News:\n{post_title}\n\nError: {error}"
+        title = f"❌ Webmention Failed: {target_name}"
+        message = f"Webmention to {target_name} failed:\n{post_title}\n\nError: {error}"
         return self._send_notification(
             title=title,
             message=message,
