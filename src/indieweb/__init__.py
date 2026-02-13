@@ -2,49 +2,47 @@
 IndieWeb Module for POSSE.
 
 This module provides IndieWeb integration, including webmention sending
-for automatic submission to IndieWeb News when posts are tagged appropriately.
+to configurable targets when posts are tagged appropriately.
 
-The module follows the W3C Webmention protocol to notify IndieWeb News
+The module follows the W3C Webmention protocol to notify target URLs
 when a blog post should be syndicated there.
 
 Features:
-    - Webmention sending to IndieWeb News
-    - Tag-based filtering for IndieWeb News submission
-    - Configurable endpoints and target URLs
+    - Tag-triggered webmention sending to configurable targets
+    - W3C Webmention endpoint discovery
+    - Generic webmention sending with endpoint discovery
 
 Usage:
-    >>> from indieweb import IndieWebNewsClient, has_indieweb_tag
+    >>> from indieweb import WebmentionClient, WebmentionTarget, has_tag
     >>>
-    >>> # Check if post should be submitted
-    >>> if has_indieweb_tag(post_tags):
-    ...     client = IndieWebNewsClient()
-    ...     result = client.send_webmention(post_url)
-    ...     if result.success:
-    ...         print("Submitted to IndieWeb News")
+    >>> # Check if post should be submitted and send
+    >>> client = WebmentionClient.from_config(config)
+    >>> results = client.send_for_post(post_url, post_tag_slugs)
 
 Configuration (config.yml):
-    indieweb:
+    webmention:
       enabled: true
-      news:
-        endpoint: "https://news.indieweb.org/en/webmention"
-        target: "https://news.indieweb.org/en"
-        tag: "indiewebnews"
+      targets:
+        - name: "IndieWeb News"
+          endpoint: "https://news.indieweb.org/en/webmention"
+          target: "https://news.indieweb.org/en"
+          tag: "indiewebnews"
 """
 
 from indieweb.webmention import (
-    IndieWebNewsClient,
+    WebmentionClient,
+    WebmentionTarget,
     WebmentionResult,
-    send_to_indieweb_news,
     discover_webmention_endpoint,
     send_webmention,
 )
-from indieweb.utils import has_indieweb_tag
+from indieweb.utils import has_tag
 
 __all__ = [
-    "IndieWebNewsClient",
+    "WebmentionClient",
+    "WebmentionTarget",
     "WebmentionResult",
-    "send_to_indieweb_news",
     "discover_webmention_endpoint",
     "send_webmention",
-    "has_indieweb_tag",
+    "has_tag",
 ]

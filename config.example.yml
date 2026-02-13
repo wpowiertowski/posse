@@ -92,16 +92,24 @@ bluesky:
       max_post_length: 280  # Custom character limit for this account
       # split_multi_image_posts: false  # Optional: Split posts with multiple images into separate posts, one image each (default: false)
 
-# IndieWeb News Syndication
-# Submit posts to IndieWeb News via webmention when tagged with 'indiewebnews'
-# Requires your Ghost theme to include the u-syndication link markup
-indieweb:
+# Webmention Sending
+# Send webmentions to one or more targets when posts match a tag.
+# Each target specifies a tag that triggers sending, an endpoint URL,
+# and a target URL. Useful for submitting to aggregators or notifying sites.
+webmention:
   enabled: true
-  news:
-    endpoint: "https://news.indieweb.org/en/webmention"  # Webmention endpoint (language-specific)
-    target: "https://news.indieweb.org/en"  # Target URL for the webmention
-    tag: "indiewebnews"  # Tag slug that triggers submission
-    timeout: 30  # Request timeout in seconds
+  targets:
+    - name: "IndieWeb News"                                # Human-readable label
+      endpoint: "https://news.indieweb.org/en/webmention"  # Webmention endpoint URL
+      target: "https://news.indieweb.org/en"               # Target URL for the webmention
+      tag: "indiewebnews"                                  # Tag slug that triggers submission
+      timeout: 30                                          # Request timeout in seconds
+    # Add more targets as needed:
+    # - name: "Another Aggregator"
+    #   endpoint: "https://example.com/webmention"
+    #   target: "https://example.com"
+    #   tag: "syndicate"
+    #   timeout: 30
 
 # Social Interaction Sync Configuration
 # Sync interactions (likes, reposts, comments) from social media back to Ghost

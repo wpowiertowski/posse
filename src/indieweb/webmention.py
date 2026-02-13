@@ -2,7 +2,8 @@
 Webmention protocol implementation.
 
 Provides both generic W3C Webmention sending (with endpoint discovery)
-and the IndieWeb News-specific client.
+and a configurable client for sending webmentions to one or more targets
+when a post is tagged appropriately.
 
 Webmention is a W3C standard for notifying a URL when you link to it.
 The protocol is simple:
@@ -13,22 +14,21 @@ The protocol is simple:
     source={your-post-url}&target={linked-url}
 
 Usage:
-    >>> from indieweb.webmention import send_webmention, IndieWebNewsClient
+    >>> from indieweb.webmention import send_webmention, WebmentionClient
     >>> # Generic webmention with endpoint discovery
     >>> result = send_webmention("https://reply.example.com/reply/abc", "https://blog.example.com/post")
-    >>> # IndieWeb News specific
-    >>> client = IndieWebNewsClient()
-    >>> result = client.send_webmention("https://blog.example.com/my-post")
+    >>> # Tag-triggered webmention to configured targets
+    >>> client = WebmentionClient.from_config(config)
+    >>> results = client.send_for_post("https://blog.example.com/my-post", ["indiewebnews"])
 
 References:
     - W3C Webmention: https://www.w3.org/TR/webmention/
-    - IndieWeb News: https://news.indieweb.org/
 """
 
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from urllib.parse import urljoin
 
 import requests
@@ -47,117 +47,148 @@ class WebmentionResult:
         message: Human-readable status message
         location: Optional status URL returned by some endpoints
         endpoint: Optional webmention endpoint URL used for this send
+        target_name: Optional human-readable name of the target
     """
     success: bool
     status_code: int
     message: str
     location: Optional[str] = None
     endpoint: Optional[str] = None
+    target_name: Optional[str] = None
 
 
-class IndieWebNewsClient:
-    """Client for sending webmentions to IndieWeb News.
-
-    This client implements the W3C Webmention protocol for submitting
-    blog posts to IndieWeb News for syndication.
+@dataclass
+class WebmentionTarget:
+    """A webmention target: a destination that should receive webmentions for matching posts.
 
     Attributes:
-        endpoint: Webmention endpoint URL
-        target: Target URL for the webmention (IndieWeb News page)
+        name: Human-readable name for this target (e.g. "IndieWeb News EN")
+        endpoint: Webmention endpoint URL to POST to
+        target: Target URL sent as the 'target' parameter in the webmention
+        tag: Tag slug that triggers sending to this target
         timeout: Request timeout in seconds
+    """
+    name: str
+    endpoint: str
+    target: str
+    tag: str
+    timeout: float = 30.0
+
+
+class WebmentionClient:
+    """Client for sending webmentions to configured targets.
+
+    Sends webmentions to one or more targets based on post tags.
+    Each target specifies a tag that triggers sending, an endpoint
+    URL, and a target URL.
 
     Example:
-        >>> client = IndieWebNewsClient()
-        >>> result = client.send_webmention("https://blog.example.com/post")
-        >>> print(f"Success: {result.success}, Status: {result.status_code}")
+        >>> client = WebmentionClient([
+        ...     WebmentionTarget(
+        ...         name="IndieWeb News",
+        ...         endpoint="https://news.indieweb.org/en/webmention",
+        ...         target="https://news.indieweb.org/en",
+        ...         tag="indiewebnews",
+        ...     )
+        ... ])
+        >>> results = client.send_for_post("https://blog.example.com/post", ["indiewebnews"])
     """
 
-    # Default IndieWeb News endpoints
-    DEFAULT_ENDPOINT = "https://news.indieweb.org/en/webmention"
-    DEFAULT_TARGET = "https://news.indieweb.org/en"
-    DEFAULT_TIMEOUT = 30.0
-
-    def __init__(
-        self,
-        endpoint: Optional[str] = None,
-        target: Optional[str] = None,
-        timeout: Optional[float] = None
-    ):
-        """Initialize the IndieWeb News client.
+    def __init__(self, targets: Optional[List[WebmentionTarget]] = None):
+        """Initialize the webmention client.
 
         Args:
-            endpoint: Webmention endpoint URL (default: IndieWeb News endpoint)
-            target: Target URL for webmentions (default: IndieWeb News EN page)
-            timeout: Request timeout in seconds (default: 30)
+            targets: List of webmention targets to send to.
         """
-        self.endpoint = endpoint or self.DEFAULT_ENDPOINT
-        self.target = target or self.DEFAULT_TARGET
-        self.timeout = timeout or self.DEFAULT_TIMEOUT
+        self.targets = targets or []
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> "IndieWebNewsClient":
+    def from_config(cls, config: Dict[str, Any]) -> "WebmentionClient":
         """Create client from configuration dictionary.
 
         Args:
             config: Configuration dictionary from config.yml
 
         Returns:
-            Initialized IndieWebNewsClient instance
+            Initialized WebmentionClient instance
 
         Example:
             >>> config = load_config()
-            >>> client = IndieWebNewsClient.from_config(config)
+            >>> client = WebmentionClient.from_config(config)
         """
-        indieweb_config = config.get("indieweb", {})
-        news_config = indieweb_config.get("news", {})
+        wm_config = config.get("webmention", {})
+        targets_config = wm_config.get("targets", [])
 
-        return cls(
-            endpoint=news_config.get("endpoint"),
-            target=news_config.get("target"),
-            timeout=news_config.get("timeout")
-        )
+        targets = []
+        for t in targets_config:
+            targets.append(WebmentionTarget(
+                name=t.get("name", ""),
+                endpoint=t["endpoint"],
+                target=t["target"],
+                tag=t.get("tag", ""),
+                timeout=t.get("timeout", 30.0),
+            ))
 
-    def send_webmention(self, source_url: str) -> WebmentionResult:
-        """Send a webmention to IndieWeb News.
+        return cls(targets=targets)
 
-        This method sends a webmention to notify IndieWeb News that
-        a blog post at source_url should be syndicated.
+    def send_for_post(
+        self, source_url: str, post_tags: List[str]
+    ) -> List[WebmentionResult]:
+        """Send webmentions to all targets whose tag matches the post's tags.
 
         Args:
             source_url: The full URL of the published post.
+            post_tags: List of tag slugs on the post (lowercase).
+
+        Returns:
+            List of WebmentionResult for each matching target.
+        """
+        post_tags_lower = {t.lower() for t in post_tags}
+        results = []
+
+        for target in self.targets:
+            if target.tag.lower() not in post_tags_lower:
+                continue
+
+            result = self._send_webmention(source_url, target)
+            results.append(result)
+
+        return results
+
+    def _send_webmention(
+        self, source_url: str, target: WebmentionTarget
+    ) -> WebmentionResult:
+        """Send a webmention to a single target.
+
+        Args:
+            source_url: The full URL of the published post.
+            target: The webmention target to send to.
 
         Returns:
             WebmentionResult with success status and details.
-
-        Example:
-            >>> result = client.send_webmention("https://blog.example.com/post")
-            >>> if result.success:
-            ...     print(f"Accepted! Status URL: {result.location}")
-            ... else:
-            ...     print(f"Failed: {result.message}")
         """
         payload = {
             "source": source_url,
-            "target": self.target,
+            "target": target.target,
         }
 
+        target_label = target.name or target.target
         logger.info(
-            f"Sending webmention to IndieWeb News: source={source_url}, target={self.target}"
+            f"Sending webmention to {target_label}: source={source_url}, target={target.target}"
         )
 
         try:
             response = requests.post(
-                self.endpoint,
+                target.endpoint,
                 data=payload,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=self.timeout
+                timeout=target.timeout
             )
 
-            # Webmention spec: 2xx = accepted
             if response.ok:
                 location = response.headers.get("Location")
                 logger.info(
-                    f"Webmention accepted by IndieWeb News: "
+                    f"Webmention accepted by {target_label}: "
                     f"source={source_url}, status_code={response.status_code}, location={location}"
                 )
                 return WebmentionResult(
@@ -165,87 +196,39 @@ class IndieWebNewsClient:
                     status_code=response.status_code,
                     message="Webmention accepted",
                     location=location,
+                    target_name=target.name,
                 )
 
-            # Handle specific error cases
-            error_msg = self._parse_error(response)
+            error_msg = _parse_error_response(response)
             logger.warning(
-                f"Webmention rejected by IndieWeb News: "
+                f"Webmention rejected by {target_label}: "
                 f"source={source_url}, status_code={response.status_code}, error={error_msg}"
             )
             return WebmentionResult(
                 success=False,
                 status_code=response.status_code,
                 message=error_msg,
+                target_name=target.name,
             )
 
         except requests.exceptions.Timeout:
-            logger.error(f"Webmention request timed out: source={source_url}")
+            logger.error(f"Webmention request timed out: target={target_label}, source={source_url}")
             return WebmentionResult(
                 success=False,
                 status_code=0,
                 message="Request timed out",
+                target_name=target.name,
             )
         except requests.exceptions.RequestException as e:
             logger.error(
-                f"Webmention request failed: source={source_url}, error={str(e)}"
+                f"Webmention request failed: target={target_label}, source={source_url}, error={str(e)}"
             )
             return WebmentionResult(
                 success=False,
                 status_code=0,
                 message=f"Request failed: {e}",
+                target_name=target.name,
             )
-
-    def _parse_error(self, response: requests.Response) -> str:
-        """Parse error message from response.
-
-        Args:
-            response: HTTP response object
-
-        Returns:
-            Human-readable error message
-        """
-        try:
-            # Try JSON error response
-            data = response.json()
-            if "error" in data:
-                return data.get("error_description", data["error"])
-        except Exception:
-            pass
-
-        # Try to get meaningful text from response body
-        try:
-            text = response.text.strip()
-            if text and len(text) < 200:
-                return f"HTTP {response.status_code}: {text}"
-        except Exception:
-            pass
-
-        # Fall back to status text
-        return f"HTTP {response.status_code}: {response.reason}"
-
-
-def send_to_indieweb_news(post_url: str, config: Optional[Dict[str, Any]] = None) -> WebmentionResult:
-    """Convenience function to send a webmention to IndieWeb News.
-
-    Args:
-        post_url: The full URL of the published post.
-        config: Optional configuration dictionary for custom endpoints.
-
-    Returns:
-        WebmentionResult with success status and details.
-
-    Example:
-        >>> result = send_to_indieweb_news("https://blog.example.com/my-post")
-        >>> if result.success:
-        ...     print("Submitted to IndieWeb News!")
-    """
-    if config:
-        client = IndieWebNewsClient.from_config(config)
-    else:
-        client = IndieWebNewsClient()
-
-    return client.send_webmention(post_url)
 
 
 # =========================================================================

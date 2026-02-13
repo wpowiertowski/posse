@@ -80,7 +80,7 @@ pushover:
 # websites to send webmentions (replies) to your blog posts.
 #
 # The reply is stored locally and served as an h-entry page, then a
-# webmention is sent to your blog's webmention endpoint (e.g. webmention.io).
+# webmention is sent to your blog's webmention endpoint.
 #
 # Example configuration:
 # webmention_reply:
@@ -93,21 +93,18 @@ pushover:
 #   turnstile_site_key: ""         # Cloudflare Turnstile public key
 #   turnstile_secret_key_file: /run/secrets/turnstile_secret_key
 
-# IndieWeb Configuration
-# Enable IndieWeb integration for webmention sending
-#
-# When enabled, posts tagged with the configured tag (default: "indiewebnews")
-# will be submitted to IndieWeb News via webmention.
-#
-# Requirements:
-# - Ghost theme must include u-syndication link to news.indieweb.org
-# - Posts must be tagged with the indiewebnews tag
+# Webmention Sending Configuration
+# Send webmentions to one or more targets when posts are tagged.
+# Each target specifies a tag that triggers sending, an endpoint URL, and
+# a target URL. This is useful for submitting posts to aggregators or
+# notifying other sites.
 #
 # Example configuration:
-# indieweb:
+# webmention:
 #   enabled: true
-#   news:
-#     endpoint: "https://news.indieweb.org/en/webmention"
-#     target: "https://news.indieweb.org/en"
-#     tag: "indiewebnews"
-#     timeout: 30
+#   targets:
+#     - name: "IndieWeb News"
+#       endpoint: "https://news.indieweb.org/en/webmention"
+#       target: "https://news.indieweb.org/en"
+#       tag: "indiewebnews"
+#       timeout: 30

@@ -3,7 +3,7 @@ Webmention reply handling.
 
 Provides validation, storage, rendering, and sending of webmention replies
 submitted through the reply form. Replies are stored in SQLite and served
-as h-entry pages so that webmention.io can verify them.
+as h-entry pages so that the target's webmention endpoint can verify them.
 
 Usage:
     >>> from indieweb.reply import validate_reply, store_and_send_reply

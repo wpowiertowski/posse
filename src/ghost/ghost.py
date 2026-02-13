@@ -243,25 +243,18 @@ def validate_reply_target_post(
     return None
 
 
-def is_webmention_io_refusal(result: Any) -> bool:
-    """Return True when a webmention failed with a 4xx response from webmention.io."""
+def is_webmention_refusal(result: Any) -> bool:
+    """Return True when a webmention failed with a 4xx client-error response.
+
+    A 4xx status indicates the receiving endpoint actively rejected the
+    webmention (e.g. invalid source, unknown target domain). In that case
+    the reply should be cleaned up because re-sending would not succeed.
+    """
     if not result or getattr(result, "success", False):
         return False
 
     status_code = getattr(result, "status_code", 0) or 0
-    if status_code < 400 or status_code >= 500:
-        return False
-
-    endpoint = (getattr(result, "endpoint", "") or "").strip()
-    if not endpoint:
-        return False
-
-    try:
-        host = (urlparse(endpoint).hostname or "").lower()
-    except Exception:
-        return False
-
-    return host == "webmention.io" or host.endswith(".webmention.io")
+    return 400 <= status_code < 500
 
 
 def check_discovery_cooldown(post_id: str) -> bool:
@@ -1541,18 +1534,18 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     logger.info(f"Webmention sent for reply {reply['id']}: {result.message}")
                 else:
                     logger.warning(f"Webmention failed for reply {reply['id']}: {result.message}")
-                    if is_webmention_io_refusal(result):
+                    if is_webmention_refusal(result):
                         try:
                             removed = store.delete_reply(reply["id"])
                             if removed:
                                 logger.warning(
-                                    f"Dropped reply {reply['id']} after webmention.io refusal "
+                                    f"Dropped reply {reply['id']} after webmention refusal "
                                     f"(status={result.status_code}, endpoint={result.endpoint})"
                                 )
                             else:
                                 logger.warning(
                                     f"Reply {reply['id']} not found while attempting rollback "
-                                    f"after webmention.io refusal"
+                                    f"after webmention refusal"
                                 )
                         except Exception as cleanup_exc:
                             logger.error(
@@ -1570,9 +1563,9 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     def serve_reply_page(reply_id: str):
         """Serve a stored reply as an h-entry page.
 
-        This page is the source URL for the webmention. webmention.io
-        fetches this page, parses the h-entry microformats, and extracts
-        the reply content and u-in-reply-to link.
+        This page is the source URL for the webmention. The receiving
+        endpoint fetches this page, parses the h-entry microformats, and
+        extracts the reply content and u-in-reply-to link.
 
         Args:
             reply_id: The reply ID (alphanumeric, 16 chars).

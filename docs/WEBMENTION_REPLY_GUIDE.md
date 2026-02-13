@@ -79,7 +79,7 @@ After storing a reply, POSSE asynchronously sends a webmention:
 - Source: `<target-origin>/reply/<reply_id>`
 - Target: submitted target post URL
 
-If webmention delivery fails with a 4xx refusal from `webmention.io`, POSSE removes the stored reply to avoid publishing invalid source pages.
+If webmention delivery fails with a 4xx client-error response, POSSE removes the stored reply to avoid publishing invalid source pages.
 
 ## 5. Theme and Rendering
 

@@ -17,7 +17,7 @@ Use the README for quick setup, then follow the focused guides:
 - [Syndication Guide](docs/SYNDICATION_GUIDE.md) - multi-account posting, tag routing, media handling, catch-up syndication
 - [Social Interaction Sync Guide](docs/INTERACTION_SYNC_README.md) - syncing likes/reposts/replies back to Ghost
 - [Webmention Reply Guide](docs/WEBMENTION_REPLY_GUIDE.md) - self-hosted reply form and webmention publishing
-- [IndieWeb News Guide](docs/INDIEWEB_NEWS_GUIDE.md) - tag-triggered IndieWeb News submission
+- [Webmention Sending Guide](docs/WEBMENTION_SENDING_GUIDE.md) - tag-triggered webmention sending to configurable targets
 - [Security Hardening Guide](docs/SECURITY_HARDENING.md) - endpoint protection and deployment hardening
 - [Interaction Sync Architecture](docs/INTERACTION_SYNC_ARCHITECTURE.md) - internals and data flow
 - [Widget Documentation](widget/docs/README.md) - embedding the social interactions widget
@@ -30,7 +30,7 @@ Use the README for quick setup, then follow the focused guides:
 - Optional LLM-generated alt text for missing image descriptions
 - Automatic Bluesky image compression to fit blob size limits
 - Social interaction sync API for Ghost widgets
-- Optional IndieWeb News submission via webmention
+- Tag-triggered webmention sending to configurable targets (e.g. IndieWeb News)
 - Optional self-hosted webmention reply form (`/webmention`)
 - Optional Pushover notifications for key processing events
 
@@ -111,7 +111,7 @@ Reference those files from `config.yml` or mount them at `/run/secrets/...` in D
 
 - Interaction sync and widget: [docs/INTERACTION_SYNC_README.md](docs/INTERACTION_SYNC_README.md)
 - Webmention reply form: [docs/WEBMENTION_REPLY_GUIDE.md](docs/WEBMENTION_REPLY_GUIDE.md)
-- IndieWeb News submission: [docs/INDIEWEB_NEWS_GUIDE.md](docs/INDIEWEB_NEWS_GUIDE.md)
+- Webmention sending: [docs/WEBMENTION_SENDING_GUIDE.md](docs/WEBMENTION_SENDING_GUIDE.md)
 - Security controls and reverse proxy hardening: [docs/SECURITY_HARDENING.md](docs/SECURITY_HARDENING.md)
 
 ## Runtime Endpoints

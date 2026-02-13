@@ -713,40 +713,34 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                 except Exception as cleanup_error:
                     logger.warning(f"Failed to clean up cached images: {cleanup_error}")
 
-            # IndieWeb News submission
-            # Check if post has indiewebnews tag and config is enabled
+            # Webmention sending to configured targets
             try:
-                from indieweb.utils import has_indieweb_tag, get_indieweb_config
-                from indieweb.webmention import IndieWebNewsClient
+                from indieweb.utils import get_webmention_config
+                from indieweb.webmention import WebmentionClient
 
-                indieweb_config = get_indieweb_config(config)
+                wm_config = get_webmention_config(config)
 
-                if indieweb_config["enabled"]:
-                    tag_to_check = indieweb_config["news"]["tag"]
+                if wm_config["enabled"]:
+                    wm_client = WebmentionClient.from_config(config)
+                    tag_slugs = [t["slug"] for t in tags if t.get("slug")]
 
-                    if has_indieweb_tag(tags, tag_to_check):
-                        logger.info(f"Post has IndieWeb tag '{tag_to_check}', submitting to IndieWeb News")
+                    results = wm_client.send_for_post(post_url, tag_slugs)
 
-                        indieweb_client = IndieWebNewsClient(
-                            endpoint=indieweb_config["news"]["endpoint"],
-                            target=indieweb_config["news"]["target"],
-                            timeout=indieweb_config["news"]["timeout"]
-                        )
-
-                        result = indieweb_client.send_webmention(post_url)
-
+                    for result in results:
+                        target_label = result.target_name or "webmention target"
                         if result.success:
-                            logger.info(f"Successfully submitted to IndieWeb News: {post_url}")
-                            notifier.notify_indieweb_success(post_title, post_url)
+                            logger.info(f"Webmention accepted by {target_label}: {post_url}")
+                            notifier.notify_webmention_success(post_title, post_url, target_label)
                         else:
-                            logger.warning(f"IndieWeb News submission failed: {result.message}")
-                            notifier.notify_indieweb_failure(post_title, post_url, result.message)
-                    else:
-                        logger.debug(f"Post does not have IndieWeb tag '{tag_to_check}', skipping IndieWeb News submission")
+                            logger.warning(f"Webmention to {target_label} failed: {result.message}")
+                            notifier.notify_webmention_failure(post_title, post_url, result.message, target_label)
+
+                    if not results:
+                        logger.debug("No webmention targets matched post tags")
                 else:
-                    logger.debug("IndieWeb integration disabled in config")
-            except Exception as indieweb_error:
-                logger.warning(f"IndieWeb News submission error: {indieweb_error}")
+                    logger.debug("Webmention sending disabled in config")
+            except Exception as wm_error:
+                logger.warning(f"Webmention sending error: {wm_error}")
 
             # Mark task as done
             events_queue.task_done()
