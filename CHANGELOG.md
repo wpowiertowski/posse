@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Generalized webmention sending** - replaced the IndieWeb News-specific `IndieWebNewsClient` with a generic `WebmentionClient` that supports multiple configurable targets, each triggered by a tag
+- Config section renamed from `indieweb.news` (single target) to `webmention.targets` (list of targets with name, endpoint, target, tag, timeout)
+- Webmention reply refusal handling now applies to any 4xx client-error response, not only those from webmention.io
+- Pushover notifications for webmention results now include the target name
+- Renamed `has_indieweb_tag` → `has_tag`, `get_indieweb_config` → `get_webmention_config`
+- Renamed `IndieWeb News Guide` to `Webmention Sending Guide` with multi-target examples
+
 
 ## [1.1.2] - 2026-02-08
 
@@ -29,12 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Hardened webmention reply handling for `webmention.io` refusals: stored replies are removed when delivery is rejected with 4xx responses
+- Hardened webmention reply handling: stored replies are removed when delivery is rejected with 4xx responses
 - Tightened reply form and reply page HTTP headers (CSP, `X-Content-Type-Options`, `X-Frame-Options`, referrer policy, and cache controls)
 
 ### Documentation
 
-- Added focused guides: `docs/SYNDICATION_GUIDE.md`, `docs/WEBMENTION_REPLY_GUIDE.md`, and `docs/INDIEWEB_NEWS_GUIDE.md`
+- Added focused guides: `docs/SYNDICATION_GUIDE.md`, `docs/WEBMENTION_REPLY_GUIDE.md`, and `docs/WEBMENTION_SENDING_GUIDE.md`
 - Updated README feature list, endpoints, quick-start flow, and guide cross-links
 - Expanded `config.example.yml` and `config.yml` comments for timezone and webmention reply configuration
 
