@@ -77,6 +77,11 @@ def has_tag(
 def get_webmention_config(config: Dict) -> Dict:
     """Extract webmention configuration from main config.
 
+    Supports both the current ``webmention:`` config key and the legacy
+    ``indieweb:`` key (used before the generalised webmention refactor).
+    When the legacy key is detected the single IndieWeb News target is
+    converted into the new multi-target format automatically.
+
     Args:
         config: Main configuration dictionary from config.yml
 
@@ -91,7 +96,35 @@ def get_webmention_config(config: Dict) -> Dict:
     """
     wm = config.get("webmention", {})
 
+    if wm:
+        return {
+            "enabled": wm.get("enabled", False),
+            "targets": wm.get("targets", []),
+        }
+
+    # Fallback: check for legacy ``indieweb:`` config key and convert
+    legacy = config.get("indieweb", {})
+    if legacy:
+        logger.warning(
+            "Detected legacy 'indieweb' config key – please migrate to 'webmention'. "
+            "See docs/WEBMENTION_SENDING_GUIDE.md for the new format."
+        )
+        targets: List[Dict] = []
+        if "news" in legacy:
+            news = legacy["news"] or {}
+            targets.append({
+                "name": "IndieWeb News",
+                "endpoint": news.get("endpoint", "https://news.indieweb.org/en/webmention"),
+                "target": news.get("target", "https://news.indieweb.org/en"),
+                "tag": news.get("tag", "indiewebnews"),
+                "timeout": news.get("timeout", 30),
+            })
+        return {
+            "enabled": legacy.get("enabled", False),
+            "targets": targets,
+        }
+
     return {
-        "enabled": wm.get("enabled", False),
-        "targets": wm.get("targets", []),
+        "enabled": False,
+        "targets": [],
     }

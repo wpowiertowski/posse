@@ -106,6 +106,10 @@ class WebmentionClient:
     def from_config(cls, config: Dict[str, Any]) -> "WebmentionClient":
         """Create client from configuration dictionary.
 
+        Supports both the current ``webmention:`` config key and the legacy
+        ``indieweb:`` key.  When the legacy key is detected, the single
+        IndieWeb News target is converted into the new multi-target format.
+
         Args:
             config: Configuration dictionary from config.yml
 
@@ -116,7 +120,9 @@ class WebmentionClient:
             >>> config = load_config()
             >>> client = WebmentionClient.from_config(config)
         """
-        wm_config = config.get("webmention", {})
+        from indieweb.utils import get_webmention_config
+
+        wm_config = get_webmention_config(config)
         targets_config = wm_config.get("targets", [])
 
         targets = []
@@ -196,6 +202,7 @@ class WebmentionClient:
                     status_code=response.status_code,
                     message="Webmention accepted",
                     location=location,
+                    endpoint=target.endpoint,
                     target_name=target.name,
                 )
 
@@ -208,6 +215,7 @@ class WebmentionClient:
                 success=False,
                 status_code=response.status_code,
                 message=error_msg,
+                endpoint=target.endpoint,
                 target_name=target.name,
             )
 
@@ -217,6 +225,7 @@ class WebmentionClient:
                 success=False,
                 status_code=0,
                 message="Request timed out",
+                endpoint=target.endpoint,
                 target_name=target.name,
             )
         except requests.exceptions.RequestException as e:
@@ -227,6 +236,7 @@ class WebmentionClient:
                 success=False,
                 status_code=0,
                 message=f"Request failed: {e}",
+                endpoint=target.endpoint,
                 target_name=target.name,
             )
 
