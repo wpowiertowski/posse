@@ -196,6 +196,7 @@ class WebmentionClient:
                     status_code=response.status_code,
                     message="Webmention accepted",
                     location=location,
+                    endpoint=target.endpoint,
                     target_name=target.name,
                 )
 
@@ -208,6 +209,7 @@ class WebmentionClient:
                 success=False,
                 status_code=response.status_code,
                 message=error_msg,
+                endpoint=target.endpoint,
                 target_name=target.name,
             )
 
@@ -217,6 +219,7 @@ class WebmentionClient:
                 success=False,
                 status_code=0,
                 message="Request timed out",
+                endpoint=target.endpoint,
                 target_name=target.name,
             )
         except requests.exceptions.RequestException as e:
@@ -227,6 +230,7 @@ class WebmentionClient:
                 success=False,
                 status_code=0,
                 message=f"Request failed: {e}",
+                endpoint=target.endpoint,
                 target_name=target.name,
             )
 

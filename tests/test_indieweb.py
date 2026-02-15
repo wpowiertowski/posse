@@ -180,6 +180,7 @@ class TestWebmentionClient:
         assert results[0].success is True
         assert results[0].status_code == 200
         assert results[0].target_name == "Test Target"
+        assert results[0].endpoint == "https://example.com/webmention"
 
         call_args = mock_post.call_args
         assert call_args[0][0] == "https://example.com/webmention"
@@ -496,7 +497,6 @@ class TestGetWebmentionConfig:
 
         assert result["enabled"] is True
         assert result["targets"] == []
-
 
 class TestPushoverWebmentionNotifications:
     """Test suite for Pushover webmention notifications."""
