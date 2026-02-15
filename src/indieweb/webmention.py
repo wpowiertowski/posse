@@ -106,10 +106,6 @@ class WebmentionClient:
     def from_config(cls, config: Dict[str, Any]) -> "WebmentionClient":
         """Create client from configuration dictionary.
 
-        Supports both the current ``webmention:`` config key and the legacy
-        ``indieweb:`` key.  When the legacy key is detected, the single
-        IndieWeb News target is converted into the new multi-target format.
-
         Args:
             config: Configuration dictionary from config.yml
 
@@ -120,9 +116,7 @@ class WebmentionClient:
             >>> config = load_config()
             >>> client = WebmentionClient.from_config(config)
         """
-        from indieweb.utils import get_webmention_config
-
-        wm_config = get_webmention_config(config)
+        wm_config = config.get("webmention", {})
         targets_config = wm_config.get("targets", [])
 
         targets = []
