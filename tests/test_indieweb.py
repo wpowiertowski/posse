@@ -125,11 +125,26 @@ class TestWebmentionClient:
         return WebmentionTarget(**defaults)
 
     def _mock_session(self, mock_response=None, side_effect=None):
-        """Create a mock session for testing."""
+        """Create a mock session for testing.
+
+        Configures mock_response to support streaming (iter_content/close)
+        needed by _read_bounded_response.
+        """
         session = MagicMock()
         if side_effect:
             session.post.side_effect = side_effect
         elif mock_response:
+            # Set up iter_content to return body bytes for streaming support.
+            # If .json.return_value is set, serialize it to bytes for iter_content.
+            if hasattr(mock_response.json, 'return_value') and not isinstance(mock_response.json.return_value, MagicMock):
+                import json
+                body_bytes = json.dumps(mock_response.json.return_value).encode("utf-8")
+                mock_response.iter_content = MagicMock(return_value=iter([body_bytes]))
+            elif hasattr(mock_response, 'text') and isinstance(mock_response.text, str):
+                mock_response.iter_content = MagicMock(return_value=iter([mock_response.text.encode("utf-8")]))
+            else:
+                mock_response.iter_content = MagicMock(return_value=iter([b""]))
+            mock_response.close = MagicMock()
             session.post.return_value = mock_response
         return session
 

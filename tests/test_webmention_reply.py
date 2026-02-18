@@ -395,6 +395,8 @@ class TestSendWebmention:
         mock_resp.ok = True
         mock_resp.status_code = 202
         mock_resp.headers = {"Location": "https://wm.example.com/status/123"}
+        mock_resp.iter_content = MagicMock(return_value=iter([b""]))
+        mock_resp.close = MagicMock()
         mock_session = MagicMock()
         mock_session.post.return_value = mock_resp
         mock_session_fn.return_value = mock_session

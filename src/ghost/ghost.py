@@ -493,6 +493,10 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     """
     app = Flask(__name__)
 
+    # Reject request bodies larger than 1 MB to prevent memory exhaustion.
+    # Ghost webhook payloads are typically a few KB; 1 MB is generous.
+    app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB
+
     # Load configuration and initialize Pushover notifier if not provided
     # Reads from config.yml and Docker secrets
     if config is None:
@@ -786,15 +790,37 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
 
             # Ghost sends deleted post data in "previous" (current is empty)
             post_data = payload.get("post", {})
+            if not isinstance(post_data, dict):
+                return jsonify({"error": "Invalid payload structure"}), 400
+
             previous = post_data.get("previous", {})
             current = post_data.get("current", {})
+            if not isinstance(previous, dict) or not isinstance(current, dict):
+                return jsonify({"error": "Invalid payload structure"}), 400
 
             # Try current first, fall back to previous
-            post_id = current.get("id") or previous.get("id", "unknown")
-            post_url = current.get("url") or previous.get("url", "")
-            post_title = current.get("title") or previous.get("title", "untitled")
+            post_id = str(current.get("id") or previous.get("id") or "unknown")[:50]
+            post_url = str(current.get("url") or previous.get("url") or "")[:2048]
+            post_title = str(current.get("title") or previous.get("title") or "untitled")[:300]
 
             logger.info(f"Received Ghost post deletion: id={post_id}, title='{post_title}'")
+
+            # Validate post_id format (24 hex chars for Ghost/MongoDB ObjectID)
+            if post_id != "unknown" and not validate_ghost_post_id(post_id):
+                logger.warning(f"Post deletion with invalid post ID format: {post_id!r}")
+                return jsonify({
+                    "status": "error",
+                    "message": "Invalid post ID format",
+                }), 400
+
+            # Validate URL scheme if provided
+            if post_url:
+                try:
+                    parsed_del_url = urlparse(post_url)
+                    if parsed_del_url.scheme not in ("http", "https") or not parsed_del_url.netloc:
+                        post_url = ""
+                except Exception:
+                    post_url = ""
 
             if not post_url:
                 logger.warning(f"Post deletion without URL, cannot send webmentions: id={post_id}")

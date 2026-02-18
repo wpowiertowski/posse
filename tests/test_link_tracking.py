@@ -279,7 +279,7 @@ class TestPostDeletedWebhook:
         payload = {
             "post": {
                 "current": {},
-                "previous": {"id": "abc123", "title": "Test Post"},
+                "previous": {"id": "abc123def456abc123def456", "title": "Test Post"},
             }
         }
         resp = client.post(

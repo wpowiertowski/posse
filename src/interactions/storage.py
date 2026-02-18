@@ -321,6 +321,10 @@ class InteractionDataStore:
     # Sent Webmentions tracking
     # =====================================================================
 
+    # Maximum lengths for sent webmention fields to prevent database bloat
+    _MAX_URL_LENGTH = 2048
+    _MAX_POST_ID_LENGTH = 50
+
     def record_sent_webmention(
         self,
         source_url: str,
@@ -333,6 +337,16 @@ class InteractionDataStore:
 
         Upserts by (source_url, target_url) so re-sends update the timestamp.
         """
+        # Validate and truncate inputs to prevent database bloat
+        source_url = (source_url or "")[:self._MAX_URL_LENGTH]
+        target_url = (target_url or "")[:self._MAX_URL_LENGTH]
+        post_id = (post_id or "")[:self._MAX_POST_ID_LENGTH]
+        endpoint = (endpoint or "")[:self._MAX_URL_LENGTH]
+
+        if not source_url or not target_url:
+            logger.warning("Skipping sent webmention record: missing source_url or target_url")
+            return
+
         if not sent_at:
             from datetime import datetime, timezone
             sent_at = datetime.now(timezone.utc).isoformat()

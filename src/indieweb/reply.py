@@ -139,6 +139,9 @@ def is_honeypot_filled(data: Dict[str, Any]) -> bool:
     return bool(data.get("website"))
 
 
+MAX_TURNSTILE_TOKEN_LENGTH = 4096  # Turnstile tokens are typically ~2 KB
+
+
 def verify_turnstile(token: str, client_ip: str, secret_key: str) -> bool:
     """Verify a Cloudflare Turnstile CAPTCHA token.
 
@@ -150,6 +153,10 @@ def verify_turnstile(token: str, client_ip: str, secret_key: str) -> bool:
     Returns:
         True if verification succeeded.
     """
+    if not token or len(token) > MAX_TURNSTILE_TOKEN_LENGTH:
+        logger.warning(f"Turnstile token rejected: length={len(token) if token else 0}")
+        return False
+
     try:
         response = requests.post(
             TURNSTILE_VERIFY_URL,

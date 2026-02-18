@@ -18,6 +18,11 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+# Maximum HTML size to parse for link extraction (5 MB).
+# Ghost posts are typically much smaller, but this guards against
+# pathological inputs without being too restrictive.
+MAX_HTML_PARSE_BYTES = 5_242_880
+
 
 class LinkExtractor(HTMLParser):
     """HTML parser that extracts href URLs from <a> tags."""
@@ -53,6 +58,14 @@ def extract_outbound_links(html_content: str, source_origin: str) -> Set[str]:
     """
     if not html_content:
         return set()
+
+    # Guard against pathologically large HTML content
+    if len(html_content) > MAX_HTML_PARSE_BYTES:
+        logger.warning(
+            f"HTML content too large for link extraction ({len(html_content)} bytes), "
+            f"truncating to {MAX_HTML_PARSE_BYTES} bytes"
+        )
+        html_content = html_content[:MAX_HTML_PARSE_BYTES]
 
     parser = LinkExtractor()
     try:

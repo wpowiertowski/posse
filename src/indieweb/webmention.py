@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 WEBMENTION_USER_AGENT = "Webmention (POSSE; +https://github.com/wpowiertowski/posse)"
 MAX_DISCOVERY_RESPONSE_BYTES = 1_048_576  # 1 MB
 MAX_REDIRECTS = 20  # W3C Webmention spec recommendation
+MAX_SEND_RESPONSE_BYTES = 65_536  # 64 KB cap for POST response bodies
 
 
 def _is_private_or_loopback(url: str) -> bool:
@@ -247,8 +248,12 @@ class WebmentionClient:
                 target.endpoint,
                 data=payload,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=target.timeout
+                timeout=target.timeout,
+                stream=True,
             )
+
+            # Read bounded response body to prevent memory exhaustion
+            body = _read_bounded_response(response, MAX_SEND_RESPONSE_BYTES)
 
             if response.ok:
                 location = response.headers.get("Location")
@@ -265,7 +270,7 @@ class WebmentionClient:
                     target_name=target.name,
                 )
 
-            error_msg = _parse_error_response(response)
+            error_msg = _parse_error_response(body, response.status_code, response.reason)
             logger.warning(
                 f"Webmention rejected by {target_label}: "
                 f"source={source_url}, status_code={response.status_code}, error={error_msg}"
@@ -455,7 +460,11 @@ def send_webmention(source_url: str, target_url: str, timeout: float = 30.0) -> 
             data={"source": source_url, "target": target_url},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=timeout,
+            stream=True,
         )
+
+        # Read bounded response body to prevent memory exhaustion
+        body = _read_bounded_response(response, MAX_SEND_RESPONSE_BYTES)
 
         if response.ok:
             location = response.headers.get("Location")
@@ -472,7 +481,7 @@ def send_webmention(source_url: str, target_url: str, timeout: float = 30.0) -> 
             )
 
         # Parse error
-        error_msg = _parse_error_response(response)
+        error_msg = _parse_error_response(body, response.status_code, response.reason)
         logger.warning(
             f"Webmention rejected: source={source_url}, target={target_url}, "
             f"status_code={response.status_code}, error={error_msg}"
@@ -495,18 +504,48 @@ def send_webmention(source_url: str, target_url: str, timeout: float = 30.0) -> 
         return WebmentionResult(success=False, status_code=0, message=f"Request failed: {e}", endpoint=endpoint)
 
 
-def _parse_error_response(response: requests.Response) -> str:
-    """Parse error message from an HTTP response."""
+def _read_bounded_response(response: requests.Response, max_bytes: int) -> bytes:
+    """Read response body with a size cap, then close the stream.
+
+    Prevents memory exhaustion from malicious endpoints returning huge bodies.
+    """
+    chunks = []
+    bytes_read = 0
     try:
-        data = response.json()
-        if "error" in data:
-            return data.get("error_description", data["error"])
-    except Exception:
-        pass
+        for chunk in response.iter_content(chunk_size=8192, decode_unicode=False):
+            chunks.append(chunk)
+            bytes_read += len(chunk)
+            if bytes_read >= max_bytes:
+                break
+    finally:
+        response.close()
+    return b"".join(chunks)[:max_bytes]
+
+
+def _parse_error_response(body: bytes, status_code: int, reason: str) -> str:
+    """Parse error message from a bounded response body.
+
+    Args:
+        body: The response body bytes (already bounded by _read_bounded_response).
+        status_code: HTTP status code.
+        reason: HTTP reason phrase.
+    """
     try:
-        text = response.text.strip()
+        text = body.decode("utf-8", errors="replace").strip()
+
+        # Try to parse as JSON for structured error messages
+        try:
+            import json
+            data = json.loads(text)
+            if isinstance(data, dict) and "error" in data:
+                msg = str(data.get("error_description", data["error"]))
+                return msg[:200]
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Fall back to plain text (truncated)
         if text and len(text) < 200:
-            return f"HTTP {response.status_code}: {text}"
+            return f"HTTP {status_code}: {text}"
     except Exception:
         pass
-    return f"HTTP {response.status_code}: {response.reason}"
+    return f"HTTP {status_code}: {reason}"
