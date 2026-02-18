@@ -493,6 +493,10 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     """
     app = Flask(__name__)
 
+    # Reject request bodies larger than 1 MB to prevent memory exhaustion.
+    # Ghost webhook payloads are typically a few KB; 1 MB is generous.
+    app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB
+
     # Load configuration and initialize Pushover notifier if not provided
     # Reads from config.yml and Docker secrets
     if config is None:
@@ -514,6 +518,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
 
     # Store events_queue in app config for access in route handlers
     app.config["EVENTS_QUEUE"] = events_queue
+    app.config["POSSE_CONFIG"] = config
     if notifier is None:
         notifier = PushoverNotifier.from_config(config)
     app.config["PUSHOVER_NOTIFIER"] = notifier
@@ -746,6 +751,152 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
 
         except Exception as e:
             logger.error(f"Unexpected error processing Ghost post update: {str(e)}", exc_info=True)
+            return jsonify({
+                "status": "error",
+                "message": "Internal server error"
+            }), 500
+
+    @app.route("/webhook/ghost/post-deleted", methods=["POST"])
+    def receive_ghost_post_deleted():
+        """Webhook endpoint to handle Ghost post deletion.
+
+        When a post is deleted, sends webmentions to all previously-notified
+        target URLs so receivers can remove or update their display of the
+        mention. This implements the W3C Webmention spec's recommendation
+        to notify targets when content is removed.
+
+        Request Format:
+            POST /webhook/ghost/post-deleted
+            Content-Type: application/json
+
+            {
+              "post": {
+                "current": {},
+                "previous": { "id": "...", "url": "...", ... }
+              }
+            }
+
+        Note: Ghost sends the deleted post data in "previous", not "current".
+        """
+        notifier = current_app.config["PUSHOVER_NOTIFIER"]
+
+        try:
+            if not request.is_json:
+                return jsonify({"error": "Content-Type must be application/json"}), 400
+
+            payload = request.get_json()
+            if not payload:
+                return jsonify({"error": "Invalid JSON body"}), 400
+
+            # Ghost sends deleted post data in "previous" (current is empty)
+            post_data = payload.get("post", {})
+            if not isinstance(post_data, dict):
+                return jsonify({"error": "Invalid payload structure"}), 400
+
+            previous = post_data.get("previous", {})
+            current = post_data.get("current", {})
+            if not isinstance(previous, dict) or not isinstance(current, dict):
+                return jsonify({"error": "Invalid payload structure"}), 400
+
+            # Try current first, fall back to previous
+            post_id = str(current.get("id") or previous.get("id") or "unknown")[:50]
+            post_url = str(current.get("url") or previous.get("url") or "")[:2048]
+            post_title = str(current.get("title") or previous.get("title") or "untitled")[:300]
+
+            logger.info(f"Received Ghost post deletion: id={post_id}, title='{post_title}'")
+
+            # Validate post_id format (24 hex chars for Ghost/MongoDB ObjectID)
+            if post_id != "unknown" and not validate_ghost_post_id(post_id):
+                logger.warning(f"Post deletion with invalid post ID format: {post_id!r}")
+                return jsonify({
+                    "status": "error",
+                    "message": "Invalid post ID format",
+                }), 400
+
+            # Validate URL scheme if provided
+            if post_url:
+                try:
+                    parsed_del_url = urlparse(post_url)
+                    if parsed_del_url.scheme not in ("http", "https") or not parsed_del_url.netloc:
+                        post_url = ""
+                except Exception:
+                    post_url = ""
+
+            if not post_url:
+                logger.warning(f"Post deletion without URL, cannot send webmentions: id={post_id}")
+                return jsonify({
+                    "status": "success",
+                    "message": "Post deletion received but no URL available for webmentions",
+                    "post_id": post_id,
+                }), 200
+
+            # Look up previously sent webmentions for this post
+            from interactions.storage import InteractionDataStore
+            from indieweb.utils import get_webmention_config
+            from indieweb.webmention import send_webmention as send_wm
+
+            storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data")
+            store = InteractionDataStore(storage_path)
+
+            wm_config = get_webmention_config(current_app.config.get("POSSE_CONFIG", {}))
+            if not wm_config["enabled"]:
+                logger.debug("Webmention sending disabled, skipping delete notifications")
+                return jsonify({
+                    "status": "success",
+                    "message": "Post deletion received, webmentions disabled",
+                    "post_id": post_id,
+                }), 200
+
+            previously_sent = store.get_sent_webmention_targets(post_url)
+            if not previously_sent:
+                logger.info(f"No previously sent webmentions for deleted post {post_id}")
+                return jsonify({
+                    "status": "success",
+                    "message": "Post deletion received, no webmentions to retract",
+                    "post_id": post_id,
+                }), 200
+
+            # Re-send webmentions to all previously notified targets.
+            # When receivers fetch the source URL, they'll get 404 (Ghost
+            # returns 404 for deleted posts) and should remove the mention.
+            import threading
+
+            def _send_delete_webmentions():
+                sent_count = 0
+                for target_url in previously_sent:
+                    try:
+                        result = send_wm(post_url, target_url)
+                        if result.success:
+                            sent_count += 1
+                            logger.info(
+                                f"Delete webmention sent to {target_url} for post {post_id}"
+                            )
+                        else:
+                            logger.debug(
+                                f"Delete webmention to {target_url} failed: {result.message}"
+                            )
+                    except Exception as e:
+                        logger.debug(f"Delete webmention error for {target_url}: {e}")
+
+                # Clean up tracking records
+                deleted_count = store.delete_sent_webmentions_for_post(post_id)
+                logger.info(
+                    f"Post {post_id} deletion: sent {sent_count} webmentions, "
+                    f"cleaned up {deleted_count} tracking records"
+                )
+
+            thread = threading.Thread(target=_send_delete_webmentions, daemon=True)
+            thread.start()
+
+            return jsonify({
+                "status": "success",
+                "message": f"Post deletion received, sending webmentions to {len(previously_sent)} targets",
+                "post_id": post_id,
+                "targets_count": len(previously_sent),
+            }), 200
+
+        except Exception as e:
+            logger.error(f"Unexpected error processing Ghost post deletion: {str(e)}", exc_info=True)
             return jsonify({
                 "status": "error",
                 "message": "Internal server error"

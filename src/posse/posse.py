@@ -742,6 +742,62 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
             except Exception as wm_error:
                 logger.warning(f"Webmention sending error: {wm_error}")
 
+            # Webmention link tracking: discover endpoints on outbound links,
+            # send webmentions, and record what was sent for update/delete diffing
+            try:
+                from indieweb.utils import get_webmention_config
+                from indieweb.link_tracking import extract_outbound_links, compute_webmention_diff
+                from indieweb.webmention import send_webmention as send_wm
+                from interactions.storage import InteractionDataStore
+
+                wm_config = get_webmention_config(config)
+                if wm_config["enabled"] and post_url:
+                    html_content = post.get("html", "")
+                    parsed_url = urlparse(post_url)
+                    source_origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+                    current_links = extract_outbound_links(html_content, source_origin)
+
+                    storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data")
+                    store = InteractionDataStore(storage_path)
+                    previously_sent = set(store.get_sent_webmention_targets(post_url))
+
+                    targets_to_send, removed = compute_webmention_diff(current_links, previously_sent)
+
+                    if removed:
+                        logger.info(
+                            f"Post {post_id}: {len(removed)} previously-linked URLs removed, "
+                            f"re-sending webmentions"
+                        )
+
+                    sent_count = 0
+                    for target_url in targets_to_send:
+                        try:
+                            result = send_wm(post_url, target_url)
+                            if result.success:
+                                store.record_sent_webmention(
+                                    source_url=post_url,
+                                    target_url=target_url,
+                                    post_id=post_id or "",
+                                    endpoint=result.endpoint or "",
+                                )
+                                sent_count += 1
+                                logger.info(f"Webmention sent to outbound link: {target_url}")
+                            else:
+                                logger.debug(
+                                    f"Webmention to outbound link skipped (no endpoint or rejected): "
+                                    f"{target_url}: {result.message}"
+                                )
+                        except Exception as link_err:
+                            logger.debug(f"Webmention send error for {target_url}: {link_err}")
+
+                    if sent_count:
+                        logger.info(
+                            f"Post {post_id}: sent webmentions to {sent_count} of "
+                            f"{len(targets_to_send)} outbound links"
+                        )
+            except Exception as link_wm_error:
+                logger.warning(f"Webmention link tracking error: {link_wm_error}")
+
             # Mark task as done
             events_queue.task_done()
             

@@ -35,6 +35,7 @@ from indieweb.webmention import (
     WebmentionResult,
     discover_webmention_endpoint,
     send_webmention,
+    _is_private_or_loopback,
 )
 from indieweb.utils import has_tag
 
@@ -44,5 +45,6 @@ __all__ = [
     "WebmentionResult",
     "discover_webmention_endpoint",
     "send_webmention",
+    "_is_private_or_loopback",
     "has_tag",
 ]
