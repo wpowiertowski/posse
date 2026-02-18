@@ -110,6 +110,27 @@ class InteractionDataStore:
                     "CREATE INDEX IF NOT EXISTS idx_replies_created_at "
                     "ON webmention_replies(created_at)"
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS sent_webmentions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        source_url TEXT NOT NULL,
+                        target_url TEXT NOT NULL,
+                        post_id TEXT,
+                        endpoint TEXT,
+                        sent_at TEXT NOT NULL,
+                        UNIQUE(source_url, target_url)
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_sent_wm_source "
+                    "ON sent_webmentions(source_url)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_sent_wm_post_id "
+                    "ON sent_webmentions(post_id)"
+                )
         except sqlite3.Error as e:
             logger.error(f"Failed to initialize interactions database {self.db_path}: {e}")
 
@@ -295,3 +316,76 @@ class InteractionDataStore:
         except sqlite3.Error as e:
             logger.error(f"Failed to list syndication mappings from SQLite: {e}")
         return mappings
+
+    # =====================================================================
+    # Sent Webmentions tracking
+    # =====================================================================
+
+    def record_sent_webmention(
+        self,
+        source_url: str,
+        target_url: str,
+        post_id: str = "",
+        endpoint: str = "",
+        sent_at: str = "",
+    ) -> None:
+        """Record a successfully sent webmention.
+
+        Upserts by (source_url, target_url) so re-sends update the timestamp.
+        """
+        if not sent_at:
+            from datetime import datetime, timezone
+            sent_at = datetime.now(timezone.utc).isoformat()
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO sent_webmentions (source_url, target_url, post_id, endpoint, sent_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(source_url, target_url) DO UPDATE SET
+                        endpoint = excluded.endpoint,
+                        sent_at = excluded.sent_at
+                    """,
+                    (source_url, target_url, post_id, endpoint, sent_at),
+                )
+        except sqlite3.Error as e:
+            logger.error(f"Failed to record sent webmention: source={source_url}, target={target_url}: {e}")
+
+    def get_sent_webmention_targets(self, source_url: str) -> list[str]:
+        """Get all target URLs that received webmentions for a given source URL."""
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT target_url FROM sent_webmentions WHERE source_url = ?",
+                    (source_url,),
+                ).fetchall()
+                return [row["target_url"] for row in rows]
+        except sqlite3.Error as e:
+            logger.error(f"Failed to list sent webmentions for {source_url}: {e}")
+            return []
+
+    def get_sent_webmention_targets_by_post_id(self, post_id: str) -> list[str]:
+        """Get all target URLs that received webmentions for a given Ghost post ID."""
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT DISTINCT target_url FROM sent_webmentions WHERE post_id = ?",
+                    (post_id,),
+                ).fetchall()
+                return [row["target_url"] for row in rows]
+        except sqlite3.Error as e:
+            logger.error(f"Failed to list sent webmentions for post {post_id}: {e}")
+            return []
+
+    def delete_sent_webmentions_for_post(self, post_id: str) -> int:
+        """Delete all sent webmention records for a post. Returns count deleted."""
+        try:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM sent_webmentions WHERE post_id = ?",
+                    (post_id,),
+                )
+                return cursor.rowcount
+        except sqlite3.Error as e:
+            logger.error(f"Failed to delete sent webmentions for post {post_id}: {e}")
+            return 0
