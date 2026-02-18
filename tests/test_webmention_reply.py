@@ -310,69 +310,94 @@ class TestRenderHentry:
 # =========================================================================
 
 class TestWebmentionDiscovery:
-    @patch("indieweb.webmention.requests.get")
-    def test_discover_from_link_header(self, mock_get):
+    @patch("indieweb.webmention._build_session")
+    @patch("indieweb.webmention._is_private_or_loopback", return_value=False)
+    def test_discover_from_link_header(self, mock_private, mock_session_fn):
         mock_resp = MagicMock()
         mock_resp.headers = {"Link": '<https://wm.example.com/webmention>; rel="webmention"'}
         mock_resp.ok = True
         mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+        mock_resp.close = MagicMock()
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_resp
+        mock_session_fn.return_value = mock_session
 
         endpoint = discover_webmention_endpoint("https://example.com/post")
         assert endpoint == "https://wm.example.com/webmention"
 
-    @patch("indieweb.webmention.requests.get")
-    def test_discover_from_html_link(self, mock_get):
+    @patch("indieweb.webmention._build_session")
+    @patch("indieweb.webmention._is_private_or_loopback", return_value=False)
+    def test_discover_from_html_link(self, mock_private, mock_session_fn):
+        html_body = b'<html><head><link rel="webmention" href="https://wm.example.com/x/webmention" /></head></html>'
         mock_resp = MagicMock()
         mock_resp.headers = {}
-        mock_resp.text = '<html><head><link rel="webmention" href="https://wm.example.com/x/webmention" /></head></html>'
-        mock_resp.ok = True
         mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+        mock_resp.encoding = "utf-8"
+        mock_resp.iter_content = MagicMock(return_value=iter([html_body]))
+        mock_resp.close = MagicMock()
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_resp
+        mock_session_fn.return_value = mock_session
 
         endpoint = discover_webmention_endpoint("https://example.com/post")
         assert endpoint == "https://wm.example.com/x/webmention"
 
-    @patch("indieweb.webmention.requests.get")
-    def test_discover_from_html_link_reverse_attrs(self, mock_get):
+    @patch("indieweb.webmention._build_session")
+    @patch("indieweb.webmention._is_private_or_loopback", return_value=False)
+    def test_discover_from_html_link_reverse_attrs(self, mock_private, mock_session_fn):
+        html_body = b'<html><head><link href="/webmention" rel="webmention" /></head></html>'
         mock_resp = MagicMock()
         mock_resp.headers = {}
-        mock_resp.text = '<html><head><link href="/webmention" rel="webmention" /></head></html>'
-        mock_resp.ok = True
         mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+        mock_resp.encoding = "utf-8"
+        mock_resp.iter_content = MagicMock(return_value=iter([html_body]))
+        mock_resp.close = MagicMock()
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_resp
+        mock_session_fn.return_value = mock_session
 
         endpoint = discover_webmention_endpoint("https://example.com/post")
         assert endpoint == "https://example.com/webmention"
 
-    @patch("indieweb.webmention.requests.get")
-    def test_discover_returns_none_when_not_found(self, mock_get):
+    @patch("indieweb.webmention._build_session")
+    @patch("indieweb.webmention._is_private_or_loopback", return_value=False)
+    def test_discover_returns_none_when_not_found(self, mock_private, mock_session_fn):
+        html_body = b"<html><body>Hello</body></html>"
         mock_resp = MagicMock()
         mock_resp.headers = {}
-        mock_resp.text = "<html><body>Hello</body></html>"
-        mock_resp.ok = True
         mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+        mock_resp.encoding = "utf-8"
+        mock_resp.iter_content = MagicMock(return_value=iter([html_body]))
+        mock_resp.close = MagicMock()
+        mock_session = MagicMock()
+        mock_session.get.return_value = mock_resp
+        mock_session_fn.return_value = mock_session
 
         assert discover_webmention_endpoint("https://example.com/post") is None
 
-    @patch("indieweb.webmention.requests.get")
-    def test_discover_handles_network_error(self, mock_get):
+    @patch("indieweb.webmention._build_session")
+    @patch("indieweb.webmention._is_private_or_loopback", return_value=False)
+    def test_discover_handles_network_error(self, mock_private, mock_session_fn):
         import requests as req
-        mock_get.side_effect = req.exceptions.ConnectionError("timeout")
+        mock_session = MagicMock()
+        mock_session.get.side_effect = req.exceptions.ConnectionError("timeout")
+        mock_session_fn.return_value = mock_session
         assert discover_webmention_endpoint("https://example.com/post") is None
 
 
 class TestSendWebmention:
+    @patch("indieweb.webmention._build_session")
+    @patch("indieweb.webmention._is_private_or_loopback", return_value=False)
     @patch("indieweb.webmention.discover_webmention_endpoint")
-    @patch("indieweb.webmention.requests.post")
-    def test_successful_send(self, mock_post, mock_discover):
+    def test_successful_send(self, mock_discover, mock_private, mock_session_fn):
         mock_discover.return_value = "https://wm.example.com/webmention"
         mock_resp = MagicMock()
         mock_resp.ok = True
         mock_resp.status_code = 202
         mock_resp.headers = {"Location": "https://wm.example.com/status/123"}
-        mock_post.return_value = mock_resp
+        mock_session = MagicMock()
+        mock_session.post.return_value = mock_resp
+        mock_session_fn.return_value = mock_session
 
         result = send_webmention("https://reply.example.com/reply/abc", "https://blog.example.com/post")
         assert result.success is True

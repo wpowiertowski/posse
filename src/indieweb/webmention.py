@@ -25,16 +25,70 @@ References:
     - W3C Webmention: https://www.w3.org/TR/webmention/
 """
 
+import ipaddress
 import logging
 import re
+import socket
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
+from requests.adapters import HTTPAdapter
 
 
 logger = logging.getLogger(__name__)
+
+# W3C spec-aligned defaults
+WEBMENTION_USER_AGENT = "Webmention (POSSE; +https://github.com/wpowiertowski/posse)"
+MAX_DISCOVERY_RESPONSE_BYTES = 1_048_576  # 1 MB
+MAX_REDIRECTS = 20  # W3C Webmention spec recommendation
+
+
+def _is_private_or_loopback(url: str) -> bool:
+    """Check if a URL resolves to a private or loopback address.
+
+    Prevents SSRF by rejecting URLs whose hostname resolves to
+    localhost, loopback, or private network ranges.
+
+    Args:
+        url: The URL to check.
+
+    Returns:
+        True if the URL resolves to a private/loopback address.
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return True
+
+        # Resolve hostname to IP addresses
+        infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for family, _, _, _, sockaddr in infos:
+            ip_str = sockaddr[0]
+            addr = ipaddress.ip_address(ip_str)
+            if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local:
+                logger.warning(
+                    f"Blocked request to private/loopback address: url={url}, resolved={ip_str}"
+                )
+                return True
+    except (socket.gaierror, ValueError, OSError) as e:
+        logger.warning(f"DNS resolution failed for URL {url}: {e}")
+        return True
+
+    return False
+
+
+def _build_session() -> requests.Session:
+    """Build a requests Session with webmention-appropriate settings.
+
+    Configures User-Agent and redirect limits per W3C spec recommendations.
+    """
+    session = requests.Session()
+    session.headers["User-Agent"] = WEBMENTION_USER_AGENT
+    session.max_redirects = MAX_REDIRECTS
+    return session
 
 
 @dataclass
@@ -167,6 +221,16 @@ class WebmentionClient:
         Returns:
             WebmentionResult with success status and details.
         """
+        # SSRF protection: block private/loopback endpoints
+        if _is_private_or_loopback(target.endpoint):
+            return WebmentionResult(
+                success=False,
+                status_code=0,
+                message=f"Endpoint resolves to a private or loopback address: {target.endpoint}",
+                endpoint=target.endpoint,
+                target_name=target.name,
+            )
+
         payload = {
             "source": source_url,
             "target": target.target,
@@ -177,8 +241,9 @@ class WebmentionClient:
             f"Sending webmention to {target_label}: source={source_url}, target={target.target}"
         )
 
+        session = _build_session()
         try:
-            response = requests.post(
+            response = session.post(
                 target.endpoint,
                 data=payload,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -246,6 +311,10 @@ def discover_webmention_endpoint(target_url: str, timeout: float = 30.0) -> Opti
     1. Check HTTP Link header for rel="webmention"
     2. Parse HTML for <link rel="webmention"> or <a rel="webmention">
 
+    Applies SSRF protection (rejects private/loopback addresses),
+    redirect limit (max 20), response size limit (1 MB), and
+    includes "Webmention" in User-Agent per the spec.
+
     Args:
         target_url: The URL to discover the webmention endpoint for.
         timeout: Request timeout in seconds.
@@ -253,32 +322,64 @@ def discover_webmention_endpoint(target_url: str, timeout: float = 30.0) -> Opti
     Returns:
         The absolute webmention endpoint URL, or None if not found.
     """
+    # SSRF protection: block private/loopback targets
+    if _is_private_or_loopback(target_url):
+        logger.warning(f"Blocked discovery for private/loopback URL: {target_url}")
+        return None
+
+    session = _build_session()
     try:
-        response = requests.get(
+        response = session.get(
             target_url,
             headers={"Accept": "text/html"},
             timeout=timeout,
             allow_redirects=True,
+            stream=True,
         )
         response.raise_for_status()
+    except requests.exceptions.TooManyRedirects:
+        logger.error(f"Too many redirects during webmention discovery: {target_url}")
+        return None
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to fetch target for webmention discovery: {target_url}, error={e}")
         return None
 
-    # 1. Check Link header
+    # 1. Check Link header (before reading body — avoids unnecessary download)
     link_header = response.headers.get("Link", "")
     if link_header:
         # Match: <URL>; rel="webmention"  or  <URL>; rel=webmention
         match = re.search(r'<([^>]+)>;\s*rel="?webmention"?', link_header)
         if match:
+            response.close()
             return urljoin(target_url, match.group(1))
 
-    # 2. Parse HTML for <link> or <a> with rel="webmention"
-    html = response.text
+    # 2. Read body with size limit to prevent abuse
+    chunks = []
+    bytes_read = 0
+    try:
+        for chunk in response.iter_content(chunk_size=8192, decode_unicode=False):
+            chunks.append(chunk)
+            bytes_read += len(chunk)
+            if bytes_read > MAX_DISCOVERY_RESPONSE_BYTES:
+                logger.warning(
+                    f"Response too large during webmention discovery ({bytes_read}+ bytes): {target_url}"
+                )
+                break
+    finally:
+        response.close()
+
+    # Decode with response encoding (fall back to utf-8)
+    encoding = response.encoding or "utf-8"
+    try:
+        html_body = b"".join(chunks).decode(encoding, errors="replace")
+    except (LookupError, UnicodeDecodeError):
+        html_body = b"".join(chunks).decode("utf-8", errors="replace")
+
+    # Parse HTML for <link> or <a> with rel="webmention"
     # <link rel="webmention" href="...">
     pattern1 = re.search(
         r'<link[^>]+rel=["\']?webmention["\']?[^>]+href=["\']([^"\']+)["\']',
-        html, re.IGNORECASE,
+        html_body, re.IGNORECASE,
     )
     if pattern1:
         return urljoin(target_url, pattern1.group(1))
@@ -286,7 +387,7 @@ def discover_webmention_endpoint(target_url: str, timeout: float = 30.0) -> Opti
     # <link href="..." rel="webmention">
     pattern2 = re.search(
         r'<link[^>]+href=["\']([^"\']+)["\'][^>]+rel=["\']?webmention["\']?',
-        html, re.IGNORECASE,
+        html_body, re.IGNORECASE,
     )
     if pattern2:
         return urljoin(target_url, pattern2.group(1))
@@ -294,7 +395,7 @@ def discover_webmention_endpoint(target_url: str, timeout: float = 30.0) -> Opti
     # <a rel="webmention" href="...">
     pattern3 = re.search(
         r'<a[^>]+rel=["\']?webmention["\']?[^>]+href=["\']([^"\']+)["\']',
-        html, re.IGNORECASE,
+        html_body, re.IGNORECASE,
     )
     if pattern3:
         return urljoin(target_url, pattern3.group(1))
@@ -307,7 +408,8 @@ def send_webmention(source_url: str, target_url: str, timeout: float = 30.0) -> 
     """Send a webmention from source to target with automatic endpoint discovery.
 
     Discovers the webmention endpoint from the target URL, then sends
-    the webmention per W3C spec.
+    the webmention per W3C spec. Applies SSRF protection, redirect limits,
+    response size caps, and includes "Webmention" in User-Agent.
 
     Args:
         source_url: The URL of the page that mentions the target.
@@ -325,7 +427,7 @@ def send_webmention(source_url: str, target_url: str, timeout: float = 30.0) -> 
         >>> if result.success:
         ...     print("Webmention sent!")
     """
-    # Discover endpoint
+    # Discover endpoint (includes SSRF protection for target_url)
     endpoint = discover_webmention_endpoint(target_url, timeout=timeout)
     if not endpoint:
         return WebmentionResult(
@@ -335,10 +437,20 @@ def send_webmention(source_url: str, target_url: str, timeout: float = 30.0) -> 
             endpoint=None,
         )
 
+    # SSRF protection: block private/loopback endpoints
+    if _is_private_or_loopback(endpoint):
+        return WebmentionResult(
+            success=False,
+            status_code=0,
+            message=f"Endpoint resolves to a private or loopback address: {endpoint}",
+            endpoint=endpoint,
+        )
+
     logger.info(f"Sending webmention: source={source_url}, target={target_url}, endpoint={endpoint}")
 
+    session = _build_session()
     try:
-        response = requests.post(
+        response = session.post(
             endpoint,
             data={"source": source_url, "target": target_url},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -372,6 +484,9 @@ def send_webmention(source_url: str, target_url: str, timeout: float = 30.0) -> 
             endpoint=endpoint,
         )
 
+    except requests.exceptions.TooManyRedirects:
+        logger.error(f"Too many redirects sending webmention: endpoint={endpoint}")
+        return WebmentionResult(success=False, status_code=0, message="Too many redirects", endpoint=endpoint)
     except requests.exceptions.Timeout:
         logger.error(f"Webmention request timed out: endpoint={endpoint}")
         return WebmentionResult(success=False, status_code=0, message="Request timed out", endpoint=endpoint)
