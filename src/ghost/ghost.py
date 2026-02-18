@@ -83,6 +83,7 @@ Classes:
     GhostPostValidationError: Custom exception for schema validation failures
 """
 import hmac
+import ipaddress
 import html
 import json
 import logging
@@ -386,6 +387,32 @@ def record_request(client_ip: str) -> None:
             del _request_rate_cache[ip]
 
 
+def get_client_ip_from_request() -> str:
+    """Resolve a syntactically valid client IP from trusted proxy headers.
+
+    Prefers proxy-provided headers and falls back to remote_addr. Invalid values
+    are ignored so attacker-controlled garbage does not create arbitrary
+    rate-limit keys.
+    """
+    candidates = [
+        request.headers.get("X-Real-IP"),
+        request.headers.get("X-Forwarded-For", "").split(",")[0].strip(),
+        request.remote_addr,
+    ]
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        candidate = candidate.strip()
+        try:
+            ipaddress.ip_address(candidate)
+            return candidate
+        except ValueError:
+            continue
+
+    return "unknown"
+
+
 def validate_referrer(referrer: Optional[str], allowed_referrers: list) -> bool:
     """
     Validate that the request referrer is from an allowed domain.
@@ -409,17 +436,38 @@ def validate_referrer(referrer: Optional[str], allowed_referrers: list) -> bool:
     from urllib.parse import urlparse
     try:
         parsed = urlparse(referrer)
-        referrer_host = parsed.netloc.lower()
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return False
+
+        referrer_origin = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+        referrer_host = (parsed.hostname or "").lower()
 
         for allowed in allowed_referrers:
-            allowed_lower = allowed.lower()
-            # Support exact match or wildcard subdomain match
+            allowed_lower = (allowed or "").strip().lower()
+            if not allowed_lower:
+                continue
+
+            # Wildcard host match (subdomains only): "*.example.com"
+            if allowed_lower.startswith("*."):
+                suffix = allowed_lower[2:]
+                if referrer_host and referrer_host.endswith(f".{suffix}"):
+                    return True
+                continue
+
+            # Full origin pattern: "https://example.com"
+            if "://" in allowed_lower:
+                allowed_parsed = urlparse(allowed_lower)
+                if (
+                    allowed_parsed.scheme in ("http", "https")
+                    and allowed_parsed.netloc
+                    and referrer_origin
+                    == f"{allowed_parsed.scheme.lower()}://{allowed_parsed.netloc.lower()}"
+                ):
+                    return True
+                continue
+
+            # Bare host pattern: "example.com"
             if referrer_host == allowed_lower:
-                return True
-            if allowed_lower.startswith("*.") and referrer_host.endswith(allowed_lower[1:]):
-                return True
-            # Also check if the full referrer URL starts with the allowed pattern
-            if referrer.lower().startswith(allowed_lower):
                 return True
     except Exception:
         return False
@@ -1123,7 +1171,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         # =================================================================
         # Security: Rate Limiting (per IP)
         # =================================================================
-        client_ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr
+        client_ip = get_client_ip_from_request()
 
         if current_app.config.get("RATE_LIMIT_ENABLED", True):
             rate_limit = current_app.config.get("RATE_LIMIT_REQUESTS", REQUEST_RATE_LIMIT)
@@ -1484,6 +1532,18 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         if not current_app.config.get("REPLY_ENABLED"):
             return jsonify({"error": "Webmention reply form is not enabled"}), 404
 
+        # Rate limit reply form loads to reduce abuse against target validation
+        # and repeated Ghost API lookups by bots.
+        client_ip = get_client_ip_from_request()
+        if current_app.config.get("RATE_LIMIT_ENABLED", True):
+            rate_limit = current_app.config.get("RATE_LIMIT_REQUESTS", REQUEST_RATE_LIMIT)
+            rate_window = current_app.config.get("RATE_LIMIT_WINDOW", REQUEST_RATE_WINDOW_SECONDS)
+            form_rate_key = f"reply-form:{client_ip}"
+            if check_request_rate_limit(form_rate_key, limit=rate_limit, window=rate_window):
+                logger.warning(f"Reply form rate limit exceeded for IP: {client_ip}")
+                return jsonify({"error": "Too many requests. Please try again later."}), 429
+            record_request(form_rate_key)
+
         import os as _os
         static_dir = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "static")
         html_path = _os.path.join(static_dir, "reply.html")
@@ -1595,11 +1655,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             return jsonify({"error": "Webmention replies are not enabled"}), 404
 
         # Rate limiting (per IP, separate window for replies)
-        client_ip = (
-            request.headers.get("X-Real-IP")
-            or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-            or request.remote_addr
-        )
+        client_ip = get_client_ip_from_request()
 
         reply_limit = current_app.config.get("REPLY_RATE_LIMIT", DEFAULT_REPLY_RATE_LIMIT)
         reply_window = current_app.config.get("REPLY_RATE_WINDOW", DEFAULT_REPLY_RATE_WINDOW)

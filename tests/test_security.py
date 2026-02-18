@@ -207,6 +207,13 @@ class TestReferrerValidation:
             ["myblog.com"]
         ) is True
 
+    def test_referrer_prefix_spoof_rejected(self):
+        """Lookalike hostnames must not bypass full-origin rules."""
+        assert validate_referrer(
+            "https://myblog.com.evil.example/attack",
+            ["https://myblog.com"]
+        ) is False
+
 
 class TestErrorSanitization:
     """Test error message sanitization."""
