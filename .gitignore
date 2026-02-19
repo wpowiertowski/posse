@@ -210,3 +210,4 @@ __marimo__/
 secrets/
 pushover_*.txt
 data
+.codex-tmp

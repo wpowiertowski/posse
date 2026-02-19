@@ -440,9 +440,13 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
     from llm import LLMClient
     
     # Load config and initialize notifier with error handling for test environments
+    config = {}
+    interactions_storage_path = "./data"
     try:
         config = load_config()
         timezone_name = get_timezone_name(config)
+        interactions_config = config.get("interactions", {})
+        interactions_storage_path = interactions_config.get("cache_directory", "./data")
         notifier = PushoverNotifier.from_config(config)
         llm_client = LLMClient.from_config(config)
     except Exception as e:
@@ -590,7 +594,7 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                                         "status_id": result_id,
                                         "post_url": result_url
                                     },
-                                    storage_path=current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data"),
+                                    storage_path=interactions_storage_path,
                                     split_info=split_info,
                                     timezone_name=timezone_name,
                                 )
@@ -604,7 +608,7 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                                         "post_uri": result_uri,
                                         "post_url": result_url
                                     },
-                                    storage_path=current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data"),
+                                    storage_path=interactions_storage_path,
                                     split_info=split_info,
                                     timezone_name=timezone_name,
                                 )
@@ -757,8 +761,7 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                     source_origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
                     current_links = extract_outbound_links(html_content, source_origin)
 
-                    storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data")
-                    store = InteractionDataStore(storage_path)
+                    store = InteractionDataStore(interactions_storage_path)
                     previously_sent = set(store.get_sent_webmention_targets(post_url))
 
                     targets_to_send, removed = compute_webmention_diff(current_links, previously_sent)

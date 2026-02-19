@@ -34,6 +34,7 @@ Running Tests:
 """
 
 import pytest
+import inspect
 from queue import Queue
 
 # Import functions being tested
@@ -143,4 +144,11 @@ def test_process_events_with_clients():
     # Verify function is still callable
     assert callable(process_events), "process_events should be callable"
 
+
+def test_process_events_does_not_depend_on_flask_current_app():
+    """process_events runs in worker threads and should not require Flask app context."""
+    from posse import posse as posse_module
+
+    source = inspect.getsource(posse_module.process_events)
+    assert "current_app" not in source, "process_events should not use Flask current_app context"
 
