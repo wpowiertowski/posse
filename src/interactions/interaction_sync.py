@@ -36,6 +36,7 @@ class InteractionSyncService:
         bluesky_clients: Optional[List[Any]] = None,
         storage_path: str = "./data",
         timezone_name: str = "UTC",
+        notifier: Optional[Any] = None,
     ):
         """Initialize the interaction sync service.
 
@@ -44,12 +45,14 @@ class InteractionSyncService:
             bluesky_clients: List of BlueskyClient instances
             storage_path: Directory path for storing interaction data
             timezone_name: IANA timezone name used for generated timestamps
+            notifier: Optional PushoverNotifier instance for new-reply notifications
         """
         self.mastodon_clients = mastodon_clients or []
         self.bluesky_clients = bluesky_clients or []
         self.storage_path = storage_path
         self.timezone_name = self._normalize_timezone_name(timezone_name)
         self.timezone = ZoneInfo(self.timezone_name)
+        self.notifier = notifier
 
         # Create storage directory if it doesn't exist
         os.makedirs(self.storage_path, mode=0o755, exist_ok=True)
@@ -125,6 +128,10 @@ class InteractionSyncService:
 
         # Load existing interaction data to preserve data for platforms that fail to sync
         existing_data = self._load_existing_interaction_data(ghost_post_id)
+
+        # Capture previous reply URLs BEFORE any mutations occur, so we can detect
+        # new replies after the sync completes.
+        previous_reply_urls = self._collect_reply_urls(existing_data.get("platforms", {}))
 
         # Check if we have existing data to preserve
         has_existing_mastodon = bool(existing_data.get("platforms", {}).get("mastodon", {}))
@@ -249,6 +256,10 @@ class InteractionSyncService:
                         )
         except Exception as e:
             logger.error(f"Unexpected error during Bluesky interaction sync: {e}", exc_info=True)
+
+        # Notify about new replies before storing updated data
+        if self.notifier:
+            self._notify_new_replies(previous_reply_urls, interactions)
 
         # Store the interaction data
         self._store_interaction_data(ghost_post_id, interactions)
@@ -625,6 +636,63 @@ class InteractionSyncService:
             "reply_previews": all_reply_previews[:20],  # Limit to 20 across all splits
             "updated_at": self._now_isoformat()
         }
+
+    def _collect_reply_urls(self, platforms_data: Dict[str, Any]) -> set:
+        """Collect all reply URLs from platforms interaction data.
+
+        Args:
+            platforms_data: The 'platforms' dict from interaction data
+
+        Returns:
+            Set of reply URL strings
+        """
+        urls: set = set()
+        for _platform_name, accounts in platforms_data.items():
+            if not isinstance(accounts, dict):
+                continue
+            for _account_name, account_data in accounts.items():
+                if not isinstance(account_data, dict):
+                    continue
+                for reply in account_data.get("reply_previews", []):
+                    url = reply.get("url")
+                    if url:
+                        urls.add(url)
+        return urls
+
+    def _notify_new_replies(
+        self,
+        previous_reply_urls: set,
+        new_data: Dict[str, Any],
+    ) -> None:
+        """Send notifications for replies that were not present in the previous sync.
+
+        Args:
+            previous_reply_urls: Set of reply URLs already known before this sync
+            new_data: Freshly synced interaction data
+        """
+        for platform_name, accounts in new_data.get("platforms", {}).items():
+            if not isinstance(accounts, dict):
+                continue
+            for account_name, account_data in accounts.items():
+                if not isinstance(account_data, dict):
+                    continue
+                for reply in account_data.get("reply_previews", []):
+                    url = reply.get("url")
+                    if not url or url in previous_reply_urls:
+                        continue
+                    # This is a new reply — send a notification
+                    try:
+                        self.notifier.notify_new_social_reply(
+                            platform=platform_name.capitalize(),
+                            account_name=account_name,
+                            author=reply.get("author", "unknown"),
+                            content_snippet=reply.get("content", ""),
+                            reply_url=url,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to send new-reply notification for {url}: {e}"
+                        )
 
     def _find_client(self, clients: List[Any], account_name: str) -> Optional[Any]:
         """Find client by account name from a list of clients.

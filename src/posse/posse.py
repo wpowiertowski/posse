@@ -1002,6 +1002,7 @@ def main(debug: bool = False) -> None:
         bluesky_clients=bluesky_clients,
         storage_path=storage_path,
         timezone_name=timezone_name,
+        notifier=notifier,
     )
 
     logger.info("Initializing interaction scheduler")
