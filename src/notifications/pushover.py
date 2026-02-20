@@ -403,6 +403,66 @@ class PushoverNotifier:
             url_title="View Post"
         )
 
+    def notify_new_social_reply(
+        self,
+        platform: str,
+        account_name: str,
+        author: str,
+        content_snippet: str,
+        reply_url: str,
+        post_url: Optional[str] = None
+    ) -> bool:
+        """Send notification when a new reply is discovered on Mastodon or Bluesky.
+
+        Args:
+            platform: Platform name ("Mastodon" or "Bluesky")
+            account_name: Name of the social media account that received the reply
+            author: Author handle of the reply (e.g. "@user@mastodon.social")
+            content_snippet: Short preview of the reply content
+            reply_url: Direct URL to the reply
+            post_url: Optional URL of the original syndicated post
+
+        Returns:
+            True if notification sent successfully, False otherwise
+        """
+        title = f"💬 New {platform} Reply"
+        snippet = content_snippet[:200] if content_snippet else ""
+        message = f"{author} replied on {account_name}:\n{snippet}"
+        return self._send_notification(
+            title=title,
+            message=message,
+            priority=0,
+            url=reply_url,
+            url_title="View Reply"
+        )
+
+    def notify_new_webmention_reply(
+        self,
+        author_name: str,
+        content_snippet: str,
+        target_url: str
+    ) -> bool:
+        """Send notification when a new webmention reply is received.
+
+        Args:
+            author_name: Display name of the reply author
+            content_snippet: Short preview of the reply content
+            target_url: URL of the post the reply was sent to
+
+        Returns:
+            True if notification sent successfully, False otherwise
+        """
+        title = "💬 New Webmention Reply"
+        snippet = content_snippet[:200] if content_snippet else ""
+        message = f"{author_name} replied via webmention:\n{snippet}"
+        return self._send_notification(
+            title=title,
+            message=message,
+            priority=0,
+            url=target_url,
+            url_title="View Post"
+        )
+
     def notify_log_error(self, logger_name: str, message: str, level: str = "ERROR") -> bool:
         """Send notification for error-level log messages.
 

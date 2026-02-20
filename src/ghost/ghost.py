@@ -1722,6 +1722,18 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
 
         logger.info(f"Reply stored: id={reply['id']}, target={reply['target']}, author={reply['author_name']}")
 
+        # Notify about new webmention reply
+        try:
+            notifier = current_app.config.get("PUSHOVER_NOTIFIER")
+            if notifier:
+                notifier.notify_new_webmention_reply(
+                    author_name=reply["author_name"],
+                    content_snippet=reply["content"],
+                    target_url=reply["target"],
+                )
+        except Exception as _notify_exc:
+            logger.error(f"Failed to send Pushover notification for new webmention reply: {_notify_exc}")
+
         # Send webmention in background thread. Build source URL from target origin
         # so canonical HTTPS host is used even behind internal HTTP reverse proxies.
         target_url = reply["target"]
