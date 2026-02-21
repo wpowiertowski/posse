@@ -131,6 +131,33 @@ class InteractionDataStore:
                     "CREATE INDEX IF NOT EXISTS idx_sent_wm_post_id "
                     "ON sent_webmentions(post_id)"
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS received_webmentions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        source TEXT NOT NULL,
+                        target TEXT NOT NULL,
+                        mention_type TEXT DEFAULT 'mention',
+                        author_name TEXT,
+                        author_url TEXT,
+                        author_photo TEXT,
+                        content_html TEXT,
+                        content_text TEXT,
+                        received_at TEXT NOT NULL,
+                        verified_at TEXT,
+                        status TEXT DEFAULT 'pending',
+                        UNIQUE(source, target)
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_received_wm_target "
+                    "ON received_webmentions(target)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_received_wm_status "
+                    "ON received_webmentions(status)"
+                )
         except sqlite3.Error as e:
             logger.error(f"Failed to initialize interactions database {self.db_path}: {e}")
 
@@ -403,3 +430,113 @@ class InteractionDataStore:
         except sqlite3.Error as e:
             logger.error(f"Failed to delete sent webmentions for post {post_id}: {e}")
             return 0
+
+    # =====================================================================
+    # Received Webmentions (W3C receiver)
+    # =====================================================================
+
+    def put_received_webmention(self, source: str, target: str, received_at: str) -> None:
+        """Upsert a received webmention by (source, target).
+
+        Resets status to 'pending' on re-submission so verification runs again.
+        """
+        source = (source or "")[:self._MAX_URL_LENGTH]
+        target = (target or "")[:self._MAX_URL_LENGTH]
+
+        if not source or not target:
+            logger.warning("Skipping received webmention: missing source or target")
+            return
+
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO received_webmentions (source, target, received_at, status)
+                    VALUES (?, ?, ?, 'pending')
+                    ON CONFLICT(source, target) DO UPDATE SET
+                        received_at = excluded.received_at,
+                        status = 'pending',
+                        verified_at = NULL
+                    """,
+                    (source, target, received_at),
+                )
+        except sqlite3.Error as e:
+            logger.error(f"Failed to store received webmention: source={source}, target={target}: {e}")
+
+    def get_webmentions_for_target(self, target: str) -> list[Dict[str, Any]]:
+        """Return all verified webmentions for a target URL."""
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT source, target, mention_type, author_name, author_url,
+                           author_photo, content_html, content_text, received_at, verified_at
+                    FROM received_webmentions
+                    WHERE target = ? AND status = 'verified'
+                    ORDER BY verified_at DESC
+                    """,
+                    (target,),
+                ).fetchall()
+                return [
+                    {
+                        "source_url": row["source"],
+                        "target_url": row["target"],
+                        "mention_type": row["mention_type"],
+                        "author_name": row["author_name"] or "",
+                        "author_url": row["author_url"] or "",
+                        "author_photo": row["author_photo"] or "",
+                        "content_html": row["content_html"] or "",
+                        "content_text": row["content_text"] or "",
+                        "received_at": row["received_at"],
+                        "verified_at": row["verified_at"] or "",
+                    }
+                    for row in rows
+                ]
+        except sqlite3.Error as e:
+            logger.error(f"Failed to query webmentions for target {target}: {e}")
+            return []
+
+    def update_webmention_verification(
+        self,
+        source: str,
+        target: str,
+        status: str,
+        mention_type: str = "mention",
+        author_name: str = "",
+        author_url: str = "",
+        author_photo: str = "",
+        content_html: str = "",
+        content_text: str = "",
+        verified_at: str = "",
+    ) -> None:
+        """Update a received webmention after async verification."""
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    UPDATE received_webmentions
+                    SET status = ?, mention_type = ?, author_name = ?, author_url = ?,
+                        author_photo = ?, content_html = ?, content_text = ?, verified_at = ?
+                    WHERE source = ? AND target = ?
+                    """,
+                    (
+                        status, mention_type, author_name, author_url,
+                        author_photo, content_html, content_text, verified_at,
+                        source, target,
+                    ),
+                )
+        except sqlite3.Error as e:
+            logger.error(f"Failed to update webmention verification: source={source}, target={target}: {e}")
+
+    def delete_received_webmention(self, source: str, target: str) -> bool:
+        """Delete a received webmention (e.g. source returned 404/410)."""
+        try:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM received_webmentions WHERE source = ? AND target = ?",
+                    (source, target),
+                )
+                return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.error(f"Failed to delete received webmention: source={source}, target={target}: {e}")
+            return False
