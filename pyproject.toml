@@ -47,3 +47,6 @@ python_functions = ["test_*"]
 addopts = [
     "-v",
 ]
+filterwarnings = [
+    "ignore:codecs.open\\(\\) is deprecated:DeprecationWarning:mf2py",
+]
