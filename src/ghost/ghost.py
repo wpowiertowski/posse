@@ -641,6 +641,18 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     if app.config["REPLY_ENABLED"]:
         logger.info(f"Webmention reply form enabled for origins: {app.config['REPLY_ALLOWED_TARGET_ORIGINS']}")
 
+    # =================================================================
+    # Webmention Receiver Configuration
+    # =================================================================
+    receiver_config = config.get("webmention_receiver", {})
+    app.config["RECEIVER_ENABLED"] = receiver_config.get("enabled", False)
+    app.config["RECEIVER_ALLOWED_TARGET_ORIGINS"] = receiver_config.get("allowed_target_origins", [])
+    app.config["RECEIVER_RATE_LIMIT"] = receiver_config.get("rate_limit", 10)
+    app.config["RECEIVER_RATE_WINDOW"] = receiver_config.get("rate_limit_window_seconds", 60)
+
+    if app.config["RECEIVER_ENABLED"]:
+        logger.info(f"Webmention receiver enabled for origins: {app.config['RECEIVER_ALLOWED_TARGET_ORIGINS']}")
+
     @app.route("/webhook/ghost/post-updated", methods=["POST"])
     def receive_ghost_post_update():
         """Webhook endpoint to receive Ghost post update notifications.
@@ -1453,6 +1465,52 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             }), 500
 
     # =================================================================
+    # Webmention Query Endpoint
+    # =================================================================
+
+    @app.route("/api/webmentions", methods=["GET"])
+    def get_webmentions():
+        """Return verified webmentions for a given target URL.
+
+        Query Parameters:
+            target: The target URL to query webmentions for (required)
+        """
+        from interactions.storage import InteractionDataStore
+
+        if not current_app.config.get("RECEIVER_ENABLED"):
+            return jsonify({"error": "Webmention receiver is not enabled"}), 404
+
+        # Rate limit
+        client_ip = get_client_ip_from_request()
+        if current_app.config.get("RATE_LIMIT_ENABLED", True):
+            rate_limit = current_app.config.get("RATE_LIMIT_REQUESTS", REQUEST_RATE_LIMIT)
+            rate_window = current_app.config.get("RATE_LIMIT_WINDOW", REQUEST_RATE_WINDOW_SECONDS)
+            if check_request_rate_limit(client_ip, limit=rate_limit, window=rate_window):
+                return jsonify({"error": "Too many requests"}), 429
+            record_request(client_ip)
+
+        # Referrer validation
+        allowed_referrers = current_app.config.get("ALLOWED_REFERRERS", [])
+        if allowed_referrers:
+            referrer = request.headers.get("Referer")
+            if not validate_referrer(referrer, allowed_referrers):
+                return jsonify({"error": "Forbidden"}), 403
+
+        target = request.args.get("target", "").strip()
+        if not target:
+            return jsonify({"error": "Missing 'target' query parameter"}), 400
+
+        parsed = urlparse(target)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return jsonify({"error": "Invalid target URL"}), 400
+
+        storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data")
+        store = InteractionDataStore(storage_path)
+        webmentions = store.get_webmentions_for_target(target)
+
+        return jsonify({"webmentions": webmentions}), 200
+
+    # =================================================================
     # Webmention Reply Endpoints
     # =================================================================
 
@@ -1519,8 +1577,92 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
 
         return reply_form_html[style_start:style_end + len("</style>")]
 
-    @app.route("/webmention", methods=["GET"])
-    def serve_reply_form():
+    @app.route("/webmention", methods=["GET", "POST"])
+    def webmention_endpoint():
+        """Combined webmention endpoint: reply form (GET) and W3C receiver (POST).
+
+        GET: Serve the webmention reply form HTML page.
+        POST: Accept incoming webmentions per W3C spec (source + target as form data).
+        """
+        if request.method == "POST":
+            return _receive_webmention()
+        return _serve_reply_form()
+
+    def _receive_webmention():
+        """W3C Webmention receiver (POST /webmention).
+
+        Accepts source and target as application/x-www-form-urlencoded.
+        Per W3C spec, returns 202 Accepted and verifies asynchronously.
+        """
+        import threading
+        from datetime import datetime, timezone
+        from indieweb.webmention import _is_private_or_loopback
+        from indieweb.receiver import verify_webmention
+        from interactions.storage import InteractionDataStore
+
+        if not current_app.config.get("RECEIVER_ENABLED"):
+            return jsonify({"error": "Webmention receiver is not enabled"}), 404
+
+        # Validate Content-Type
+        content_type = request.content_type or ""
+        if "application/x-www-form-urlencoded" not in content_type:
+            return jsonify({"error": "Content-Type must be application/x-www-form-urlencoded"}), 415
+
+        # Rate limit
+        client_ip = get_client_ip_from_request()
+        if current_app.config.get("RATE_LIMIT_ENABLED", True):
+            rate_limit = current_app.config.get("RECEIVER_RATE_LIMIT", 10)
+            rate_window = current_app.config.get("RECEIVER_RATE_WINDOW", 60)
+            rate_key = f"wm-receive:{client_ip}"
+            if check_request_rate_limit(rate_key, limit=rate_limit, window=rate_window):
+                logger.warning(f"Webmention receiver rate limit exceeded for IP: {client_ip}")
+                return jsonify({"error": "Too many requests. Please try again later."}), 429
+            record_request(rate_key)
+
+        source = request.form.get("source", "").strip()
+        target = request.form.get("target", "").strip()
+
+        if not source or not target:
+            return jsonify({"error": "Both 'source' and 'target' parameters are required"}), 400
+
+        # Validate URLs
+        for label, url in [("source", source), ("target", target)]:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                return jsonify({"error": f"Invalid {label} URL"}), 400
+
+        # Validate target is for an allowed origin
+        allowed_origins = current_app.config.get("RECEIVER_ALLOWED_TARGET_ORIGINS", [])
+        if allowed_origins:
+            target_origin = f"{urlparse(target).scheme}://{urlparse(target).netloc}"
+            if target_origin not in allowed_origins:
+                return jsonify({"error": "Target URL is not for a supported site"}), 400
+
+        # SSRF protection on source
+        if _is_private_or_loopback(source):
+            return jsonify({"error": "Invalid source URL"}), 400
+
+        # Store as pending
+        storage_path = current_app.config.get("INTERACTIONS_STORAGE_PATH", "./data")
+        store = InteractionDataStore(storage_path)
+        now = datetime.now(timezone.utc).isoformat()
+        store.put_received_webmention(source, target, now)
+
+        logger.info(f"Webmention received: source={source}, target={target}, ip={client_ip}")
+
+        # Async verification
+        def _verify():
+            try:
+                verify_webmention(source, target, store)
+            except Exception as exc:
+                logger.error(f"Webmention verification error: source={source}, target={target}, error={exc}")
+
+        thread = threading.Thread(target=_verify, daemon=True)
+        thread.start()
+
+        return jsonify({"status": "accepted"}), 202
+
+    def _serve_reply_form():
         """Serve the webmention reply form.
 
         Returns the static HTML reply form page. The Turnstile site key

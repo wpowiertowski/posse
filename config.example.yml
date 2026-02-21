@@ -152,3 +152,31 @@ security:
   # Can also be set via INTERNAL_API_TOKEN environment variable
   # internal_api_token: "your-secret-token"  # Uncomment and set a strong token
   internal_api_token_file: "/run/secrets/internal_api_token"  # Alternative: use Docker secret
+
+# =============================================================================
+# Webmention Reply Form
+# =============================================================================
+# Serve a reply form at GET /webmention and accept replies at POST /api/webmention/reply.
+# Replies are stored as h-entry pages and sent as webmentions to the target post.
+webmention_reply:
+  enabled: false
+  blog_name: "My Blog"
+  allowed_target_origins:
+    - "https://yourblog.com"
+  # Cloudflare Turnstile CAPTCHA (optional)
+  # turnstile_site_key: "your-site-key"
+  # turnstile_secret_key_file: "/run/secrets/turnstile_secret"
+  rate_limit: 5                    # Max replies per IP per window
+  rate_limit_window_seconds: 3600  # Window in seconds (1 hour)
+
+# =============================================================================
+# Webmention Receiver (W3C)
+# =============================================================================
+# Accept incoming webmentions from external sites at POST /webmention.
+# Verified webmentions are queryable at GET /api/webmentions?target=<url>.
+webmention_receiver:
+  enabled: false
+  allowed_target_origins:
+    - "https://yourblog.com"
+  rate_limit: 10                  # Max incoming webmentions per IP per window
+  rate_limit_window_seconds: 60   # Window in seconds

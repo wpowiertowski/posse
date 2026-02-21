@@ -65,6 +65,29 @@ files = [
 ]
 
 [[package]]
+name = "beautifulsoup4"
+version = "4.14.3"
+description = "Screen-scraping library"
+optional = false
+python-versions = ">=3.7.0"
+groups = ["main"]
+files = [
+    {file = "beautifulsoup4-4.14.3-py3-none-any.whl", hash = "sha256:0918bfe44902e6ad8d57732ba310582e98da931428d231a5ecb9e7c703a735bb"},
+    {file = "beautifulsoup4-4.14.3.tar.gz", hash = "sha256:6292b1c5186d356bba669ef9f7f051757099565ad9ada5dd630bd9de5fa7fb86"},
+]
+
+[package.dependencies]
+soupsieve = ">=1.6.1"
+typing-extensions = ">=4.0.0"
+
+[package.extras]
+cchardet = ["cchardet"]
+chardet = ["chardet"]
+charset-normalizer = ["charset-normalizer"]
+html5lib = ["html5lib"]
+lxml = ["lxml"]
+
+[[package]]
 name = "blinker"
 version = "1.9.0"
 description = "Fast, simple object-to-object and broadcast signaling"
@@ -532,6 +555,28 @@ files = [
 ]
 
 [[package]]
+name = "html5lib"
+version = "1.1"
+description = "HTML parser based on the WHATWG HTML specification"
+optional = false
+python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
+groups = ["main"]
+files = [
+    {file = "html5lib-1.1-py2.py3-none-any.whl", hash = "sha256:0d78f8fde1c230e99fe37986a60526d7049ed4bf8a9fadbad5f00e22e58e041d"},
+    {file = "html5lib-1.1.tar.gz", hash = "sha256:b2e5b40261e20f354d198eae92afc10d750afb487ed5e50f9c4eaf07c184146f"},
+]
+
+[package.dependencies]
+six = ">=1.9"
+webencodings = "*"
+
+[package.extras]
+all = ["chardet (>=2.2)", "genshi", "lxml ; platform_python_implementation == \"CPython\""]
+chardet = ["chardet (>=2.2)"]
+genshi = ["genshi"]
+lxml = ["lxml ; platform_python_implementation == \"CPython\""]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 description = "A minimal low-level HTTP client."
@@ -905,6 +950,23 @@ grapheme = ["grapheme (>=0.6.0)"]
 test = ["pytest", "pytest-cov", "pytest-mock", "pytest-recording", "pytest-retry", "pytz", "requests-mock", "vcrpy"]
 test-old = ["pytest", "pytest-cov", "pytest-mock", "pytest-recording", "pytz", "requests-mock", "vcrpy"]
 webpush = ["cryptography (>=1.6.0)", "http_ece (>=1.0.5)"]
+
+[[package]]
+name = "mf2py"
+version = "2.0.1"
+description = "Microformats parser"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "mf2py-2.0.1-py3-none-any.whl", hash = "sha256:092806e17f1a93db4aafa5e8d3c4124b5e42cd89027e2db48a5248ef4eabde03"},
+    {file = "mf2py-2.0.1.tar.gz", hash = "sha256:1380924633413b8d72e704b5c86b4382c4b1371699edecc907b01cd21138d7cd"},
+]
+
+[package.dependencies]
+beautifulsoup4 = ">=4.11.1,<5.0.0"
+html5lib = ">=1.1,<2.0"
+requests = ">=2.28.2,<3.0.0"
 
 [[package]]
 name = "packaging"
@@ -1550,6 +1612,18 @@ files = [
 ]
 
 [[package]]
+name = "soupsieve"
+version = "2.8.3"
+description = "A modern CSS selector implementation for Beautiful Soup."
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "soupsieve-2.8.3-py3-none-any.whl", hash = "sha256:ed64f2ba4eebeab06cc4962affce381647455978ffc1e36bb79a545b91f45a95"},
+    {file = "soupsieve-2.8.3.tar.gz", hash = "sha256:3267f1eeea4251fb42728b6dfb746edc9acaffc4a45b27e19450b676586e8349"},
+]
+
+[[package]]
 name = "typing-extensions"
 version = "4.15.0"
 description = "Backported and Experimental Type Hints for Python 3.9+"
@@ -1593,6 +1667,18 @@ brotli = ["brotli (>=1.2.0) ; platform_python_implementation == \"CPython\"", "b
 h2 = ["h2 (>=4,<5)"]
 socks = ["pysocks (>=1.5.6,!=1.5.7,<2.0)"]
 zstd = ["backports-zstd (>=1.0.0) ; python_version < \"3.14\""]
+
+[[package]]
+name = "webencodings"
+version = "0.5.1"
+description = "Character encoding aliases for legacy web content"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "webencodings-0.5.1-py2.py3-none-any.whl", hash = "sha256:a0af1213f3c2226497a97e2b3aa01a7e4bee4f403f95be16fc9acd2947514a78"},
+    {file = "webencodings-0.5.1.tar.gz", hash = "sha256:b36a1c245f2d304965eb4e0a82848379241dc04b865afcc4aab16748587e1923"},
+]
 
 [[package]]
 name = "websockets"
@@ -1694,4 +1780,4 @@ watchdog = ["watchdog (>=2.3)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.14,<3.15"
-content-hash = "f0aae88567098c1192ad5ade58eb36335cfdc94558f755440dd640464b64687a"
+content-hash = "b9431e1aa63c64e47f16433b4052580ff6dcefbd81a4a05292ee4de56413190a"
