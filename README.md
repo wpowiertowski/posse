@@ -31,8 +31,8 @@ Use the README for quick setup, then follow the focused guides:
 - Automatic Bluesky image compression to fit blob size limits
 - Social interaction sync API for Ghost widgets
 - Tag-triggered webmention sending to configurable targets (e.g. IndieWeb News)
-- Optional self-hosted webmention reply form (`/webmention`)
-- Optional Pushover notifications for key processing events
+- Optional self-hosted webmention reply form and W3C-compliant receiver (`/webmention`)
+- Optional Pushover notifications for syndication events and new social interaction replies
 
 ## Quick Start
 
@@ -111,6 +111,7 @@ Reference those files from `config.yml` or mount them at `/run/secrets/...` in D
 
 - Interaction sync and widget: [docs/INTERACTION_SYNC_README.md](docs/INTERACTION_SYNC_README.md)
 - Webmention reply form: [docs/WEBMENTION_REPLY_GUIDE.md](docs/WEBMENTION_REPLY_GUIDE.md)
+- Webmention receiver: [docs/WEBMENTION_RECEIVER_DESIGN.md](docs/WEBMENTION_RECEIVER_DESIGN.md)
 - Webmention sending: [docs/WEBMENTION_SENDING_GUIDE.md](docs/WEBMENTION_SENDING_GUIDE.md)
 - Security controls and reverse proxy hardening: [docs/SECURITY_HARDENING.md](docs/SECURITY_HARDENING.md)
 
@@ -121,9 +122,11 @@ Reference those files from `config.yml` or mount them at `/run/secrets/...` in D
 - `GET /health`: liveness endpoint
 - `GET /api/interactions/<ghost_post_id>`: interaction payload for a Ghost post
 - `POST /api/interactions/<ghost_post_id>/sync`: manual sync trigger (protected with `X-Internal-Token` when configured)
-- `GET /webmention`: reply form page (when enabled)
-- `POST /api/webmention/reply`: reply submission endpoint (when enabled)
+- `GET /webmention`: reply form page (when `webmention_reply` is enabled)
+- `POST /webmention`: W3C webmention receiver — accepts incoming webmentions from external sites (when `webmention_receiver` is enabled)
+- `POST /api/webmention/reply`: reply submission endpoint (when `webmention_reply` is enabled)
 - `GET /reply/<reply_id>`: published h-entry source page for a reply
+- `GET /api/webmentions?target=<url>`: query verified received webmentions for a target URL (when `webmention_receiver` is enabled)
 
 ## Development
 

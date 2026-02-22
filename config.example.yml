@@ -33,7 +33,8 @@ llm:
   # timeout: 60  # Optional: Request timeout in seconds (default: 60)
 
 # Pushover Push Notifications
-# Optional: Get notified when posts are received and queued
+# Optional: Get notified when posts are received and queued, webmentions are sent,
+# and when new replies are detected on syndicated Mastodon or Bluesky posts
 pushover:
   enabled: true
   app_token_file: /run/secrets/pushover_app_token
