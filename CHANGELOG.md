@@ -8,14 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.1.3] - 2026-02-22
+
+### Added
+
+- **W3C webmention receiver** - `POST /webmention` now accepts incoming webmentions per the W3C spec; source pages are verified asynchronously with SSRF protection and microformats2 parsing for author/content extraction (#101, #102)
+- **`GET /api/webmentions` query endpoint** serving verified webmentions in the JSON format expected by the social interaction widget (#102)
+- `received_webmentions` table in the storage layer with full CRUD operations (#102)
+- `webmention_receiver` config section with rate limiting and origin validation options (#102)
+- **Pushover notifications for new social interaction replies** - Pushover alerts are sent when new replies are detected on syndicated Mastodon or Bluesky posts (#101)
+- Reply form now displays a dynamic `curl` command for manually sending webmentions (#102)
+
 ### Changed
 
-- **Generalized webmention sending** - replaced the IndieWeb News-specific `IndieWebNewsClient` with a generic `WebmentionClient` that supports multiple configurable targets, each triggered by a tag
-- Config section renamed from `indieweb.news` (single target) to `webmention.targets` (list of targets with name, endpoint, target, tag, timeout)
-- Webmention reply refusal handling now applies to any 4xx client-error response, not only those from webmention.io
-- Pushover notifications for webmention results now include the target name
-- Renamed `has_indieweb_tag` → `has_tag`, `get_indieweb_config` → `get_webmention_config`
-- Renamed `IndieWeb News Guide` to `Webmention Sending Guide` with multi-target examples
+- **Generalized webmention sending** - replaced the IndieWeb News-specific `IndieWebNewsClient` with a generic `WebmentionClient` supporting multiple configurable targets, each triggered by a tag (#96)
+- Config section renamed from `indieweb.news` (single target) to `webmention.targets` (list of targets with name, endpoint, target, tag, timeout) (#96)
+- Renamed `has_indieweb_tag` → `has_tag`, `get_indieweb_config` → `get_webmention_config` (#96)
+- Renamed `IndieWeb News Guide` to `Webmention Sending Guide` with multi-target configuration examples (#96)
+- Pushover notifications for webmention results now include the target name (#96)
+
+### Fixed
+
+- Picture syndication order now matches the display order on the website (#95)
+- Webmention sending broken by the config key migration from `indieweb` to `webmention` (#97)
+- `process_events` storage path context bug: removed Flask app-context dependency in favour of config-based path resolution (#100)
+- Webmention reply form crash on valid target URLs caused by JS referencing nonexistent DOM elements (#103)
+
+### Security
+
+- Hardened request validation for the interactions endpoint and webmention reply form (#99)
+- Webmention reply refusal handling now covers any 4xx client-error response, not only webmention.io rejections (#96)
 
 
 ## [1.1.2] - 2026-02-08
@@ -187,7 +210,8 @@ Key capabilities:
 - Secure credential management using Docker secrets
 - JSON schema validation for all webhook payloads
 
-[Unreleased]: https://github.com/wpowiertowski/posse/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/wpowiertowski/posse/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/wpowiertowski/posse/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/wpowiertowski/posse/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/wpowiertowski/posse/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/wpowiertowski/posse/compare/v1.0.3...v1.1.0
