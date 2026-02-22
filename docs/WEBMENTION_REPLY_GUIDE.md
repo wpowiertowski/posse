@@ -116,3 +116,37 @@ Reply page (after submission):
 ```bash
 curl -sS "https://posse.yourdomain.com/reply/<reply_id>" -o /tmp/reply_page.html
 ```
+
+## 8. Accepting Incoming Webmentions from External Sites
+
+The `POST /webmention` endpoint can also act as a **W3C webmention receiver** for accepting webmentions sent by other IndieWeb-enabled sites. Enable it independently of the reply form:
+
+```yaml
+webmention_receiver:
+  enabled: true
+  allowed_target_origins:
+    - "https://yourblog.com"
+  rate_limit: 10                   # Max incoming webmentions per IP per window
+  rate_limit_window_seconds: 60    # Window in seconds
+```
+
+When enabled:
+
+- External sites `POST source=<their-url>&target=<your-post-url>` to `/webmention`
+- POSSE responds `202 Accepted` immediately and verifies the source asynchronously (SSRF protection, microformats2 parsing for author and content)
+- Verified webmentions are stored in the `received_webmentions` table in `interactions.db`
+- Query them via `GET /api/webmentions?target=<your-post-url>` — the same JSON format consumed by the social interaction widget
+
+Advertise the endpoint to senders by adding a `<link>` tag to your Ghost theme's `default.hbs`:
+
+```html
+<link rel="webmention" href="https://posse.yourdomain.com/webmention" />
+```
+
+Or via an HTTP header at the reverse proxy level:
+
+```nginx
+add_header Link '<https://posse.yourdomain.com/webmention>; rel="webmention"' always;
+```
+
+See [WEBMENTION_RECEIVER_DESIGN.md](WEBMENTION_RECEIVER_DESIGN.md) for the full architecture, security model, and migration path from webmention.io.

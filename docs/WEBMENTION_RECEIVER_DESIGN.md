@@ -4,7 +4,7 @@ Detailed design for implementing a W3C-compliant webmention receiver
 endpoint in POSSE, replacing the dependency on webmention.io for
 receiving webmentions from external sites.
 
-**Status**: Design plan (not yet implemented)
+**Status**: Implemented in v1.1.3
 **Spec Reference**: [W3C Webmention Recommendation](https://www.w3.org/TR/webmention/)
 **Related Code**: Existing sender in `src/indieweb/webmention.py`, storage in
 `src/interactions/storage.py`, routes in `src/ghost/ghost.py`
