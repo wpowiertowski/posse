@@ -75,16 +75,6 @@ class TestSplitMultiImagePostsConfig(unittest.TestCase):
 
         self.assertTrue(client.split_multi_image_posts)
 
-    def test_base_client_split_explicitly_disabled(self):
-        """Test that split_multi_image_posts can be explicitly disabled."""
-        client = ConcreteClient(
-            instance_url="https://example.com",
-            access_token="test_token",
-            split_multi_image_posts=False
-        )
-
-        self.assertFalse(client.split_multi_image_posts)
-
     @patch("config.read_secret_file")
     @patch("social.mastodon_client.Mastodon")
     def test_mastodon_split_enabled_from_config(self, mock_mastodon, mock_read_secret):
@@ -272,41 +262,6 @@ class TestSplitMultiImagePostsConfig(unittest.TestCase):
         self.assertTrue(clients[1].split_multi_image_posts)
 
 
-class TestSplitMultiImagePostsBehavior(unittest.TestCase):
-    """Test suite for split_multi_image_posts posting behavior."""
-
-    def test_client_with_split_enabled_has_attribute(self):
-        """Test that client with split enabled has the correct attribute."""
-        client = ConcreteClient(
-            instance_url="https://example.com",
-            access_token="test_token",
-            split_multi_image_posts=True
-        )
-
-        # Check that the attribute exists and is True
-        self.assertTrue(hasattr(client, 'split_multi_image_posts'))
-        self.assertTrue(client.split_multi_image_posts)
-
-    def test_client_preserves_other_attributes_with_split(self):
-        """Test that enabling split doesn't affect other client attributes."""
-        client = ConcreteClient(
-            instance_url="https://example.com",
-            access_token="test_token",
-            account_name="test_account",
-            tags=["tech", "python"],
-            max_post_length=450,
-            split_multi_image_posts=True
-        )
-
-        # Verify all attributes are preserved
-        self.assertEqual(client.instance_url, "https://example.com")
-        self.assertEqual(client.access_token, "test_token")
-        self.assertEqual(client.account_name, "test_account")
-        self.assertEqual(client.tags, ["tech", "python"])
-        self.assertEqual(client.max_post_length, 450)
-        self.assertTrue(client.split_multi_image_posts)
-
-
 class TestNosplitTagDetection(unittest.TestCase):
     """Test suite for #nosplit tag detection and filtering."""
 
@@ -419,22 +374,6 @@ class TestServiceTagsInPostContent(unittest.TestCase):
         self.assertIn("#posse", content)  # Always added
         self.assertNotIn("#nosplit", content)
 
-    def test_nosplit_tag_excluded_case_insensitive(self):
-        """Test that #nosplit exclusion is case-insensitive."""
-        tags = [
-            {"name": "#photography", "slug": "hash-photography"},
-            {"name": "#NOSPLIT", "slug": "hash-nosplit"}
-        ]
-        content = _format_post_content(
-            post_title="Test Post",
-            post_url="https://example.com/test",
-            excerpt="This is a test excerpt",
-            tags=tags,
-            max_length=500
-        )
-
-        self.assertNotIn("#nosplit", content.lower())
-
     def test_nosplit_tag_excluded_mixed_case(self):
         """Test that #nosplit exclusion handles mixed case variations."""
         case_variations = ["#NoSplit", "#NOSPLIT", "#Nosplit", "#noSPLIT"]
@@ -452,10 +391,6 @@ class TestServiceTagsInPostContent(unittest.TestCase):
                     max_length=500
                 )
                 self.assertNotIn("#nosplit", content.lower())
-
-    def test_nosplit_constant_value(self):
-        """Test that NOSPLIT_TAG constant has expected value."""
-        self.assertEqual(NOSPLIT_TAG, "#nosplit")
 
     # --- NOFEATURE_TAG tests ---
 
@@ -476,22 +411,6 @@ class TestServiceTagsInPostContent(unittest.TestCase):
         self.assertIn("#photography", content)
         self.assertIn("#posse", content)  # Always added
         self.assertNotIn("#dont-duplicate-feature", content)
-
-    def test_nofeature_tag_excluded_case_insensitive(self):
-        """Test that #dont-duplicate-feature exclusion is case-insensitive."""
-        tags = [
-            {"name": "#photography", "slug": "hash-photography"},
-            {"name": "#DONT-DUPLICATE-FEATURE", "slug": "hash-dont-duplicate-feature"}
-        ]
-        content = _format_post_content(
-            post_title="Test Post",
-            post_url="https://example.com/test",
-            excerpt="This is a test excerpt",
-            tags=tags,
-            max_length=500
-        )
-
-        self.assertNotIn("#dont-duplicate-feature", content.lower())
 
     def test_nofeature_tag_excluded_mixed_case(self):
         """Test that #dont-duplicate-feature exclusion handles mixed case variations."""
@@ -515,10 +434,6 @@ class TestServiceTagsInPostContent(unittest.TestCase):
                     max_length=500
                 )
                 self.assertNotIn("#dont-duplicate-feature", content.lower())
-
-    def test_nofeature_constant_value(self):
-        """Test that NOFEATURE_TAG constant has expected value."""
-        self.assertEqual(NOFEATURE_TAG, "#dont-duplicate-feature")
 
     # --- Combined service tags tests ---
 

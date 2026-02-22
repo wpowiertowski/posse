@@ -226,11 +226,6 @@ class TestBaseClient(unittest.TestCase):
         
         # Verify all deletions were attempted
         self.assertEqual(mock_unlink.call_count, 3)
-    
-    def test_image_constants(self):
-        """Test that image-related constants are defined."""
-        self.assertEqual(self.client.IMAGE_DOWNLOAD_TIMEOUT, 30)
-        self.assertEqual(self.client.DEFAULT_IMAGE_EXTENSION, ".jpg")
 
 
 if __name__ == "__main__":

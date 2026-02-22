@@ -313,22 +313,6 @@
                     document.getElementById('target-readonly').value = parsed.href;
                     document.getElementById('target-info').style.display = 'block';
                     document.getElementById('target-input').value = parsed.href;
-
-                    // Build curl command with the correct webmention endpoint and target
-                    var endpoint = parsed.origin + '/webmention';
-                    var curlCmd = 'curl -i -d "source=YOUR_PAGE_URL&target=' + parsed.href + '" ' + endpoint;
-                    var curlBox = document.getElementById('curl-box');
-                    var curlPre = document.getElementById('curl-command');
-                    curlPre.textContent = curlCmd;
-                    curlBox.style.display = 'block';
-
-                    var copyBtn = document.getElementById('copy-curl-btn');
-                    copyBtn.addEventListener('click', function() {
-                        navigator.clipboard.writeText(curlCmd).then(function() {
-                            copyBtn.textContent = 'Copied!';
-                            setTimeout(function() { copyBtn.textContent = 'Copy'; }, 2000);
-                        });
-                    });
                 } catch (e) {
                     showStatus('Invalid target URL.', 'error');
                     submitBtn.disabled = true;
