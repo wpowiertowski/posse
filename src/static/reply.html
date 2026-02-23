@@ -220,8 +220,8 @@
                 <p class="subtitle">
                     <strong>What is a webmention, you ask?</strong>
                     A <a href="https://indieweb.org/Webmention" target="_blank" rel="noopener">Webmention</a> lets one website notify another about a reply or mention.
-                    If your site already supports webmentions, reply there instead which will let our blogs interact with each other.
-                    If it does not, this page can send a webmention to my post for you.
+                    If your site already supports webmentions, you can write a reply as a post on your site and send it to <span id="target-webmention-endpoint"></span>
+                    or use this form and simply put your response link in the "Website" field. If your site does not support webmentions, you can use the "Reply" field in this form instead.
                 </p>
 
                 <div class="target-info" id="target-info" style="display:none">
@@ -292,6 +292,12 @@
             var form = document.getElementById('reply-form');
             var submitBtn = document.getElementById('submit-btn');
             var invalidTargetText = document.getElementById('invalid-target-text');
+            var targetWebmentionEndpointEl = document.getElementById('target-webmention-endpoint');
+            var fallbackWebmentionEndpoint = window.location.origin.replace(/\/+$/, '') + '/webmention';
+
+            if (targetWebmentionEndpointEl) {
+                targetWebmentionEndpointEl.textContent = fallbackWebmentionEndpoint;
+            }
 
             if (TARGET_VALID === 'false') {
                 if (TARGET_ERROR && invalidTargetText) {
@@ -310,6 +316,10 @@
             if (target) {
                 try {
                     var parsed = new URL(target);
+                    var targetWebmentionEndpoint = parsed.origin.replace(/\/+$/, '') + '/webmention';
+                    if (targetWebmentionEndpointEl) {
+                        targetWebmentionEndpointEl.textContent = targetWebmentionEndpoint;
+                    }
                     document.getElementById('target-readonly').value = parsed.href;
                     document.getElementById('target-info').style.display = 'block';
                     document.getElementById('target-input').value = parsed.href;
