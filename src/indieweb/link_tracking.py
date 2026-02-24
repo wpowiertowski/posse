@@ -113,10 +113,13 @@ def compute_webmention_diff(
 ) -> tuple[Set[str], Set[str]]:
     """Compute which URLs need webmentions sent on a post update.
 
-    Per the W3C spec, when content changes:
-    - All current links should receive a webmention (update notification)
-    - URLs that were previously linked but are now removed should also
-      receive a webmention (so receivers can detect the link was removed)
+    Only sends to URLs that have changed since the last send:
+    - New links (in current but not previously sent) get a webmention
+    - Removed links (previously sent but no longer in content) get a
+      webmention so receivers can detect the link was removed
+
+    Previously-sent links that are still present are skipped to avoid
+    redundant sends and 429 rate-limit errors from endpoints.
 
     Args:
         current_links: Links extracted from the current version of the post.
@@ -124,9 +127,10 @@ def compute_webmention_diff(
 
     Returns:
         Tuple of (targets_to_send, removed_targets):
-        - targets_to_send: all URLs that should receive a webmention
+        - targets_to_send: new + removed URLs that should receive a webmention
         - removed_targets: subset that were removed (for logging purposes)
     """
+    new_links = current_links - previously_sent
     removed = previously_sent - current_links
-    targets_to_send = current_links | removed
+    targets_to_send = new_links | removed
     return targets_to_send, removed

@@ -126,7 +126,8 @@ class TestComputeWebmentionDiff:
         previous = {"https://a.com/1", "https://b.com/2"}
         targets, removed = compute_webmention_diff(current, previous)
         assert "https://b.com/2" in targets
-        assert "https://a.com/1" in targets
+        # a.com/1 was already sent and is still present — not re-sent
+        assert "https://a.com/1" not in targets
         assert removed == {"https://b.com/2"}
 
     def test_all_links_removed(self):
@@ -139,14 +140,16 @@ class TestComputeWebmentionDiff:
     def test_no_change(self):
         links = {"https://a.com/1", "https://b.com/2"}
         targets, removed = compute_webmention_diff(links, links)
-        assert targets == links
+        # Nothing new, nothing removed — no webmentions to send
+        assert targets == set()
         assert removed == set()
 
     def test_both_added_and_removed(self):
         current = {"https://a.com/1", "https://c.com/3"}
         previous = {"https://a.com/1", "https://b.com/2"}
         targets, removed = compute_webmention_diff(current, previous)
-        assert targets == {"https://a.com/1", "https://b.com/2", "https://c.com/3"}
+        # a.com/1 unchanged (skip), c.com/3 new, b.com/2 removed
+        assert targets == {"https://b.com/2", "https://c.com/3"}
         assert removed == {"https://b.com/2"}
 
     def test_both_empty(self):
