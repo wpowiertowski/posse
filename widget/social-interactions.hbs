@@ -58,6 +58,10 @@
 
     // Shared state for POSSE data (accessible by webmentions widget)
     let sharedPosseData = null;
+    // Shared webmention categories so POSSE widget can include webmention reply counts
+    let sharedWebmentionCategories = null;
+    // Reference to renderPosseWidget so webmention section can trigger a re-render
+    let renderPosseWidgetFn = null;
 
     // ========================================
     // POSSE Social Interactions Widget
@@ -90,7 +94,7 @@
             }
         }
 
-        function calculateTotals(data) {
+        function calculateTotals(data, wmCategories) {
             if (!data || !data.platforms) {
                 return { likes: 0, reposts: 0, replies: 0 };
             }
@@ -111,6 +115,11 @@
                     reposts += account.reposts || 0;
                     replies += account.replies || 0;
                 });
+            }
+
+            // Include webmention in-reply-to counts
+            if (wmCategories) {
+                replies += (wmCategories.comments || []).length;
             }
 
             return { likes, reposts, replies };
@@ -153,7 +162,7 @@
                 return;
             }
 
-            const totals = calculateTotals(data);
+            const totals = calculateTotals(data, sharedWebmentionCategories);
 
             let html = '<div class="social-interactions-container">';
             html += '<h3>Social engagement</h3>';
@@ -174,6 +183,8 @@
             container.innerHTML = html;
             container.style.display = 'block';
         }
+
+        renderPosseWidgetFn = renderPosseWidget;
 
         async function initPosseWidget() {
             console.log('Initializing POSSE Social Interactions Widget');
@@ -717,7 +728,12 @@
             const data = await fetchWebmentions();
             cachedWebmentionsData = data;
             if (data) {
+                sharedWebmentionCategories = categorizeWebmentions(data);
                 renderWebmentions(data);
+                // Re-render POSSE widget so its reply count includes webmention replies
+                if (renderPosseWidgetFn && sharedPosseData) {
+                    renderPosseWidgetFn(sharedPosseData);
+                }
             }
 
             // Listen for POSSE data updates to refresh respond options AND re-render comments
@@ -737,7 +753,12 @@
                 const data = await fetchWebmentions();
                 cachedWebmentionsData = data;
                 if (data) {
+                    sharedWebmentionCategories = categorizeWebmentions(data);
                     renderWebmentions(data);
+                    // Re-render POSSE widget so its reply count includes webmention replies
+                    if (renderPosseWidgetFn && sharedPosseData) {
+                        renderPosseWidgetFn(sharedPosseData);
+                    }
                 }
             }, WM_CONFIG.refreshInterval);
         }
