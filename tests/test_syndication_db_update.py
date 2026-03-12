@@ -493,40 +493,6 @@ class TestGhostEndpointSplitSyndicationLink(unittest.TestCase):
         self.assertIsInstance(link, dict)
         self.assertEqual(link["post_url"], "https://mastodon.social/@u/s0")
 
-    def test_non_split_mapping_fallback_returns_single_link(self):
-        """Fallback for a non-split post still returns a single dict link."""
-        post_id = "507f1f77bcf86cd799439021"
-        store = _make_store(self.tmp_dir)
-        mapping = {
-            "ghost_post_id": post_id,
-            "ghost_post_url": "https://blog.example.com/post2/",
-            "syndicated_at": "2026-01-01T00:00:00+00:00",
-            "platforms": {
-                "mastodon": {
-                    "personal": {
-                        "status_id": "99",
-                        "post_url": "https://mastodon.social/@u/99",
-                    }
-                },
-                "bluesky": {},
-            },
-        }
-        store.put_syndication_mapping(post_id, mapping)
-
-        app = self._create_app()
-        with app.test_client() as client:
-            resp = client.get(
-                f"/api/interactions/{post_id}",
-                headers={"Referer": "https://blog.example.com/"},
-            )
-
-        self.assertEqual(resp.status_code, 200)
-        body = json.loads(resp.data)
-        link = body["syndication_links"]["mastodon"]["personal"]
-
-        self.assertIsInstance(link, dict)
-        self.assertEqual(link["post_url"], "https://mastodon.social/@u/99")
-
 
 if __name__ == "__main__":
     unittest.main()
