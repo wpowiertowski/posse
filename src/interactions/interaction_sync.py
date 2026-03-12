@@ -187,16 +187,19 @@ class InteractionSyncService:
                         if mastodon_data:
                             mastodon_accounts_synced += 1
                             interactions["platforms"]["mastodon"][account_name] = mastodon_data
-                            # Add to syndication_links summary
+                            # Add to syndication_links summary.
+                            # For split posts use the post that contains the featured image
+                            # (split_index 0, which is always the feature_image in Ghost).
                             if "is_split" in mastodon_data and mastodon_data["is_split"]:
-                                # For split posts, include all split post URLs
-                                interactions["syndication_links"]["mastodon"][account_name] = [
-                                    {
-                                        "post_url": split["post_url"],
-                                        "split_index": split["split_index"]
+                                split_posts = mastodon_data.get("split_posts", [])
+                                featured = next(
+                                    (s for s in split_posts if s.get("split_index") == 0),
+                                    split_posts[0] if split_posts else None,
+                                )
+                                if featured:
+                                    interactions["syndication_links"]["mastodon"][account_name] = {
+                                        "post_url": featured["post_url"]
                                     }
-                                    for split in mastodon_data.get("split_posts", [])
-                                ]
                             else:
                                 # For single posts, just include the post URL
                                 interactions["syndication_links"]["mastodon"][account_name] = {
@@ -234,16 +237,19 @@ class InteractionSyncService:
                         if bluesky_data:
                             bluesky_accounts_synced += 1
                             interactions["platforms"]["bluesky"][account_name] = bluesky_data
-                            # Add to syndication_links summary
+                            # Add to syndication_links summary.
+                            # For split posts use the post that contains the featured image
+                            # (split_index 0, which is always the feature_image in Ghost).
                             if "is_split" in bluesky_data and bluesky_data["is_split"]:
-                                # For split posts, include all split post URLs
-                                interactions["syndication_links"]["bluesky"][account_name] = [
-                                    {
-                                        "post_url": split["post_url"],
-                                        "split_index": split["split_index"]
+                                split_posts = bluesky_data.get("split_posts", [])
+                                featured = next(
+                                    (s for s in split_posts if s.get("split_index") == 0),
+                                    split_posts[0] if split_posts else None,
+                                )
+                                if featured:
+                                    interactions["syndication_links"]["bluesky"][account_name] = {
+                                        "post_url": featured["post_url"]
                                     }
-                                    for split in bluesky_data.get("split_posts", [])
-                                ]
                             else:
                                 # For single posts, just include the post URL
                                 interactions["syndication_links"]["bluesky"][account_name] = {
@@ -1027,6 +1033,78 @@ class InteractionSyncService:
         return text.strip()
 
 
+def update_interaction_data_on_syndication(
+    ghost_post_id: str,
+    platform: str,
+    account_name: str,
+    post_url: str,
+    split_info: Optional[Dict[str, Any]] = None,
+    storage_path: str = "./data",
+    timezone_name: str = "UTC",
+) -> None:
+    """
+    Update interaction_data table with syndication links immediately after syndication.
+
+    This ensures the interaction_data table reflects the syndication link right
+    away rather than waiting for the next periodic interaction sync.
+
+    For split posts, only the post at split_index 0 is used as the interaction
+    link because that post contains the featured image.  Posts at other split
+    indices are ignored so the canonical link always points to the featured image.
+
+    Args:
+        ghost_post_id: Ghost post ID
+        platform: Platform name ("mastodon" or "bluesky")
+        account_name: Account name on the platform
+        post_url: URL of the syndicated post
+        split_info: Optional split post metadata dict (keys: is_split, split_index,
+            total_splits, image_url).  When present and is_split is True, only
+            split_index == 0 triggers an update.
+        storage_path: Directory path for SQLite interaction storage
+        timezone_name: IANA timezone name used for generated timestamps
+    """
+    # For split posts, only update on the featured image post (split_index 0)
+    if split_info and split_info.get("is_split") and split_info.get("split_index", 0) != 0:
+        return
+
+    if not post_url:
+        logger.warning(
+            f"Skipping interaction_data update for {ghost_post_id}/{platform}/{account_name}: "
+            f"no post_url available"
+        )
+        return
+
+    data_store = InteractionDataStore(storage_path)
+    tz_name = InteractionSyncService._normalize_timezone_name(timezone_name)
+    now = datetime.now(ZoneInfo(tz_name)).isoformat()
+
+    existing = data_store.get(ghost_post_id)
+    if existing is None:
+        existing = {
+            "ghost_post_id": ghost_post_id,
+            "updated_at": now,
+            "syndication_links": {"mastodon": {}, "bluesky": {}},
+            "platforms": {"mastodon": {}, "bluesky": {}},
+        }
+
+    existing["updated_at"] = now
+
+    # Ensure structure is intact after loading (defensive, in case of partial data)
+    if not isinstance(existing.get("syndication_links"), dict):
+        existing["syndication_links"] = {"mastodon": {}, "bluesky": {}}
+    for p in ("mastodon", "bluesky"):
+        if p not in existing["syndication_links"]:
+            existing["syndication_links"][p] = {}
+
+    existing["syndication_links"][platform][account_name] = {"post_url": post_url}
+
+    data_store.put(ghost_post_id, existing)
+    logger.info(
+        f"Updated interaction_data syndication_links for {ghost_post_id} "
+        f"{platform}/{account_name}: {post_url}"
+    )
+
+
 def store_syndication_mapping(
     ghost_post_id: str,
     ghost_post_url: str,
@@ -1150,3 +1228,15 @@ def store_syndication_mapping(
 
     # Save mapping to SQLite
     data_store.put_syndication_mapping(ghost_post_id, mapping)
+
+    # Immediately update interaction_data so the syndication link is visible
+    # without waiting for the next periodic sync.
+    update_interaction_data_on_syndication(
+        ghost_post_id=ghost_post_id,
+        platform=platform,
+        account_name=account_name,
+        post_url=post_data.get("post_url", ""),
+        split_info=split_info,
+        storage_path=storage_path,
+        timezone_name=timezone_name,
+    )
