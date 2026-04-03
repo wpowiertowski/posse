@@ -1246,11 +1246,15 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     if platform in mapping.get("platforms", {}):
                         for account_name, account_data in mapping["platforms"][platform].items():
                             if isinstance(account_data, list):
-                                # Split posts
-                                syndication_links[platform][account_name] = [
-                                    {"post_url": entry.get("post_url"), "split_index": entry.get("split_index")}
-                                    for entry in account_data
-                                ]
+                                # Split posts - use the featured image post (split_index 0)
+                                featured = next(
+                                    (e for e in account_data if e.get("split_index") == 0),
+                                    account_data[0] if account_data else None,
+                                )
+                                if featured:
+                                    syndication_links[platform][account_name] = {
+                                        "post_url": featured.get("post_url")
+                                    }
                             else:
                                 # Single post
                                 syndication_links[platform][account_name] = {"post_url": account_data.get("post_url")}
