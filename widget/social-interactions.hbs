@@ -117,9 +117,11 @@
                 });
             }
 
-            // Include webmention in-reply-to counts
+            // Include webmention reply counts (both in-reply-to and mention-of, since
+            // both are displayed together in the "Comments & Replies" section)
             if (wmCategories) {
                 replies += (wmCategories.comments || []).length;
+                replies += (wmCategories.mentions || []).length;
             }
 
             return { likes, reposts, replies };
