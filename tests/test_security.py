@@ -22,6 +22,9 @@ import time
 from queue import Queue
 from unittest.mock import MagicMock, patch
 
+import hashlib
+import hmac as _hmac
+
 from ghost.ghost import (
     create_app,
     validate_ghost_post_id,
@@ -35,6 +38,8 @@ from ghost.ghost import (
     validate_referrer,
     sanitize_error_message,
     clear_rate_limit_caches,
+    verify_ghost_webhook_signature,
+    GHOST_WEBHOOK_REPLAY_WINDOW_SECONDS,
 )
 
 
@@ -405,6 +410,172 @@ class TestEndpointSecurity:
             )
             # Should get 503 (no scheduler) not 401 (unauthorized)
             assert response.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Helpers for Ghost webhook signature tests
+# ---------------------------------------------------------------------------
+
+_WEBHOOK_SECRET = "test-ghost-webhook-secret"
+_WEBHOOK_BODY = b'{"post":{"current":{"id":"507f1f77bcf86cd799439011"}}}'
+
+
+def _make_ghost_sig(body: bytes, secret: str, timestamp_ms: int) -> str:
+    """Build a valid X-Ghost-Signature header value."""
+    ts = str(timestamp_ms)
+    mac = _hmac.new(secret.encode(), ts.encode() + body, digestmod=hashlib.sha256)
+    return f"sha256={mac.hexdigest()}, t={ts}"
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+class TestVerifyGhostWebhookSignature:
+    """Unit tests for verify_ghost_webhook_signature()."""
+
+    def test_valid_signature_accepted(self):
+        ts = _now_ms()
+        sig = _make_ghost_sig(_WEBHOOK_BODY, _WEBHOOK_SECRET, ts)
+        assert verify_ghost_webhook_signature(_WEBHOOK_BODY, sig, _WEBHOOK_SECRET) is True
+
+    def test_missing_header_rejected(self):
+        assert verify_ghost_webhook_signature(_WEBHOOK_BODY, None, _WEBHOOK_SECRET) is False
+
+    def test_empty_header_rejected(self):
+        assert verify_ghost_webhook_signature(_WEBHOOK_BODY, "", _WEBHOOK_SECRET) is False
+
+    def test_wrong_secret_rejected(self):
+        ts = _now_ms()
+        sig = _make_ghost_sig(_WEBHOOK_BODY, _WEBHOOK_SECRET, ts)
+        assert verify_ghost_webhook_signature(_WEBHOOK_BODY, sig, "wrong-secret") is False
+
+    def test_tampered_body_rejected(self):
+        ts = _now_ms()
+        sig = _make_ghost_sig(_WEBHOOK_BODY, _WEBHOOK_SECRET, ts)
+        tampered = _WEBHOOK_BODY + b"extra"
+        assert verify_ghost_webhook_signature(tampered, sig, _WEBHOOK_SECRET) is False
+
+    def test_tampered_signature_rejected(self):
+        ts = _now_ms()
+        sig = _make_ghost_sig(_WEBHOOK_BODY, _WEBHOOK_SECRET, ts)
+        bad_sig = sig.replace(sig[7:15], "00000000")
+        assert verify_ghost_webhook_signature(_WEBHOOK_BODY, bad_sig, _WEBHOOK_SECRET) is False
+
+    def test_replay_attack_rejected(self):
+        old_ms = _now_ms() - (GHOST_WEBHOOK_REPLAY_WINDOW_SECONDS + 60) * 1000
+        sig = _make_ghost_sig(_WEBHOOK_BODY, _WEBHOOK_SECRET, old_ms)
+        assert verify_ghost_webhook_signature(_WEBHOOK_BODY, sig, _WEBHOOK_SECRET) is False
+
+    def test_future_timestamp_within_window_accepted(self):
+        # Small clock skew should still pass
+        future_ms = _now_ms() + 10_000  # 10 seconds ahead
+        sig = _make_ghost_sig(_WEBHOOK_BODY, _WEBHOOK_SECRET, future_ms)
+        assert verify_ghost_webhook_signature(_WEBHOOK_BODY, sig, _WEBHOOK_SECRET) is True
+
+    def test_malformed_header_missing_t_rejected(self):
+        ts = _now_ms()
+        mac = _hmac.new(_WEBHOOK_SECRET.encode(), str(ts).encode() + _WEBHOOK_BODY, digestmod=hashlib.sha256)
+        sig = f"sha256={mac.hexdigest()}"  # no t= part
+        assert verify_ghost_webhook_signature(_WEBHOOK_BODY, sig, _WEBHOOK_SECRET) is False
+
+    def test_malformed_timestamp_rejected(self):
+        sig = f"sha256=abc123, t=not-a-number"
+        assert verify_ghost_webhook_signature(_WEBHOOK_BODY, sig, _WEBHOOK_SECRET) is False
+
+
+class TestGhostWebhookEndpointSignature:
+    """Integration tests: signature enforcement on the webhook HTTP endpoints."""
+
+    ENDPOINTS = [
+        "/webhook/ghost",
+        "/webhook/ghost/post-updated",
+        "/webhook/ghost/post-deleted",
+    ]
+
+    @pytest.fixture
+    def secured_webhook_app(self, tmp_path):
+        """App configured with a Ghost webhook secret."""
+        clear_rate_limit_caches()
+        storage_path = str(tmp_path / "interactions")
+        os.makedirs(storage_path)
+
+        config = {
+            "security": {
+                "rate_limit_enabled": False,
+                "discovery_rate_limit_enabled": False,
+                "allowed_referrers": [],
+                "ghost_webhook_secret": _WEBHOOK_SECRET,
+            }
+        }
+        app = create_app(Queue(), config=config)
+        app.config["TESTING"] = True
+        app.config["INTERACTIONS_STORAGE_PATH"] = storage_path
+        app.config["SYNDICATION_MAPPINGS_PATH"] = storage_path
+        return app
+
+    @pytest.fixture
+    def unsecured_webhook_app(self, tmp_path):
+        """App with no webhook secret (backward-compatible mode)."""
+        clear_rate_limit_caches()
+        storage_path = str(tmp_path / "interactions")
+        os.makedirs(storage_path)
+
+        config = {
+            "security": {
+                "rate_limit_enabled": False,
+                "discovery_rate_limit_enabled": False,
+                "allowed_referrers": [],
+            }
+        }
+        app = create_app(Queue(), config=config)
+        app.config["TESTING"] = True
+        app.config["INTERACTIONS_STORAGE_PATH"] = storage_path
+        app.config["SYNDICATION_MAPPINGS_PATH"] = storage_path
+        return app
+
+    @pytest.mark.parametrize("path", ENDPOINTS)
+    def test_missing_signature_rejected_when_secret_configured(self, secured_webhook_app, path):
+        with secured_webhook_app.test_client() as client:
+            resp = client.post(path, json={}, content_type="application/json")
+        assert resp.status_code == 401
+        assert resp.get_json()["message"] == "Unauthorized"
+
+    @pytest.mark.parametrize("path", ENDPOINTS)
+    def test_wrong_signature_rejected(self, secured_webhook_app, path):
+        body = b'{"post":{"current":{}}}'
+        ts = _now_ms()
+        sig = _make_ghost_sig(body, "wrong-secret", ts)
+        with secured_webhook_app.test_client() as client:
+            resp = client.post(
+                path,
+                data=body,
+                content_type="application/json",
+                headers={"X-Ghost-Signature": sig},
+            )
+        assert resp.status_code == 401
+
+    @pytest.mark.parametrize("path", ENDPOINTS)
+    def test_valid_signature_passes_auth(self, secured_webhook_app, path):
+        body = b'{"post":{"current":{}}}'
+        ts = _now_ms()
+        sig = _make_ghost_sig(body, _WEBHOOK_SECRET, ts)
+        with secured_webhook_app.test_client() as client:
+            resp = client.post(
+                path,
+                data=body,
+                content_type="application/json",
+                headers={"X-Ghost-Signature": sig},
+            )
+        # Auth passed — downstream validation may return 400, but not 401
+        assert resp.status_code != 401
+
+    @pytest.mark.parametrize("path", ENDPOINTS)
+    def test_no_secret_configured_passes_through(self, unsecured_webhook_app, path):
+        """When no secret is set, all requests are allowed through (backward compat)."""
+        with unsecured_webhook_app.test_client() as client:
+            resp = client.post(path, json={}, content_type="application/json")
+        assert resp.status_code != 401
 
 
 if __name__ == '__main__':

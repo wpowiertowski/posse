@@ -475,6 +475,75 @@ def validate_referrer(referrer: Optional[str], allowed_referrers: list) -> bool:
     return False
 
 
+GHOST_WEBHOOK_SIGNATURE_HEADER = "X-Ghost-Signature"
+GHOST_WEBHOOK_REPLAY_WINDOW_SECONDS = 300  # Reject requests older than 5 minutes
+
+
+def verify_ghost_webhook_signature(
+    raw_body: bytes,
+    signature_header: Optional[str],
+    secret: str,
+) -> bool:
+    """Verify a Ghost webhook request using HMAC-SHA256.
+
+    Ghost signs each webhook delivery with HMAC-SHA256 over the string
+    ``str(timestamp_ms) + raw_body`` and sends the result as:
+
+        X-Ghost-Signature: sha256=<hex>, t=<unix_ms>
+
+    This function also rejects requests whose timestamp is more than
+    ``GHOST_WEBHOOK_REPLAY_WINDOW_SECONDS`` seconds old to prevent replay
+    attacks.
+
+    Args:
+        raw_body: The raw (un-decoded) request body bytes.
+        signature_header: Value of the X-Ghost-Signature header.
+        secret: The shared webhook secret configured in Ghost admin.
+
+    Returns:
+        True if the signature is valid and the request is recent, False otherwise.
+    """
+    if not signature_header:
+        return False
+
+    # Parse "sha256=<hex>, t=<timestamp>" — allow optional spaces around comma
+    sha256_value: Optional[str] = None
+    timestamp_str: Optional[str] = None
+    for part in signature_header.split(","):
+        part = part.strip()
+        if part.startswith("sha256="):
+            sha256_value = part[len("sha256="):]
+        elif part.startswith("t="):
+            timestamp_str = part[len("t="):]
+
+    if not sha256_value or not timestamp_str:
+        return False
+
+    # Reject obviously malformed timestamps before doing any crypto
+    if not re.fullmatch(r"\d{1,20}", timestamp_str):
+        return False
+
+    # Replay-attack guard: reject if timestamp is outside the allowed window
+    try:
+        now_ms = int(time.time() * 1000)
+        request_ms = int(timestamp_str)
+        age_seconds = abs(now_ms - request_ms) / 1000
+        if age_seconds > GHOST_WEBHOOK_REPLAY_WINDOW_SECONDS:
+            return False
+    except ValueError:
+        return False
+
+    # Compute expected signature: HMAC-SHA256(secret, timestamp_str + raw_body)
+    mac = hmac.new(
+        secret.encode("utf-8"),
+        timestamp_str.encode("utf-8") + raw_body,
+        digestmod="sha256",
+    )
+    expected = mac.hexdigest()
+
+    return hmac.compare_digest(expected, sha256_value)
+
+
 def sanitize_error_message(error: Exception) -> str:
     """
     Sanitize an error message to prevent information leakage.
@@ -615,6 +684,23 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     if internal_token:
         logger.info("Internal API token configured for protected endpoints")
 
+    # Ghost webhook secret for HMAC-SHA256 signature verification
+    # Priority: config value > Docker secret file > environment variable
+    ghost_webhook_secret = security_config.get("ghost_webhook_secret")
+    if not ghost_webhook_secret:
+        secret_file = security_config.get("ghost_webhook_secret_file")
+        if secret_file:
+            ghost_webhook_secret = read_secret_file(secret_file)
+    if not ghost_webhook_secret:
+        ghost_webhook_secret = os.environ.get("GHOST_WEBHOOK_SECRET")
+    app.config["GHOST_WEBHOOK_SECRET"] = ghost_webhook_secret
+    if ghost_webhook_secret:
+        logger.info("Ghost webhook signature verification enabled")
+    else:
+        logger.warning(
+            "GHOST_WEBHOOK_SECRET not configured — webhook endpoints are unauthenticated"
+        )
+
     # =================================================================
     # Webmention Reply Configuration
     # =================================================================
@@ -652,6 +738,27 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
 
     if app.config["RECEIVER_ENABLED"]:
         logger.info(f"Webmention receiver enabled for origins: {app.config['RECEIVER_ALLOWED_TARGET_ORIGINS']}")
+
+    def _check_ghost_signature():
+        """Return a 401 JSON response if the Ghost webhook signature is invalid.
+
+        Returns None when the request should be allowed through (either because
+        no secret is configured, or the signature checks out).  Returns a
+        (response, status) tuple that the caller must return immediately when
+        the request must be rejected.
+        """
+        secret = current_app.config.get("GHOST_WEBHOOK_SECRET")
+        if not secret:
+            return None  # Validation disabled — pass through
+        raw_body = request.get_data()
+        sig_header = request.headers.get(GHOST_WEBHOOK_SIGNATURE_HEADER)
+        if not verify_ghost_webhook_signature(raw_body, sig_header, secret):
+            logger.warning(
+                "Ghost webhook rejected: invalid or missing signature "
+                f"(path={request.path})"
+            )
+            return jsonify({"status": "error", "message": "Unauthorized"}), 401
+        return None
 
     @app.route("/webhook/ghost/post-updated", methods=["POST"])
     def receive_ghost_post_update():
@@ -696,6 +803,10 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         Returns:
             tuple: (JSON response dict, HTTP status code)
         """
+        sig_error = _check_ghost_signature()
+        if sig_error is not None:
+            return sig_error
+
         notifier = current_app.config["PUSHOVER_NOTIFIER"]
         events_queue = current_app.config["EVENTS_QUEUE"]
 
@@ -838,6 +949,10 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
 
         Note: Ghost sends the deleted post data in "previous", not "current".
         """
+        sig_error = _check_ghost_signature()
+        if sig_error is not None:
+            return sig_error
+
         notifier = current_app.config["PUSHOVER_NOTIFIER"]
 
         try:
@@ -1034,11 +1149,15 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                    -H "Content-Type: application/json" \\
                    -d "{"id":"123","title":"Test",...}"
         """
+        sig_error = _check_ghost_signature()
+        if sig_error is not None:
+            return sig_error
+
         # Get notifier and events queue from app config at function start
         # This ensures they're accessible in exception handlers
         notifier = current_app.config["PUSHOVER_NOTIFIER"]
         events_queue = current_app.config["EVENTS_QUEUE"]
-        
+
         try:
             # Step 1: Validate Content-Type header
             # Ghost should send application/json, but verify to prevent errors

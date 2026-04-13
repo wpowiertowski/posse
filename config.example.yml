@@ -154,6 +154,14 @@ security:
   # internal_api_token: "your-secret-token"  # Uncomment and set a strong token
   internal_api_token_file: "/run/secrets/internal_api_token"  # Alternative: use Docker secret
 
+  # Ghost webhook secret for HMAC-SHA256 signature verification
+  # Set this to the same secret you configure in Ghost Admin → Settings → Integrations → Webhooks
+  # Ghost sends X-Ghost-Signature: sha256=<hmac>, t=<timestamp_ms> with every delivery.
+  # Requests with a missing, invalid, or replayed (>5 min old) signature are rejected with 401.
+  # Can also be set via GHOST_WEBHOOK_SECRET environment variable.
+  # ghost_webhook_secret: "your-webhook-secret"  # Uncomment and set
+  ghost_webhook_secret_file: "/run/secrets/ghost_webhook_secret"  # Alternative: use Docker secret
+
 # =============================================================================
 # Webmention Reply Form
 # =============================================================================
