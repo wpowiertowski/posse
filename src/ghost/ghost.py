@@ -487,7 +487,7 @@ def verify_ghost_webhook_signature(
     """Verify a Ghost webhook request using HMAC-SHA256.
 
     Ghost signs each webhook delivery with HMAC-SHA256 over the string
-    ``str(timestamp_ms) + raw_body`` and sends the result as:
+    ``raw_body + str(timestamp_ms)`` (body first) and sends the result as:
 
         X-Ghost-Signature: sha256=<hex>, t=<unix_ms>
 
