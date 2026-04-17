@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.2.0] - 2026-04-16
+
+### Added
+
+- **Ghost webhook HMAC-SHA256 signature verification** - All Ghost webhook endpoints now validate the `X-Ghost-Signature` header; requests with an invalid, missing, or replayed (>5 min old) signature are rejected with 401. Secret is configured via `ghost_webhook_secret` in config, a Docker secret file, or the `GHOST_WEBHOOK_SECRET` environment variable. Backward-compatible: if no secret is configured, endpoints remain open with a startup warning.
+
+### Fixed
+
+- **Duplicate outbound webmention sends on re-publish** - Webmentions are now only sent to URLs that are new or removed since the last send; unchanged links are skipped, preventing 429 rate-limit errors from receiving endpoints (#105)
+- **Webmention reply count missing from social engagement total** - The "Social engagement" widget now includes webmention replies (in-reply-to and mentions) in the reply count alongside Mastodon/Bluesky replies (#106, #108)
+- **Syndication link not immediately visible after posting** - The interaction data table is updated right away when a post is syndicated to Mastodon or Bluesky, without waiting for the next periodic sync (#107)
+- **Split posts use wrong canonical syndication link** - For multi-image thread syndications, the stored and displayed link now always points to the featured-image post (split index 0) (#107)
+- **Reply form webmention endpoint hint used wrong origin** - The reply form now derives the webmention endpoint URL from the target post's origin rather than a hardcoded fallback
+
+
 ## [1.1.3] - 2026-02-22
 
 ### Added
