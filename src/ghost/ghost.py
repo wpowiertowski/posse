@@ -533,10 +533,10 @@ def verify_ghost_webhook_signature(
     except ValueError:
         return False
 
-    # Compute expected signature: HMAC-SHA256(secret, timestamp_str + raw_body)
+    # Ghost signs as HMAC-SHA256(secret, body + timestamp) per webhook-trigger.js
     mac = hmac.new(
         secret.encode("utf-8"),
-        timestamp_str.encode("utf-8") + raw_body,
+        raw_body + timestamp_str.encode("utf-8"),
         digestmod="sha256",
     )
     expected = mac.hexdigest()

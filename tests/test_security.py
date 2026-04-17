@@ -423,7 +423,7 @@ _WEBHOOK_BODY = b'{"post":{"current":{"id":"507f1f77bcf86cd799439011"}}}'
 def _make_ghost_sig(body: bytes, secret: str, timestamp_ms: int) -> str:
     """Build a valid X-Ghost-Signature header value."""
     ts = str(timestamp_ms)
-    mac = _hmac.new(secret.encode(), ts.encode() + body, digestmod=hashlib.sha256)
+    mac = _hmac.new(secret.encode(), body + ts.encode(), digestmod=hashlib.sha256)
     return f"sha256={mac.hexdigest()}, t={ts}"
 
 
@@ -475,7 +475,7 @@ class TestVerifyGhostWebhookSignature:
 
     def test_malformed_header_missing_t_rejected(self):
         ts = _now_ms()
-        mac = _hmac.new(_WEBHOOK_SECRET.encode(), str(ts).encode() + _WEBHOOK_BODY, digestmod=hashlib.sha256)
+        mac = _hmac.new(_WEBHOOK_SECRET.encode(), _WEBHOOK_BODY + str(ts).encode(), digestmod=hashlib.sha256)
         sig = f"sha256={mac.hexdigest()}"  # no t= part
         assert verify_ghost_webhook_signature(_WEBHOOK_BODY, sig, _WEBHOOK_SECRET) is False
 
