@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Keep SHA-pinned GitHub Actions current. Workflows pin actions to full
+  # commit SHAs (per the supply-chain hardening in
+  # https://nesbitt.io/2026/04/28/github-actions-is-the-weakest-link.html);
+  # Dependabot opens PRs that bump both the SHA and the trailing version
+  # comment so the pins do not silently rot.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

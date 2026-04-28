@@ -1,40 +1,49 @@
 name: Publish Docker Image
 
+# Trigger directly on pushes to main and tags rather than chaining off the CI
+# workflow via `workflow_run`. The `workflow_run` pattern is a known
+# privilege-laundering footgun: it runs in the context of the default branch
+# but is fired by another workflow's completion, which makes it easy to expand
+# the trust boundary by accident if CI ever starts running on fork PRs with
+# elevated triggers. CI should be enforced as a required status check on `main`
+# via branch protection so that publish only happens for commits that passed CI.
+
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types:
-      - completed
-    branches: [ main ]
   workflow_dispatch:
   push:
+    branches: [ main ]
     tags:
       - "v*.*.*"
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+
+permissions: {}
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    # Only run this job if CI workflow succeeded or if triggered by a tag push
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca # v3.9.0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: Extract metadata for Docker
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 # v5.9.0
         with:
           images: ${{ secrets.DOCKER_HUB_USERNAME }}/posse
           tags: |
@@ -44,7 +53,7 @@ jobs:
             type=raw,value=${{ github.ref_name }},enable=${{ github.event_name == 'push' }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: .
           file: ./Dockerfile
