@@ -916,8 +916,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             notifier.notify_validation_error(str(e))
             return jsonify({
                 "status": "error",
-                "message": "Invalid Ghost post payload",
-                "details": str(e)
+                "message": "Invalid Ghost post payload"
             }), 400
 
         except Exception as e:
@@ -1211,14 +1210,13 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             # Schema validation failed - log at ERROR level
             # The error message includes which field failed and why
             logger.error(f"Payload validation failed: {str(e)}")
-            
+
             # Send Pushover notification for validation error
             notifier.notify_validation_error(str(e))
-            
+
             return jsonify({
                 "status": "error",
-                "message": "Invalid Ghost post payload",
-                "details": str(e)
+                "message": "Invalid Ghost post payload"
             }), 400
             
         except Exception as e:

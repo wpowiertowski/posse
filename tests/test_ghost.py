@@ -256,7 +256,7 @@ def test_receive_invalid_schema(client):
     assert data["status"] == "error", "Status should be 'error'"
     assert data["message"] == "Invalid Ghost post payload", \
         "Message should indicate invalid payload"
-    assert "details" in data, "Response should include validation details"
+    assert "details" not in data, "Validation details must not be exposed in response"
 
 
 def test_receive_empty_json(client):
