@@ -1772,9 +1772,21 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         logger.info(f"Webmention received: source={source}, target={target}, ip={client_ip}")
 
         # Async verification
+        notifier = current_app.config.get("PUSHOVER_NOTIFIER")
+
         def _verify():
             try:
-                verify_webmention(source, target, store)
+                result = verify_webmention(source, target, store)
+                if notifier and result and result.get("status") == "verified" \
+                        and result.get("mention_type") == "reply":
+                    try:
+                        notifier.notify_new_webmention_reply(
+                            author_name=result.get("author_name") or "Anonymous",
+                            content_snippet=result.get("content_text") or result.get("content_html") or "",
+                            target_url=target,
+                        )
+                    except Exception as notify_exc:
+                        logger.error(f"Failed to notify for received webmention: {notify_exc}")
             except Exception as exc:
                 logger.error(f"Webmention verification error: source={source}, target={target}, error={exc}")
 
