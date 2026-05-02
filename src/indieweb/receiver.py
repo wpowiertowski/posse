@@ -34,11 +34,14 @@ _MAX_URL_LENGTH = 2048
 _MAX_CONTENT_LENGTH = 10_000
 
 
-def verify_webmention(source_url: str, target_url: str, store: Any, timeout: float = 30.0) -> None:
+def verify_webmention(source_url: str, target_url: str, store: Any, timeout: float = 30.0) -> Optional[Dict[str, Any]]:
     """Fetch the source URL, verify it links to the target, and extract metadata.
 
     Updates the webmention record in storage with verification results.
     If the source returns 404 or 410, the webmention is deleted from storage.
+
+    Returns the verified metadata dict (including 'status' and 'mention_type') on
+    successful verification, or None for rejections, deletions, and fetch errors.
 
     Args:
         source_url: The URL that allegedly mentions the target.
@@ -126,6 +129,7 @@ def verify_webmention(source_url: str, target_url: str, store: Any, timeout: flo
         f"Webmention verified: source={source_url}, target={target_url}, "
         f"type={metadata.get('mention_type', 'mention')}"
     )
+    return {"status": "verified", **metadata}
 
 
 def _source_links_to_target(html_body: str, target_url: str) -> bool:
