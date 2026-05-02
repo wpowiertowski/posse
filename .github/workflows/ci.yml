@@ -12,7 +12,9 @@ on:
       - '**/*.md'
       - 'docs/**'
 
-permissions: {}
+
+permissions:
+  contents: read
 
 jobs:
   test:

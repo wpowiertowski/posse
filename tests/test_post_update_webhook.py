@@ -163,7 +163,7 @@ class TestPostUpdateWebhook:
             assert response.status_code == 400
             data = response.get_json()
             assert data["status"] == "error"
-            assert "details" in data
+            assert "details" not in data
 
     def test_non_published_post_skipped(self, app_with_clients):
         """Test that draft posts are skipped without queuing."""

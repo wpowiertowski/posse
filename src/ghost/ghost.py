@@ -627,7 +627,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
         cors_origins = cors_config.get("origins", [])
         if cors_origins:
             CORS(app, origins=cors_origins)
-            logger.info(f"CORS enabled for origins: {cors_origins}")
+            logger.info("CORS enabled for %d origin(s)", len(cors_origins))
         else:
             logger.warning("CORS enabled but no origins configured")
     else:
@@ -656,7 +656,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     # If empty, referrer validation is disabled (backward compatible)
     app.config["ALLOWED_REFERRERS"] = security_config.get("allowed_referrers", [])
     if app.config["ALLOWED_REFERRERS"]:
-        logger.info(f"Referrer validation enabled for: {app.config['ALLOWED_REFERRERS']}")
+        logger.info("Referrer validation enabled for %d origin(s)", len(app.config['ALLOWED_REFERRERS']))
     else:
         logger.info("Referrer validation disabled (no allowed_referrers configured)")
 
@@ -725,7 +725,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     app.config["INTERACTIONS_STORAGE_PATH"] = config.get("interactions", {}).get("cache_directory", "./data")
 
     if app.config["REPLY_ENABLED"]:
-        logger.info(f"Webmention reply form enabled for origins: {app.config['REPLY_ALLOWED_TARGET_ORIGINS']}")
+        logger.info("Webmention reply form enabled for %d origin(s)", len(app.config['REPLY_ALLOWED_TARGET_ORIGINS']))
 
     # =================================================================
     # Webmention Receiver Configuration
@@ -737,7 +737,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
     app.config["RECEIVER_RATE_WINDOW"] = receiver_config.get("rate_limit_window_seconds", 60)
 
     if app.config["RECEIVER_ENABLED"]:
-        logger.info(f"Webmention receiver enabled for origins: {app.config['RECEIVER_ALLOWED_TARGET_ORIGINS']}")
+        logger.info("Webmention receiver enabled for %d origin(s)", len(app.config['RECEIVER_ALLOWED_TARGET_ORIGINS']))
 
     def _check_ghost_signature():
         """Return a 401 JSON response if the Ghost webhook signature is invalid.
@@ -916,12 +916,11 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             notifier.notify_validation_error(str(e))
             return jsonify({
                 "status": "error",
-                "message": "Invalid Ghost post payload",
-                "details": str(e)
+                "message": "Invalid Ghost post payload"
             }), 400
 
         except Exception as e:
-            logger.error(f"Unexpected error processing Ghost post update: {str(e)}", exc_info=True)
+            logger.error("Unexpected error processing Ghost post update", exc_info=True)
             return jsonify({
                 "status": "error",
                 "message": "Internal server error"
@@ -1071,7 +1070,7 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             }), 200
 
         except Exception as e:
-            logger.error(f"Unexpected error processing Ghost post deletion: {str(e)}", exc_info=True)
+            logger.error("Unexpected error processing Ghost post deletion", exc_info=True)
             return jsonify({
                 "status": "error",
                 "message": "Internal server error"
@@ -1211,20 +1210,19 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
             # Schema validation failed - log at ERROR level
             # The error message includes which field failed and why
             logger.error(f"Payload validation failed: {str(e)}")
-            
+
             # Send Pushover notification for validation error
             notifier.notify_validation_error(str(e))
-            
+
             return jsonify({
                 "status": "error",
-                "message": "Invalid Ghost post payload",
-                "details": str(e)
+                "message": "Invalid Ghost post payload"
             }), 400
             
         except Exception as e:
             # Unexpected error (parsing, I/O, etc.)
             # Log with full traceback for debugging (exc_info=True)
-            logger.error(f"Unexpected error processing Ghost post: {str(e)}", exc_info=True)
+            logger.error("Unexpected error processing Ghost post", exc_info=True)
             return jsonify({
                 "status": "error",
                 "message": "Internal server error"
