@@ -102,14 +102,14 @@ def get_timezone_name(config: Dict[str, Any]) -> str:
     """Return a validated timezone name from config, with UTC fallback."""
     tz_name = config.get("timezone", DEFAULT_TIMEZONE)
     if not isinstance(tz_name, str) or not tz_name.strip():
-        logger.warning(f"Invalid timezone configuration {tz_name!r}; falling back to {DEFAULT_TIMEZONE}")
+        logger.warning("Invalid timezone configuration; falling back to %s", DEFAULT_TIMEZONE)
         return DEFAULT_TIMEZONE
 
     tz_name = tz_name.strip()
     try:
         ZoneInfo(tz_name)
     except ZoneInfoNotFoundError:
-        logger.warning(f"Unknown timezone '{tz_name}'; falling back to {DEFAULT_TIMEZONE}")
+        logger.warning("Unknown timezone; falling back to %s", DEFAULT_TIMEZONE)
         return DEFAULT_TIMEZONE
 
     return tz_name
@@ -139,8 +139,8 @@ def read_secret_file(filepath: str) -> Optional[str]:
         with open(filepath, "r") as f:
             return f.read().strip()
     except FileNotFoundError:
-        logger.debug(f"Secret file not found: {filepath}")
+        logger.debug("Secret file not found")
         return None
     except Exception as e:
-        logger.error(f"Error reading secret file {filepath}: {e}")
+        logger.error("Error reading secret file")
         return None

@@ -17,6 +17,7 @@ Running Tests:
 import json
 import logging
 from pathlib import Path
+from urllib.parse import urlparse
 
 from posse.posse import _extract_post_data, _get_domain_from_url, _is_local_image
 
@@ -148,7 +149,7 @@ def test_extract_post_data_all_local_images():
     
     # Should extract all images
     assert len(images) == 3
-    assert all("myblog.com" in img for img in images)
+    assert all(urlparse(img).netloc == "myblog.com" for img in images)
 
 
 def test_extract_post_data_all_external_images():
@@ -206,7 +207,7 @@ def test_extract_post_data_with_real_fixture():
     
     # All images in the fixture are from behindtheviewfinder.com, so all should be included
     assert len(images) == 5
-    assert all("behindtheviewfinder.com" in img for img in images)
+    assert all(urlparse(img).netloc == "behindtheviewfinder.com" for img in images)
     
     # Featured image (antelope5.jpg) should be first, even though alphabetically it would be last
     assert images[0] == "https://behindtheviewfinder.com/content/images/2026/01/antelope5.jpg"
