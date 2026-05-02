@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.2.1] - 2026-05-02
+
+### Added
+
+- **bubbles.town vote count in social engagement box** - New stat slot displays the post's bubbles.town vote count alongside POSSE stats; enabled via `bubbles_town_enabled` theme setting
+- **Self-hosted POSSE webmentions API support in widget** - Widget can now fetch received webmentions from POSSE's own `/api/webmentions` endpoint (`webmention_api_url` theme setting); results are merged with webmention.io data and deduplicated by source URL
+
+### Changed
+
+- **Widget engagement box is now statically rendered** - The `social-interactions-container` wrapper is output by the template; JavaScript injects stats into it rather than rebuilding the whole box, allowing bubbles.town to coexist without POSSE data
+- **Configurable webmention reply URL** - "Send a Webmention" button URL is now set via `webmention_reply_url` theme setting instead of being hardcoded to commentpara.de; the button is hidden when not configured
+- **`webmentionCategoriesUpdated` event replaces `renderPosseWidgetFn` callback** - More reliable cross-widget communication: the webmentions widget dispatches the event after categorising data, and the POSSE widget listens to re-render its reply count
+- **Webmention HTML sanitised with an allowlist-based DOM walker** - Replaces the previous `querySelectorAll('script').remove()` approach; only `p`, `br`, `a`, `strong`, `em`, `blockquote`, `code`, `pre` are permitted
+- **URL validation throughout widget** - All external URLs (author photos, author pages, source links) are validated via `sanitizeUrlWm`; non-HTTP/HTTPS protocols are rejected
+- **Disqus integration removed from widget** - Disqus comment support has been dropped
+
+### Fixed
+
+- **Webmention reply count missing from social engagement total** - The social engagement widget now includes received webmention in-reply-to entries in the reply counter, shared between widgets via a `webmentionCategoriesUpdated` event (#110)
+- **Pushover notifications not sent for received webmention replies** - Incoming webmentions verified as replies (in-reply-to) now trigger Pushover notifications, matching the behaviour for user-submitted form replies (#110)
+- **Exception details exposed in webhook HTTP responses** - `GhostPostValidationError` handler no longer returns validation error text in the response body; details remain logged server-side and sent via Pushover
+
+### Security
+
+- **11 Dependabot CVEs resolved** - Bumped Pillow, requests, Flask, and pytest to patched releases; added explicit floor constraints for `cryptography >=46.0.7`, `Pygments >=2.20.0`, and `werkzeug >=3.1.6`
+- **Clear-text logging of sensitive config values** - Removed config-derived values (secrets, credentials) from log messages in `config/__init__.py` and `ghost.py`
+- **Incomplete URL sanitisation** - Replaced substring URL assertions with `urlparse` netloc checks in image-filtering tests to match the tightened production behaviour
+- **Missing CI workflow permissions** - Added `permissions: contents: read` to the CI workflow to satisfy least-privilege requirements
+
+
 ## [1.2.0] - 2026-04-16
 
 ### Added
@@ -225,7 +255,9 @@ Key capabilities:
 - Secure credential management using Docker secrets
 - JSON schema validation for all webhook payloads
 
-[Unreleased]: https://github.com/wpowiertowski/posse/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/wpowiertowski/posse/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/wpowiertowski/posse/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/wpowiertowski/posse/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/wpowiertowski/posse/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/wpowiertowski/posse/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/wpowiertowski/posse/compare/v1.1.0...v1.1.1

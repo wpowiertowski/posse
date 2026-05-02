@@ -2,13 +2,29 @@
 {{!-- Displays POSSE social interactions (Mastodon/Bluesky) and Webmentions --}}
 
 <section class="social-interactions-area inner">
-    {{!-- POSSE Social Interactions Widget --}}
+    {{!-- Social Engagement Box (POSSE stats + bubbles.town vote) --}}
     {{#if @custom.posse_api_url}}
-    <div id="social-interactions-widget" data-post-id="{{id}}" data-api-url="{{@custom.posse_api_url}}"></div>
+    <div class="social-interactions-container social-engagement-box">
+        <h3>Social engagement</h3>
+        <div class="engagement-summary">
+            <div id="social-interactions-widget" class="posse-stats" data-post-id="{{id}}" data-api-url="{{@custom.posse_api_url}}"></div>
+            {{#if @custom.bubbles_town_enabled}}
+            <div id="bubbles-vote-widget" class="bubbles-stat-slot" data-url="{{url absolute="true"}}"></div>
+            {{/if}}
+        </div>
+        <div id="posse-last-updated" class="last-updated" hidden></div>
+    </div>
+    {{else if @custom.bubbles_town_enabled}}
+    <div class="social-interactions-container social-engagement-box">
+        <h3>Social engagement</h3>
+        <div class="engagement-summary">
+            <div id="bubbles-vote-widget" class="bubbles-stat-slot" data-url="{{url absolute="true"}}"></div>
+        </div>
+    </div>
     {{/if}}
 
     {{!-- Webmentions Section --}}
-    <div id="webmentions-widget" data-target="{{url absolute="true"}}" data-domain="{{@custom.webmention_domain}}">
+    <div id="webmentions-widget" data-target="{{url absolute="true"}}" data-domain="{{@custom.webmention_domain}}" data-reply-url="{{@custom.webmention_reply_url}}" data-posse-api-url="{{@custom.posse_api_url}}" data-webmention-api-url="{{@custom.webmention_api_url}}">
         <div class="webmentions-container">
             <h3 class="webmentions-title">{{t "Responses"}}</h3>
             <div class="webmentions-facepile">
@@ -30,26 +46,6 @@
             </div>
         </div>
     </div>
-
-    {{!-- Disqus Comments Section --}}
-    {{#if @custom.enable_disqus}}
-    {{#if @custom.disqus_shortname}}
-    <div id="disqus_thread" class="disqus-container"></div>
-    <script>
-        var disqus_config = function () {
-            this.page.url = '{{url absolute="true"}}';
-            this.page.identifier = 'ghost-{{id}}';
-        };
-        (function() {
-            var d = document, s = d.createElement('script');
-            s.src = 'https://{{@custom.disqus_shortname}}.disqus.com/embed.js';
-            s.setAttribute('data-timestamp', +new Date());
-            (d.head || d.body).appendChild(s);
-        })();
-    </script>
-    <noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-    {{/if}}
-    {{/if}}
 </section>
 
 <script>
@@ -58,10 +54,8 @@
 
     // Shared state for POSSE data (accessible by webmentions widget)
     let sharedPosseData = null;
-    // Shared webmention categories so POSSE widget can include webmention reply counts
-    let sharedWebmentionCategories = null;
-    // Reference to renderPosseWidget so webmention section can trigger a re-render
-    let renderPosseWidgetFn = null;
+    // Shared webmention categories (accessible by POSSE widget for reply count)
+    let sharedWmCategories = null;
 
     // ========================================
     // POSSE Social Interactions Widget
@@ -76,6 +70,8 @@
         };
 
         let currentData = null;
+
+        const engagementBox = posseWidget.closest('.social-engagement-box');
 
         async function fetchPosseInteractions() {
             try {
@@ -117,8 +113,6 @@
                 });
             }
 
-            // Include webmention reply counts (both in-reply-to and mention-of, since
-            // both are displayed together in the "Comments & Replies" section)
             if (wmCategories) {
                 replies += (wmCategories.comments || []).length;
                 replies += (wmCategories.mentions || []).length;
@@ -158,35 +152,41 @@
 
         function renderPosseWidget(data) {
             const container = document.getElementById('social-interactions-widget');
+            const meta = document.getElementById('posse-last-updated');
 
             if (!data || !hasAnyPlatformData(data)) {
-                container.style.display = 'none';
+                container.innerHTML = '';
+                container.hidden = true;
+                if (meta) {
+                    meta.textContent = '';
+                    meta.hidden = true;
+                }
+                if (engagementBox) engagementBox.classList.add('posse-empty');
                 return;
             }
 
-            const totals = calculateTotals(data, sharedWebmentionCategories);
+            if (engagementBox) engagementBox.classList.remove('posse-empty');
 
-            let html = '<div class="social-interactions-container">';
-            html += '<h3>Social engagement</h3>';
+            const totals = calculateTotals(data, sharedWmCategories);
 
-            // Show engagement stats (likes, reposts, replies)
-            html += '<div class="engagement-summary">';
+            let html = '';
             html += `<span class="stat"><span class="stat-number">${totals.likes}</span><span class="stat-label">likes</span></span>`;
             html += `<span class="stat"><span class="stat-number">${totals.reposts}</span><span class="stat-label">reposts</span></span>`;
             html += `<span class="stat"><span class="stat-number">${totals.replies}</span><span class="stat-label">replies</span></span>`;
-            html += '</div>';
-
-            if (data.updated_at) {
-                html += `<div class="last-updated">Last updated: ${formatTimestamp(data.updated_at)}</div>`;
-            }
-
-            html += '</div>';
 
             container.innerHTML = html;
-            container.style.display = 'block';
-        }
+            container.hidden = false;
 
-        renderPosseWidgetFn = renderPosseWidget;
+            if (meta) {
+                if (data.updated_at) {
+                    meta.textContent = `Last updated: ${formatTimestamp(data.updated_at)}`;
+                    meta.hidden = false;
+                } else {
+                    meta.textContent = '';
+                    meta.hidden = true;
+                }
+            }
+        }
 
         async function initPosseWidget() {
             console.log('Initializing POSSE Social Interactions Widget');
@@ -221,6 +221,13 @@
             }, POSSE_CONFIG.refreshInterval);
         }
 
+        // Re-render engagement box when webmention reply counts become available
+        window.addEventListener('webmentionCategoriesUpdated', () => {
+            if (currentData) {
+                renderPosseWidget(currentData);
+            }
+        });
+
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initPosseWidget);
         } else {
@@ -237,6 +244,9 @@
         const WM_CONFIG = {
             target: webmentionsWidget.dataset.target,
             domain: webmentionsWidget.dataset.domain || 'behindtheviewfinder.com',
+            replyUrl: webmentionsWidget.dataset.replyUrl || '',
+            posseApiUrl: webmentionsWidget.dataset.posseApiUrl || '',
+            webmentionApiUrl: webmentionsWidget.dataset.webmentionApiUrl || '',
             refreshInterval: 300000
         };
 
@@ -245,6 +255,69 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function sanitizeUrlWm(url, fallback = '#') {
+            if (!url) return fallback;
+            try {
+                const parsed = new URL(url, window.location.origin);
+                if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                    return fallback;
+                }
+                return parsed.toString();
+            } catch (e) {
+                return fallback;
+            }
+        }
+
+        function sanitizeWebmentionHtmlContent(rawHtml) {
+            if (!rawHtml) return '';
+
+            const doc = document.implementation.createHTMLDocument('');
+            const root = doc.createElement('div');
+            root.innerHTML = rawHtml;
+
+            const allowedTags = new Set(['p', 'br', 'a', 'strong', 'em', 'blockquote', 'code', 'pre']);
+
+            function sanitizeNode(node) {
+                Array.from(node.children).forEach(child => {
+                    const tagName = child.tagName.toLowerCase();
+
+                    if (!allowedTags.has(tagName)) {
+                        child.replaceWith(doc.createTextNode(child.textContent || ''));
+                        return;
+                    }
+
+                    Array.from(child.attributes).forEach(attr => {
+                        const attrName = attr.name.toLowerCase();
+                        if (tagName === 'a' && attrName === 'href') {
+                            const safeHref = sanitizeUrlWm(attr.value, '');
+                            if (safeHref) {
+                                child.setAttribute('href', safeHref);
+                            } else {
+                                child.removeAttribute('href');
+                            }
+                        } else {
+                            child.removeAttribute(attr.name);
+                        }
+                    });
+
+                    if (tagName === 'a') {
+                        const href = child.getAttribute('href');
+                        if (!href) {
+                            child.replaceWith(doc.createTextNode(child.textContent || ''));
+                            return;
+                        }
+                        child.setAttribute('target', '_blank');
+                        child.setAttribute('rel', 'nofollow noopener noreferrer');
+                    }
+
+                    sanitizeNode(child);
+                });
+            }
+
+            sanitizeNode(root);
+            return root.innerHTML;
         }
 
         // Convert AT Protocol URIs to HTTPS URLs (webmentions version)
@@ -378,7 +451,9 @@
             if (mastodonPosts.length > 0) {
                 html += '<div class="webmentions-respond-row">';
                 mastodonPosts.forEach(post => {
-                    html += `<a href="${escapeHtmlWm(post.url)}" target="_blank" rel="noopener" class="respond-option respond-option-mastodon">`;
+                    const safePostUrl = sanitizeUrlWm(post.url, '');
+                    if (!safePostUrl) return;
+                    html += `<a href="${escapeHtmlWm(safePostUrl)}" target="_blank" rel="noopener" class="respond-option respond-option-mastodon">`;
                     html += post.icon;
                     html += ' <span>Reply on Mastodon</span>';
                     html += '</a>';
@@ -390,7 +465,9 @@
             if (blueskyPosts.length > 0) {
                 html += '<div class="webmentions-respond-row">';
                 blueskyPosts.forEach(post => {
-                    html += `<a href="${escapeHtmlWm(post.url)}" target="_blank" rel="noopener" class="respond-option respond-option-bluesky">`;
+                    const safePostUrl = sanitizeUrlWm(post.url, '');
+                    if (!safePostUrl) return;
+                    html += `<a href="${escapeHtmlWm(safePostUrl)}" target="_blank" rel="noopener" class="respond-option respond-option-bluesky">`;
                     html += post.icon;
                     html += ' <span>Reply on Bluesky</span>';
                     html += '</a>';
@@ -399,13 +476,18 @@
             }
 
             // Webmention row
-            const webmentionFormUrl = `https://commentpara.de/?url=${encodeURIComponent(WM_CONFIG.target)}`;
-            html += '<div class="webmentions-respond-row">';
-            html += `<a href="${webmentionFormUrl}" target="_blank" rel="noopener" class="respond-option respond-option-webmention">`;
-            html += '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
-            html += ' <span>Send a Webmention</span>';
-            html += '</a>';
-            html += '</div>';
+            const webmentionFormUrl = WM_CONFIG.replyUrl
+                ? `${WM_CONFIG.replyUrl.replace(/\/+$/, '')}?url=${encodeURIComponent(WM_CONFIG.target)}`
+                : '';
+            const safeWebmentionFormUrl = sanitizeUrlWm(webmentionFormUrl, '');
+            if (safeWebmentionFormUrl) {
+                html += '<div class="webmentions-respond-row">';
+                html += `<a href="${escapeHtmlWm(safeWebmentionFormUrl)}" target="_blank" rel="noopener" class="respond-option respond-option-webmention">`;
+                html += '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
+                html += ' <span>Send a Webmention</span>';
+                html += '</a>';
+                html += '</div>';
+            }
 
             container.innerHTML = html;
         }
@@ -430,9 +512,138 @@
             }
         }
 
-        async function fetchWebmentions() {
+        function normalizeApiUrl(url) {
+            return url ? url.replace(/\/+$/, '') : '';
+        }
+
+        function getPosseWebmentionsApiUrl() {
+            const explicitApiUrl = normalizeApiUrl(WM_CONFIG.webmentionApiUrl);
+            if (explicitApiUrl) {
+                return explicitApiUrl;
+            }
+
+            if (!WM_CONFIG.posseApiUrl) {
+                return '';
+            }
+
             try {
-                const url = `https://webmention.io/api/mentions.jf2?target=${encodeURIComponent(WM_CONFIG.target)}&per-page=100`;
+                const parsed = new URL(WM_CONFIG.posseApiUrl, window.location.origin);
+                parsed.pathname = '/api/webmentions';
+                parsed.search = '';
+                parsed.hash = '';
+                return normalizeApiUrl(parsed.toString());
+            } catch (error) {
+                console.error('Invalid POSSE API URL for webmentions:', error);
+                return '';
+            }
+        }
+
+        function mapPosseMentionTypeToWmProperty(mentionType) {
+            switch ((mentionType || '').toLowerCase()) {
+                case 'like':
+                    return 'like-of';
+                case 'repost':
+                    return 'repost-of';
+                case 'bookmark':
+                    return 'bookmark-of';
+                case 'reply':
+                    return 'in-reply-to';
+                case 'mention':
+                default:
+                    return 'mention-of';
+            }
+        }
+
+        function normalizePosseWebmentions(data) {
+            const mentions = data && Array.isArray(data.webmentions) ? data.webmentions : [];
+            const children = mentions
+                .map(mention => {
+                    const sourceUrl = mention.source_url || '';
+                    const contentHtml = mention.content_html || '';
+                    const contentText = mention.content_text || '';
+                    const timestamp = mention.verified_at || mention.updated_at || mention.received_at || '';
+
+                    return {
+                        'wm-property': mapPosseMentionTypeToWmProperty(mention.mention_type),
+                        author: {
+                            name: mention.author_name || 'Anonymous',
+                            url: mention.author_url || '',
+                            photo: mention.author_photo || ''
+                        },
+                        content: {
+                            html: contentHtml,
+                            text: contentText || contentHtml
+                        },
+                        published: timestamp,
+                        'wm-received': timestamp,
+                        url: sourceUrl,
+                        'wm-source': sourceUrl
+                    };
+                })
+                .filter(mention => mention.url || mention['wm-source']);
+
+            return { children };
+        }
+
+        function mergeWebmentionChildren(...datasets) {
+            const children = [];
+            const seen = new Set();
+
+            datasets.forEach(dataset => {
+                if (!dataset || !Array.isArray(dataset.children)) return;
+
+                dataset.children.forEach(mention => {
+                    const sourceUrl = mention['wm-source'] || mention.url || '';
+                    const mentionType = mention['wm-property'] || 'mention-of';
+                    const dedupeKey = sourceUrl ? `${sourceUrl}|${mentionType}` : '';
+
+                    if (dedupeKey && seen.has(dedupeKey)) {
+                        return;
+                    }
+
+                    if (dedupeKey) {
+                        seen.add(dedupeKey);
+                    }
+
+                    children.push(mention);
+                });
+            });
+
+            return { children };
+        }
+
+        function buildWebmentionIoUrl() {
+            const params = new URLSearchParams({
+                target: WM_CONFIG.target,
+                'per-page': '100'
+            });
+
+            if (WM_CONFIG.domain) {
+                params.set('domain', WM_CONFIG.domain);
+            }
+
+            return `https://webmention.io/api/mentions.jf2?${params.toString()}`;
+        }
+
+        async function fetchPosseWebmentions(apiUrl) {
+            try {
+                const url = `${apiUrl}?target=${encodeURIComponent(WM_CONFIG.target)}`;
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                return normalizePosseWebmentions(data);
+            } catch (error) {
+                console.error('Failed to fetch POSSE webmentions:', error);
+                return null;
+            }
+        }
+
+        async function fetchWebmentionIo() {
+            try {
+                const url = buildWebmentionIoUrl();
                 const response = await fetch(url);
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -442,6 +653,30 @@
                 console.error('Failed to fetch webmentions:', error);
                 return null;
             }
+        }
+
+        async function fetchWebmentions() {
+            const posseApiUrl = getPosseWebmentionsApiUrl();
+            const shouldFetchWebmentionIo = Boolean(WM_CONFIG.domain) || !posseApiUrl;
+
+            const [posseData, webmentionIoData] = await Promise.all([
+                posseApiUrl ? fetchPosseWebmentions(posseApiUrl) : Promise.resolve(null),
+                shouldFetchWebmentionIo ? fetchWebmentionIo() : Promise.resolve(null)
+            ]);
+
+            if (posseData && webmentionIoData) {
+                return mergeWebmentionChildren(posseData, webmentionIoData);
+            }
+
+            if (posseData) {
+                return posseData;
+            }
+
+            if (webmentionIoData) {
+                return webmentionIoData;
+            }
+
+            return { children: [] };
         }
 
         function categorizeWebmentions(data) {
@@ -493,15 +728,15 @@
             displayItems.forEach(item => {
                 const author = item.author || {};
                 const name = escapeHtmlWm(author.name || 'Anonymous');
-                const photo = author.photo || '';
-                const url = author.url || item.url || '#';
+                const safePhotoUrl = sanitizeUrlWm(author.photo || '', '');
+                const safeAuthorUrl = sanitizeUrlWm(author.url || item.url || '#', '#');
 
-                if (photo) {
-                    html += `<a href="${escapeHtmlWm(url)}" target="_blank" rel="noopener" title="${name}">`;
-                    html += `<img src="${escapeHtmlWm(photo)}" alt="${name}" class="facepile-avatar" loading="lazy">`;
+                if (safePhotoUrl) {
+                    html += `<a href="${escapeHtmlWm(safeAuthorUrl)}" target="_blank" rel="noopener" title="${name}">`;
+                    html += `<img src="${escapeHtmlWm(safePhotoUrl)}" alt="${name}" class="facepile-avatar" loading="lazy">`;
                     html += `</a>`;
                 } else {
-                    html += `<a href="${escapeHtmlWm(url)}" target="_blank" rel="noopener" title="${name}" class="facepile-avatar facepile-avatar-placeholder">`;
+                    html += `<a href="${escapeHtmlWm(safeAuthorUrl)}" target="_blank" rel="noopener" title="${name}" class="facepile-avatar facepile-avatar-placeholder">`;
                     html += name.charAt(0).toUpperCase();
                     html += `</a>`;
                 }
@@ -601,23 +836,23 @@
 
             allReplies.forEach(reply => {
                 const name = escapeHtmlWm(reply.author);
-                const photo = reply.authorAvatar;
-                const authorUrl = reply.authorUrl;
+                const safePhotoUrl = sanitizeUrlWm(reply.authorAvatar, '');
+                const safeAuthorUrl = sanitizeUrlWm(reply.authorUrl, '#');
                 const content = reply.content;
                 const timestamp = reply.timestamp;
-                const sourceUrl = reply.url;
+                const safeSourceUrl = sanitizeUrlWm(reply.url, '#');
 
                 html += `<div class="webmention-comment">`;
                 html += `<div class="webmention-comment-header">`;
 
-                if (photo) {
-                    html += `<img src="${escapeHtmlWm(photo)}" alt="${name}" class="webmention-avatar" loading="lazy">`;
+                if (safePhotoUrl) {
+                    html += `<img src="${escapeHtmlWm(safePhotoUrl)}" alt="${name}" class="webmention-avatar" loading="lazy">`;
                 } else {
                     html += `<span class="webmention-avatar webmention-avatar-placeholder">${name.charAt(0).toUpperCase()}</span>`;
                 }
 
                 html += `<div class="webmention-meta">`;
-                html += `<a href="${escapeHtmlWm(authorUrl)}" target="_blank" rel="noopener" class="webmention-author">${name}</a>`;
+                html += `<a href="${escapeHtmlWm(safeAuthorUrl)}" target="_blank" rel="noopener" class="webmention-author">${name}</a>`;
                 html += ` <span class="webmention-time">${formatTimestampWm(timestamp)}</span>`;
                 html += `</div>`;
                 html += `</div>`;
@@ -628,16 +863,13 @@
                         const escapedContent = escapeHtmlWm(content).replace(/\n/g, '<br>');
                         html += `<div class="webmention-content">${escapedContent}</div>`;
                     } else {
-                        // For webmentions, sanitize HTML content
-                        const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = content;
-                        tempDiv.querySelectorAll('script').forEach(el => el.remove());
-                        const sanitized = tempDiv.innerHTML;
+                        // For webmentions, allow only safe subset of HTML.
+                        const sanitized = sanitizeWebmentionHtmlContent(content);
                         html += `<div class="webmention-content">${sanitized}</div>`;
                     }
                 }
 
-                html += `<a href="${escapeHtmlWm(sourceUrl)}" target="_blank" rel="noopener" class="webmention-source-link">View source →</a>`;
+                html += `<a href="${escapeHtmlWm(safeSourceUrl)}" target="_blank" rel="noopener" class="webmention-source-link">View source →</a>`;
                 html += `</div>`;
             });
 
@@ -655,7 +887,9 @@
             if (mastodonPosts.length > 0) {
                 html += '<div class="webmentions-respond-row">';
                 mastodonPosts.forEach(post => {
-                    html += `<a href="${escapeHtmlWm(post.url)}" target="_blank" rel="noopener" class="respond-option respond-option-mastodon">`;
+                    const safePostUrl = sanitizeUrlWm(post.url, '');
+                    if (!safePostUrl) return;
+                    html += `<a href="${escapeHtmlWm(safePostUrl)}" target="_blank" rel="noopener" class="respond-option respond-option-mastodon">`;
                     html += post.icon;
                     html += ' <span>Reply on Mastodon</span>';
                     html += '</a>';
@@ -667,7 +901,9 @@
             if (blueskyPosts.length > 0) {
                 html += '<div class="webmentions-respond-row">';
                 blueskyPosts.forEach(post => {
-                    html += `<a href="${escapeHtmlWm(post.url)}" target="_blank" rel="noopener" class="respond-option respond-option-bluesky">`;
+                    const safePostUrl = sanitizeUrlWm(post.url, '');
+                    if (!safePostUrl) return;
+                    html += `<a href="${escapeHtmlWm(safePostUrl)}" target="_blank" rel="noopener" class="respond-option respond-option-bluesky">`;
                     html += post.icon;
                     html += ' <span>Reply on Bluesky</span>';
                     html += '</a>';
@@ -676,13 +912,18 @@
             }
 
             // Webmention row
-            const webmentionFormUrl = `https://commentpara.de/?url=${encodeURIComponent(WM_CONFIG.target)}`;
-            html += '<div class="webmentions-respond-row">';
-            html += `<a href="${webmentionFormUrl}" target="_blank" rel="noopener" class="respond-option respond-option-webmention">`;
-            html += '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
-            html += ' <span>Send a Webmention</span>';
-            html += '</a>';
-            html += '</div>';
+            const webmentionFormUrl = WM_CONFIG.replyUrl
+                ? `${WM_CONFIG.replyUrl.replace(/\/+$/, '')}?url=${encodeURIComponent(WM_CONFIG.target)}`
+                : '';
+            const safeWebmentionFormUrl = sanitizeUrlWm(webmentionFormUrl, '');
+            if (safeWebmentionFormUrl) {
+                html += '<div class="webmentions-respond-row">';
+                html += `<a href="${escapeHtmlWm(safeWebmentionFormUrl)}" target="_blank" rel="noopener" class="respond-option respond-option-webmention">`;
+                html += '<svg class="respond-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>';
+                html += ' <span>Send a Webmention</span>';
+                html += '</a>';
+                html += '</div>';
+            }
 
             html += `<a href="https://indieweb.org/webmention" target="_blank" rel="noopener" class="webmentions-info-link">What are webmentions?</a>`;
             html += '</div>';
@@ -693,6 +934,10 @@
 
         function renderWebmentions(data) {
             const categories = categorizeWebmentions(data);
+            // Update shared categories so the POSSE engagement box can include webmention replies
+            sharedWmCategories = categories;
+            window.dispatchEvent(new CustomEvent('webmentionCategoriesUpdated'));
+
             const emptyContainer = document.getElementById('webmentions-empty');
 
             // Get POSSE replies
@@ -730,12 +975,7 @@
             const data = await fetchWebmentions();
             cachedWebmentionsData = data;
             if (data) {
-                sharedWebmentionCategories = categorizeWebmentions(data);
                 renderWebmentions(data);
-                // Re-render POSSE widget so its reply count includes webmention replies
-                if (renderPosseWidgetFn && sharedPosseData) {
-                    renderPosseWidgetFn(sharedPosseData);
-                }
             }
 
             // Listen for POSSE data updates to refresh respond options AND re-render comments
@@ -755,12 +995,7 @@
                 const data = await fetchWebmentions();
                 cachedWebmentionsData = data;
                 if (data) {
-                    sharedWebmentionCategories = categorizeWebmentions(data);
                     renderWebmentions(data);
-                    // Re-render POSSE widget so its reply count includes webmention replies
-                    if (renderPosseWidgetFn && sharedPosseData) {
-                        renderPosseWidgetFn(sharedPosseData);
-                    }
                 }
             }, WM_CONFIG.refreshInterval);
         }
@@ -769,6 +1004,67 @@
             document.addEventListener('DOMContentLoaded', initWebmentions);
         } else {
             initWebmentions();
+        }
+    }
+
+    // ========================================
+    // bubbles.town Vote Count Widget
+    // ========================================
+    const bubblesWidget = document.getElementById('bubbles-vote-widget');
+
+    if (bubblesWidget) {
+        const BUBBLES_API = 'https://bubbles.town/api/vote-count';
+        const postUrl = bubblesWidget.dataset.url;
+
+        async function fetchBubblesVote() {
+            if (!postUrl) return null;
+            try {
+                const response = await fetch(`${BUBBLES_API}?url=${encodeURIComponent(postUrl)}`);
+                if (response.status === 404) return null;
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('Failed to fetch bubbles.town vote count:', error);
+                return null;
+            }
+        }
+
+        function renderBubblesVote(data) {
+            if (!data || typeof data.count !== 'number') {
+                bubblesWidget.replaceChildren();
+                return;
+            }
+
+            const link = document.createElement('a');
+            link.href = data.id ? `https://bubbles.town/entry/${data.id}` : 'https://bubbles.town/';
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.className = 'stat bubbles-stat';
+            link.title = 'View on bubbles.town';
+
+            const number = document.createElement('span');
+            number.className = 'stat-number';
+            number.textContent = String(data.count);
+
+            const label = document.createElement('span');
+            label.className = 'stat-label';
+            label.textContent = 'bubbles';
+
+            link.append(number, label);
+            bubblesWidget.replaceChildren(link);
+        }
+
+        async function initBubblesVote() {
+            const data = await fetchBubblesVote();
+            renderBubblesVote(data);
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initBubblesVote);
+        } else {
+            initBubblesVote();
         }
     }
 })();
