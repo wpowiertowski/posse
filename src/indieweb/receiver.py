@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 import mf2py
 
+from indieweb.content_sanitizer import sanitize_content_html, sanitize_content_text
 from indieweb.webmention import (
     _build_session,
     _is_private_or_loopback,
@@ -189,15 +190,19 @@ def _extract_hentry_metadata(
         elif isinstance(author, str):
             result["author_name"] = author
 
-    # Extract content
+    # Extract content. The HTML is sanitized to an allowlist of safe
+    # formatting tags before storage so that consumers of the API don't
+    # have to trust arbitrary remote markup, and so that mf2py's
+    # occasional over-extraction (e.g. JSON-LD from <script>) doesn't
+    # leak into rendered replies.
     content_list = properties.get("content", [])
     if content_list:
         content = content_list[0]
         if isinstance(content, dict):
-            result["content_html"] = content.get("html", "")
-            result["content_text"] = content.get("value", "")
+            result["content_html"] = sanitize_content_html(content.get("html", ""))
+            result["content_text"] = sanitize_content_text(content.get("value", ""))
         elif isinstance(content, str):
-            result["content_text"] = content
+            result["content_text"] = sanitize_content_text(content)
 
     # Determine mention type from properties
     target_normalized = target_url.rstrip("/")
