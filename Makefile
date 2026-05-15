@@ -1,4 +1,6 @@
-.PHONY: help build up down run test test-verbose shell clean install update
+.PHONY: help build up down run test test-verbose shell clean install update resanitize-webmentions resanitize-webmentions-dryrun
+
+STORAGE_PATH ?= ./data
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -45,3 +47,9 @@ add: ## Add a new dependency (usage: make add PACKAGE=package-name)
 
 add-dev: ## Add a new dev dependency (usage: make add-dev PACKAGE=package-name)
 	docker compose run --rm app poetry add --group dev $(PACKAGE)
+
+resanitize-webmentions-dryrun: ## Preview re-sanitizing stored webmentions (usage: make resanitize-webmentions-dryrun [STORAGE_PATH=./data])
+	docker compose run --rm app poetry run python -m indieweb.resanitize_stored --storage-path $(STORAGE_PATH) --dry-run --verbose
+
+resanitize-webmentions: ## Re-sanitize stored webmentions in place (usage: make resanitize-webmentions [STORAGE_PATH=./data])
+	docker compose run --rm app poetry run python -m indieweb.resanitize_stored --storage-path $(STORAGE_PATH) --verbose
