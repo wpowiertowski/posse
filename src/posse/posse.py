@@ -38,7 +38,7 @@ from html.parser import HTMLParser
 from logging.handlers import RotatingFileHandler
 from typing import List, TYPE_CHECKING, Dict, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from pathlib import Path
 
 if TYPE_CHECKING:
@@ -284,29 +284,61 @@ def _filter_nosplit_tag(tags: List[Dict[str, str]]) -> List[Dict[str, str]]:
     return [tag for tag in tags if tag.get("name", "").lower() != NOSPLIT_TAG]
 
 
-def _format_post_content(post_title: str, post_url: str, excerpt: Optional[str], tags: List[Dict[str, str]], max_length: int) -> str:
+def _add_ref_to_url(url: str, ref: str) -> str:
+    """Append a ref query parameter to a URL for analytics attribution.
+
+    If the URL already has a ref parameter, it is preserved unchanged.
+
+    Args:
+        url: URL to annotate
+        ref: Value for the ref query parameter (e.g. "mastodon", "bluesky")
+
+    Returns:
+        URL with ?ref=<ref> appended (or original URL if ref is already set)
+    """
+    if not url or not ref:
+        return url
+
+    try:
+        parsed = urlparse(url)
+        query_params = parse_qsl(parsed.query, keep_blank_values=True)
+        if any(k == "ref" for k, _ in query_params):
+            return url
+        query_params.append(("ref", ref))
+        return urlunparse(parsed._replace(query=urlencode(query_params)))
+    except Exception as e:
+        logger.warning(f"Failed to add ref={ref} to URL {url}: {e}")
+        return url
+
+
+def _format_post_content(post_title: str, post_url: str, excerpt: Optional[str], tags: List[Dict[str, str]], max_length: int, ref: Optional[str] = None) -> str:
     """Format post content for a specific platform with character limit.
-    
+
     Args:
         post_title: Title of the post
         post_url: URL of the post
         excerpt: Optional excerpt text
         tags: List of tag dictionaries with 'name' and 'slug' fields
         max_length: Maximum character length for the post content
-        
+        ref: Optional value for a ?ref= query parameter appended to the post URL,
+             so Ghost analytics can attribute referrals to a specific platform.
+
     Returns:
         Formatted post content string
     """
+    if ref:
+        post_url = _add_ref_to_url(post_url, ref)
+
     # Extract hashtags from post tags, excluding #nosplit, #dont-duplicate-feature, and append #posse
     hashtag_list = [x['name'].lower() for x in tags if "#" in x["name"] and (x['name'].lower() != NOSPLIT_TAG and x["name"].lower() != NOFEATURE_TAG)]
     hashtag_list.append("#posse")
     hashtags = " ".join(hashtag_list)
-    
+
     # Calculate space needed for tags and URL (with newlines for spacing)
     # Single newline after content, double newline before URL for visual separation
     fixed_content = f"\n{hashtags}\n\n🔗 {post_url}"
     max_text_length = max_length - len(fixed_content)
-    
+
     text_content = trim_to_words(excerpt or post_title, max_text_length)
     return f"{text_content}{fixed_content}"
 
@@ -552,8 +584,13 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                         - image_url: URL of the image for this split
                 """
                 try:
-                    # Format content with platform-specific character limit
-                    content = _format_post_content(title, url, excerpt, tags, client.max_post_length)
+                    # Format content with platform-specific character limit.
+                    # Pass the platform name as ?ref= so Ghost analytics can
+                    # attribute traffic back to the syndication source.
+                    content = _format_post_content(
+                        title, url, excerpt, tags, client.max_post_length,
+                        ref=platform.lower(),
+                    )
 
                     logger.info(f"Posting to {platform} account '{client.account_name}'...")
                     result = client.post(
