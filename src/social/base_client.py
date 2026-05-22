@@ -8,13 +8,22 @@ platform-specific implementations (Mastodon, Bluesky, etc.).
 import logging
 import os
 import hashlib
+import random
 import tempfile
-from typing import Optional, Dict, Any, List
+import time
+from typing import Optional, Dict, Any, Callable, List, TypeVar
 from abc import ABC, abstractmethod
 import requests
 
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+# Retry policy for transient errors hitting social-media publish APIs
+# (5xx responses, rate limits, network blips). Total attempts = MAX_POST_RETRIES + 1.
+MAX_POST_RETRIES = 2
+RETRY_BACKOFF_BASE_SECONDS = 1.0
 
 
 class SocialMediaClient(ABC):
@@ -223,6 +232,52 @@ class SocialMediaClient(ABC):
             except Exception as e:
                 logger.warning(f"Failed to remove cached image for {url}: {e}")
     
+    @staticmethod
+    def _retry_with_backoff(
+        func: Callable[[], T],
+        is_transient: Callable[[Exception], bool],
+        operation_name: str,
+        max_retries: int = MAX_POST_RETRIES,
+        backoff_base: float = RETRY_BACKOFF_BASE_SECONDS,
+    ) -> T:
+        """Call func(), retrying on transient errors with exponential backoff.
+
+        Sleeps backoff_base * 2**attempt seconds (plus a small jitter) between
+        attempts and re-raises the final exception once retries are exhausted.
+        Non-transient exceptions propagate immediately without sleeping.
+
+        Args:
+            func: Zero-argument callable performing the operation.
+            is_transient: Predicate that classifies an exception as transient.
+            operation_name: Human-readable label used in log messages.
+            max_retries: Number of retries after the first attempt
+                (so total attempts = max_retries + 1).
+            backoff_base: Base seconds for exponential backoff.
+
+        Returns:
+            The return value of func() on the first successful attempt.
+        """
+        for attempt in range(max_retries + 1):
+            try:
+                return func()
+            except Exception as e:
+                if not is_transient(e):
+                    raise
+                if attempt >= max_retries:
+                    logger.warning(
+                        f"{operation_name}: transient error persisted after "
+                        f"{max_retries + 1} attempts ({e})"
+                    )
+                    raise
+                sleep_seconds = backoff_base * (2 ** attempt) + random.uniform(0, 0.25)
+                logger.warning(
+                    f"{operation_name}: transient error on attempt "
+                    f"{attempt + 1}/{max_retries + 1} ({e}); retrying in {sleep_seconds:.1f}s"
+                )
+                time.sleep(sleep_seconds)
+        # Unreachable: the loop either returns or raises.
+        raise RuntimeError(f"{operation_name}: retry loop exited unexpectedly")
+
     @abstractmethod
     def _initialize_api(self) -> None:
         """Initialize the platform-specific API client.

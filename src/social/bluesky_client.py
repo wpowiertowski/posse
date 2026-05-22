@@ -141,6 +141,37 @@ class BlueskyClient(SocialMediaClient):
             split_multi_image_posts=split_multi_image_posts
         )
     
+    # Substrings in an exception message that indicate a transient failure.
+    # atproto 0.0.65 doesn't expose stable exception subclasses for HTTP
+    # status / network errors, so we fall back to message inspection.
+    _TRANSIENT_KEYWORDS = (
+        "timeout",
+        "timed out",
+        "connection",
+        "network",
+        "unavailable",
+        "bad gateway",
+        "gateway timeout",
+        "temporarily",
+        "try again",
+    )
+    _TRANSIENT_STATUS_RE = re.compile(r"\b(500|502|503|504|429)\b")
+
+    @classmethod
+    def _is_transient_error(cls, exception: Exception) -> bool:
+        """Return True for Bluesky errors worth retrying.
+
+        atproto wraps HTTP errors loosely, so we match common transient
+        indicators in the exception message: network/timeout keywords and
+        5xx / 429 status codes.
+        """
+        msg = str(exception).lower()
+        if any(keyword in msg for keyword in cls._TRANSIENT_KEYWORDS):
+            return True
+        if cls._TRANSIENT_STATUS_RE.search(msg):
+            return True
+        return False
+
     def _initialize_api(self) -> None:
         """Initialize the Bluesky ATProto client.
         
@@ -485,9 +516,15 @@ class BlueskyClient(SocialMediaClient):
                 if images:
                     embed = models.AppBskyEmbedImages.Main(images=images)
             
-            # Send post using the ATProto client
-            result = self.api.send_post(text_builder, embed=embed)
-            
+            # Send post using the ATProto client. Retry on transient errors
+            # (network blips, 5xx, rate limits) so a temporary outage doesn't
+            # drop the syndication.
+            result = self._retry_with_backoff(
+                lambda: self.api.send_post(text_builder, embed=embed),
+                is_transient=self._is_transient_error,
+                operation_name=f"Bluesky send_post ({self.account_name})",
+            )
+
             logger.info(f"Successfully posted to Bluesky '{self.account_name}': {result.uri}")
             return {
                 "uri": result.uri,

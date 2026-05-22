@@ -36,7 +36,13 @@ Security:
 """
 import logging
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
-from mastodon import Mastodon, MastodonError
+from mastodon import (
+    Mastodon,
+    MastodonError,
+    MastodonNetworkError,
+    MastodonRatelimitError,
+    MastodonServerError,
+)
 
 from social.base_client import SocialMediaClient
 
@@ -81,6 +87,18 @@ class MastodonClient(SocialMediaClient):
         self.notifier = notifier
         super().__init__(**kwargs)
     
+    @staticmethod
+    def _is_transient_error(exception: Exception) -> bool:
+        """Return True for Mastodon errors worth retrying.
+
+        Treats network failures, 5xx server errors, and 429 rate-limit responses
+        as transient. Other API errors (4xx, validation, auth) are not retried.
+        """
+        return isinstance(
+            exception,
+            (MastodonNetworkError, MastodonServerError, MastodonRatelimitError),
+        )
+
     def _initialize_api(self) -> None:
         """Initialize the Mastodon API client.
 
@@ -226,13 +244,19 @@ class MastodonClient(SocialMediaClient):
                                 error_msg
                             )
             
-            # Post status with media IDs
-            result = self.api.status_post(
-                status=content,
-                visibility=visibility,
-                sensitive=sensitive,
-                spoiler_text=spoiler_text,
-                media_ids=media_ids if media_ids else None
+            # Post status with media IDs. Retry on transient errors
+            # (network blips, 5xx, rate limits) so a temporary instance
+            # hiccup doesn't drop the syndication.
+            result = self._retry_with_backoff(
+                lambda: self.api.status_post(
+                    status=content,
+                    visibility=visibility,
+                    sensitive=sensitive,
+                    spoiler_text=spoiler_text,
+                    media_ids=media_ids if media_ids else None,
+                ),
+                is_transient=self._is_transient_error,
+                operation_name=f"Mastodon status_post ({self.account_name})",
             )
             logger.info(f"Successfully posted status to Mastodon: {result['url']}")
             return result
