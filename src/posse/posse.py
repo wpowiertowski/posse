@@ -1022,6 +1022,8 @@ def main(debug: bool = False) -> None:
     interactions_enabled = interactions_config.get("enabled", True)
     sync_interval_minutes = interactions_config.get("sync_interval_minutes", 30)
     max_post_age_days = interactions_config.get("max_post_age_days", 30)
+    dead_link_sweep_interval_hours = interactions_config.get("dead_link_sweep_interval_hours", 24)
+    dead_link_confirm_threshold = interactions_config.get("dead_link_confirm_threshold", 2)
     cache_directory = interactions_config.get("cache_directory", "./data")
     storage_path = cache_directory
 
@@ -1040,6 +1042,7 @@ def main(debug: bool = False) -> None:
         storage_path=storage_path,
         timezone_name=timezone_name,
         notifier=notifier,
+        dead_link_confirm_threshold=dead_link_confirm_threshold,
     )
 
     logger.info("Initializing interaction scheduler")
@@ -1050,6 +1053,7 @@ def main(debug: bool = False) -> None:
         enabled=interactions_enabled,
         ghost_api_client=ghost_api_client,
         timezone_name=timezone_name,
+        dead_link_sweep_interval_hours=dead_link_sweep_interval_hours,
     )
 
     if interactions_enabled:

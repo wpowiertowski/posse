@@ -45,6 +45,7 @@ class InteractionScheduler:
         enabled: bool = True,
         ghost_api_client: Optional[Any] = None,
         timezone_name: str = "UTC",
+        dead_link_sweep_interval_hours: int = 24,
     ):
         """
         Initialize the interaction scheduler.
@@ -56,6 +57,9 @@ class InteractionScheduler:
             enabled: Whether scheduler is enabled (default: True)
             ghost_api_client: Optional Ghost Content API client for post discovery
             timezone_name: IANA timezone name used for scheduler time calculations
+            dead_link_sweep_interval_hours: How often to run the dead-link sweep, which
+                checks ALL syndication mappings (regardless of age) for deleted Mastodon
+                posts. Set to 0 to disable. Default 24h.
         """
         self.sync_service = sync_service
         self.sync_interval_minutes = sync_interval_minutes
@@ -64,6 +68,8 @@ class InteractionScheduler:
         self.ghost_api_client = ghost_api_client
         self.timezone_name = self._normalize_timezone_name(timezone_name)
         self.timezone = ZoneInfo(self.timezone_name)
+        self.dead_link_sweep_interval_hours = dead_link_sweep_interval_hours
+        self._last_dead_link_sweep: Optional[datetime] = None
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         # Cache for Ghost posts to reduce API calls
@@ -142,6 +148,11 @@ class InteractionScheduler:
                 self._sync_all_posts()
             except Exception as e:
                 logger.error(f"Error in scheduler sync cycle: {e}", exc_info=True)
+
+            try:
+                self._maybe_sweep_dead_links()
+            except Exception as e:
+                logger.error(f"Error in dead-link sweep: {e}", exc_info=True)
 
             # Sleep for the interval (check stop event periodically)
             for _ in range(self.sync_interval_minutes * 60):
@@ -239,6 +250,30 @@ class InteractionScheduler:
         if ghost_posts:
             log_msg += f", not_in_ghost={skipped_not_in_ghost}"
         logger.info(log_msg)
+
+    def _maybe_sweep_dead_links(self) -> None:
+        """Run the dead-link sweep if it is due.
+
+        Runs once at startup (``_last_dead_link_sweep is None``) to clean up existing
+        dead links, then every ``dead_link_sweep_interval_hours``. The sweep checks ALL
+        syndication mappings regardless of the age window used by the regular sync, so
+        long-deleted (auto-deleted) posts are still discovered.
+        """
+        if not self.dead_link_sweep_interval_hours or self.dead_link_sweep_interval_hours <= 0:
+            return
+
+        now = self._now()
+        due = (
+            self._last_dead_link_sweep is None
+            or (now - self._last_dead_link_sweep)
+            >= timedelta(hours=self.dead_link_sweep_interval_hours)
+        )
+        if not due:
+            return
+
+        logger.info("Running dead-link sweep")
+        self.sync_service.prune_dead_links()
+        self._last_dead_link_sweep = now
 
     def _get_post_age_days(self, mapping: dict) -> float:
         """

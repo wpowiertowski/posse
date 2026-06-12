@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from requests.exceptions import Timeout, RequestException
+from mastodon import MastodonNotFoundError
 
 from interactions.storage import InteractionDataStore
 
@@ -37,6 +38,7 @@ class InteractionSyncService:
         storage_path: str = "./data",
         timezone_name: str = "UTC",
         notifier: Optional[Any] = None,
+        dead_link_confirm_threshold: int = 2,
     ):
         """Initialize the interaction sync service.
 
@@ -46,6 +48,9 @@ class InteractionSyncService:
             storage_path: Directory path for storing interaction data
             timezone_name: IANA timezone name used for generated timestamps
             notifier: Optional PushoverNotifier instance for new-reply notifications
+            dead_link_confirm_threshold: Number of consecutive sweeps a Mastodon status
+                must return 404 before its syndication link is suppressed. Guards against
+                a single fluke 404 hiding a link that actually exists.
         """
         self.mastodon_clients = mastodon_clients or []
         self.bluesky_clients = bluesky_clients or []
@@ -53,6 +58,7 @@ class InteractionSyncService:
         self.timezone_name = self._normalize_timezone_name(timezone_name)
         self.timezone = ZoneInfo(self.timezone_name)
         self.notifier = notifier
+        self.dead_link_confirm_threshold = max(1, int(dead_link_confirm_threshold))
 
         # Create storage directory if it doesn't exist
         os.makedirs(self.storage_path, mode=0o755, exist_ok=True)
@@ -170,6 +176,13 @@ class InteractionSyncService:
                 mastodon_accounts_to_sync = len(mapping["platforms"]["mastodon"])
                 for account_name, account_data in mapping["platforms"]["mastodon"].items():
                     try:
+                        # Skip accounts whose status was confirmed deleted by the
+                        # dead-link sweep. Keep them suppressed without re-hitting the
+                        # (gone) status every cycle.
+                        if self._is_account_deleted(account_data):
+                            self._drop_account(interactions, "mastodon", account_name)
+                            mastodon_accounts_to_sync -= 1
+                            continue
                         # Handle split posts (account_data is a list) or single posts (account_data is dict)
                         if isinstance(account_data, list):
                             # Split posts - aggregate interactions from all split entries
@@ -375,6 +388,14 @@ class InteractionSyncService:
 
         except Timeout as e:
             logger.error(f"Timeout syncing Mastodon status {status_id}: {e}")
+            return None
+        except MastodonNotFoundError:
+            # Status appears deleted. Do not suppress here — defer to the strike-gated
+            # dead-link sweep so a transient/fluke 404 cannot hide a real link.
+            logger.info(
+                f"Mastodon status {status_id} not found (404); "
+                f"deferring suppression to dead-link sweep"
+            )
             return None
         except Exception as e:
             logger.error(f"Error syncing Mastodon status {status_id}: {e}")
@@ -714,6 +735,217 @@ class InteractionSyncService:
             if client.account_name == account_name:
                 return client
         return None
+
+    def _mastodon_status_exists(self, account_name: str, status_id: str) -> Optional[bool]:
+        """Check whether a Mastodon status still exists.
+
+        Distinguishes a definitive deletion from a transient outage so that a
+        Mastodon outage never causes us to suppress links that actually exist.
+
+        Args:
+            account_name: Name of the Mastodon account that owns the status
+            status_id: Mastodon status ID to check
+
+        Returns:
+            True  - the status exists,
+            False - the status is gone (HTTP 404),
+            None  - unknown (no/disabled client, timeout, 5xx, network error). Callers
+                    must treat None as "do not change state".
+        """
+        client = self._find_client(self.mastodon_clients, account_name)
+        if not client or not client.enabled or not client.api:
+            return None
+
+        try:
+            client.api.status(status_id)
+            return True
+        except MastodonNotFoundError:
+            return False
+        except Exception as e:
+            logger.warning(
+                f"Could not verify Mastodon status {status_id} for '{account_name}' "
+                f"(treating as unknown, not deleted): {e}"
+            )
+            return None
+
+    @staticmethod
+    def _is_account_deleted(account_data: Any) -> bool:
+        """Return True if a mapping account entry is confirmed deleted.
+
+        For split posts (list) the account counts as deleted only when every
+        sub-entry is flagged deleted.
+        """
+        if isinstance(account_data, list):
+            return bool(account_data) and all(
+                isinstance(e, dict) and e.get("deleted") for e in account_data
+            )
+        if isinstance(account_data, dict):
+            return bool(account_data.get("deleted"))
+        return False
+
+    @staticmethod
+    def _featured_post_url(account_data: Any) -> Optional[str]:
+        """Return the post URL to present for a (possibly split) account entry.
+
+        Prefers a live (not-deleted) sub-entry; for splits, the featured image post
+        (split_index 0) when available.
+        """
+        if isinstance(account_data, list):
+            alive = [e for e in account_data if isinstance(e, dict) and not e.get("deleted")]
+            if not alive:
+                return None
+            featured = next((e for e in alive if e.get("split_index") == 0), alive[0])
+            return featured.get("post_url")
+        if isinstance(account_data, dict):
+            if account_data.get("deleted"):
+                return None
+            return account_data.get("post_url")
+        return None
+
+    @staticmethod
+    def _drop_account(interactions: Dict[str, Any], platform: str, account_name: str) -> None:
+        """Remove an account from both presentation sections of interaction data."""
+        for section in ("platforms", "syndication_links"):
+            interactions.get(section, {}).get(platform, {}).pop(account_name, None)
+
+    def prune_dead_links(self) -> Dict[str, int]:
+        """Scan all syndication mappings for deleted Mastodon posts and suppress them.
+
+        Bypasses the scheduler age window (auto-deleted posts are almost always already
+        too old to be re-synced) and performs only a cheap existence check per status.
+
+        Outage-safe and self-healing:
+        - A definitive HTTP 404 increments a per-entry ``dead_strikes`` counter; the link
+          is only suppressed once it reaches ``dead_link_confirm_threshold`` consecutive
+          sweeps, so a single fluke 404 cannot hide a real link.
+        - Any non-404 failure (timeout, 5xx, network, no client) is treated as unknown
+          and produces no state change.
+        - A previously suppressed entry that becomes reachable again is resurrected.
+
+        Records are never purged — entries are only flagged ``deleted: true`` while
+        retaining ``status_id``/``post_url``.
+
+        Returns:
+            Stats dict with ``checked``, ``newly_suppressed``, ``resurrected`` and
+            ``pending_strikes`` counts.
+        """
+        stats = {"checked": 0, "newly_suppressed": 0, "resurrected": 0, "pending_strikes": 0}
+
+        if not self.mastodon_clients:
+            logger.debug("Dead-link sweep skipped: no Mastodon clients configured")
+            return stats
+
+        mappings = self.data_store.list_syndication_mappings()
+        logger.info(f"Dead-link sweep starting over {len(mappings)} syndication mapping(s)")
+
+        for mapping in mappings:
+            ghost_post_id = str(mapping.get("ghost_post_id", ""))
+            if not ghost_post_id:
+                continue
+            mastodon_accounts = mapping.get("platforms", {}).get("mastodon", {})
+            if not mastodon_accounts:
+                continue
+
+            mapping_changed = False
+            for account_name, account_data in list(mastodon_accounts.items()):
+                was_deleted = self._is_account_deleted(account_data)
+                entries = account_data if isinstance(account_data, list) else [account_data]
+                account_changed = False
+
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    status_id = entry.get("status_id")
+                    if not status_id:
+                        continue
+
+                    stats["checked"] += 1
+                    exists = self._mastodon_status_exists(account_name, status_id)
+
+                    if exists is None:
+                        # Outage / unknown — never advance toward suppression.
+                        continue
+                    if exists:
+                        # Resurrect: clear any accumulated dead state.
+                        if any(k in entry for k in ("deleted", "dead_strikes", "first_seen_dead")):
+                            entry.pop("deleted", None)
+                            entry.pop("dead_strikes", None)
+                            entry.pop("first_seen_dead", None)
+                            account_changed = True
+                        continue
+
+                    # Confirmed 404 — record a strike.
+                    strikes = int(entry.get("dead_strikes", 0)) + 1
+                    entry["dead_strikes"] = strikes
+                    entry.setdefault("first_seen_dead", self._now_isoformat())
+                    account_changed = True
+                    if strikes >= self.dead_link_confirm_threshold:
+                        entry["deleted"] = True
+                    else:
+                        stats["pending_strikes"] += 1
+
+                if account_changed:
+                    mapping_changed = True
+
+                now_deleted = self._is_account_deleted(account_data)
+                if now_deleted and not was_deleted:
+                    self._suppress_account_in_interaction_data(ghost_post_id, account_name)
+                    stats["newly_suppressed"] += 1
+                    logger.warning(
+                        f"Suppressed dead Mastodon link for post {ghost_post_id} "
+                        f"account '{account_name}' (confirmed 404)"
+                    )
+                elif was_deleted and not now_deleted:
+                    self._restore_account_in_interaction_data(
+                        ghost_post_id, account_name, account_data
+                    )
+                    stats["resurrected"] += 1
+                    logger.info(
+                        f"Restored Mastodon link for post {ghost_post_id} "
+                        f"account '{account_name}' (status reachable again)"
+                    )
+
+            if mapping_changed:
+                self.data_store.put_syndication_mapping(ghost_post_id, mapping)
+
+        logger.info(
+            f"Dead-link sweep complete: checked={stats['checked']}, "
+            f"newly_suppressed={stats['newly_suppressed']}, "
+            f"resurrected={stats['resurrected']}, "
+            f"pending_strikes={stats['pending_strikes']}"
+        )
+        return stats
+
+    def _suppress_account_in_interaction_data(self, ghost_post_id: str, account_name: str) -> None:
+        """Remove a Mastodon account from stored interaction data so the widget hides it."""
+        data = self.data_store.get(ghost_post_id)
+        if not data:
+            return
+        before = (
+            account_name in data.get("syndication_links", {}).get("mastodon", {})
+            or account_name in data.get("platforms", {}).get("mastodon", {})
+        )
+        self._drop_account(data, "mastodon", account_name)
+        if before:
+            data["updated_at"] = self._now_isoformat()
+            self.data_store.put(ghost_post_id, data)
+
+    def _restore_account_in_interaction_data(
+        self, ghost_post_id: str, account_name: str, account_data: Any
+    ) -> None:
+        """Restore a Mastodon syndication link after a status becomes reachable again.
+
+        Only the syndication link is restored here; interaction counts (favourites,
+        reblogs, replies) refill on the next regular sync.
+        """
+        post_url = self._featured_post_url(account_data)
+        if not post_url:
+            return
+        data = self.data_store.get(ghost_post_id) or self._empty_interaction_data(ghost_post_id)
+        links = data.setdefault("syndication_links", {"mastodon": {}, "bluesky": {}})
+        links.setdefault("mastodon", {})[account_name] = {"post_url": post_url}
+        data["updated_at"] = self._now_isoformat()
+        self.data_store.put(ghost_post_id, data)
 
     def _load_syndication_mapping(self, ghost_post_id: str) -> Optional[Dict[str, Any]]:
         """
