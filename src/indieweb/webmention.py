@@ -92,6 +92,45 @@ def _build_session() -> requests.Session:
     return session
 
 
+class BlockedAddressError(requests.exceptions.RequestException):
+    """A request target (or one of its redirect hops) resolved to a blocked address."""
+
+
+def _checked_get(session: requests.Session, url: str, **kwargs) -> requests.Response:
+    """GET ``url`` while validating every hop against the SSRF guard.
+
+    requests' own redirect following only happens after a connection is made, so
+    letting it auto-follow would let an attacker-controlled ``Location`` send us
+    to an internal address even though the initial URL passed the guard. Instead
+    we follow redirects manually, re-running ``_is_private_or_loopback`` on each
+    hop *before* connecting to it.
+
+    Returns the final (non-redirect) response. Raises:
+        BlockedAddressError: a hop resolved to a private/loopback address.
+        requests.exceptions.TooManyRedirects: the chain exceeded MAX_REDIRECTS.
+        requests.exceptions.RequestException: any underlying transport error.
+    """
+    kwargs.pop("allow_redirects", None)
+    current_url = url
+    for _ in range(MAX_REDIRECTS + 1):
+        if _is_private_or_loopback(current_url):
+            raise BlockedAddressError(
+                f"Blocked request to private/loopback address: {current_url}"
+            )
+        response = session.get(current_url, allow_redirects=False, **kwargs)
+        if response.is_redirect:
+            location = response.headers.get("Location")
+            response.close()
+            if not location:
+                return response
+            current_url = urljoin(current_url, location)
+            continue
+        return response
+    raise requests.exceptions.TooManyRedirects(
+        f"Exceeded {MAX_REDIRECTS} redirects fetching {url}"
+    )
+
+
 @dataclass
 class WebmentionResult:
     """Result of a webmention send attempt.
@@ -250,6 +289,9 @@ class WebmentionClient:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 timeout=target.timeout,
                 stream=True,
+                # Endpoint already passed the SSRF guard; don't auto-follow a
+                # redirect to an unvalidated (possibly internal) address.
+                allow_redirects=False,
             )
 
             # Read bounded response body to prevent memory exhaustion
@@ -334,11 +376,11 @@ def discover_webmention_endpoint(target_url: str, timeout: float = 30.0) -> Opti
 
     session = _build_session()
     try:
-        response = session.get(
+        response = _checked_get(
+            session,
             target_url,
             headers={"Accept": "text/html"},
             timeout=timeout,
-            allow_redirects=True,
             stream=True,
         )
         response.raise_for_status()
@@ -461,6 +503,9 @@ def send_webmention(source_url: str, target_url: str, timeout: float = 30.0) -> 
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=timeout,
             stream=True,
+            # Endpoint already passed the SSRF guard; don't auto-follow a
+            # redirect to an unvalidated (possibly internal) address.
+            allow_redirects=False,
         )
 
         # Read bounded response body to prevent memory exhaustion

@@ -33,11 +33,10 @@ Example:
 from queue import Queue
 import threading
 import logging
-import re
 from html.parser import HTMLParser
 from logging.handlers import RotatingFileHandler
 from typing import List, TYPE_CHECKING, Dict, Optional, Any
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 from pathlib import Path
 
@@ -91,12 +90,20 @@ def trim_to_words(text: str, max_length: int) -> str:
     Returns:
         Trimmed text with ellipsis if needed
     """
+    # No room for any text (e.g. hashtags + URL already fill the platform limit).
+    if max_length <= 0:
+        return ""
+
     if len(text) <= max_length:
         return text
-    
+
+    # Too little room even for an ellipsis: hard-cut to the available width.
+    if max_length <= 3:
+        return text[:max_length]
+
     # Reserve 3 characters for ellipsis
     max_length -= 3
-    
+
     # Find the last space before max_length
     trimmed = text[:max_length]
     last_space = trimmed.rfind(' ')
@@ -272,18 +279,6 @@ def _has_nosplit_tag(tags: List[Dict[str, str]]) -> bool:
     return False
 
 
-def _filter_nosplit_tag(tags: List[Dict[str, str]]) -> List[Dict[str, str]]:
-    """Filter out the nosplit tag from the post tags.
-
-    Args:
-        tags: List of tag dictionaries with 'name' and 'slug' fields
-
-    Returns:
-        Filtered list of tags without the nosplit tag
-    """
-    return [tag for tag in tags if tag.get("name", "").lower() != NOSPLIT_TAG]
-
-
 def _add_ref_to_url(url: str, ref: str) -> str:
     """Append a ref query parameter to a URL for analytics attribution.
 
@@ -337,29 +332,12 @@ def _format_post_content(post_title: str, post_url: str, excerpt: Optional[str],
     # Calculate space needed for tags and URL (with newlines for spacing)
     # Single newline after content, double newline before URL for visual separation
     fixed_content = f"\n{hashtags}\n\n🔗 {post_url}"
-    max_text_length = max_length - len(fixed_content)
+    # Clamp so a long hashtag set + URL can't drive this negative, which would
+    # make trim_to_words slice with a negative index and return over-length text.
+    max_text_length = max(0, max_length - len(fixed_content))
 
     text_content = trim_to_words(excerpt or post_title, max_text_length)
     return f"{text_content}{fixed_content}"
-
-
-def _prepare_content(post: Dict[str, Any], max_length: int) -> tuple[str, List[str], List[str], List[Dict[str, str]]]:
-    """Prepare content for posting from Ghost post data.
-    
-    Args:
-        post: Ghost post data dictionary
-        max_length: Maximum character length for the post content
-        
-    Returns:
-        Tuple of (post_content, images, media_descriptions, tags)
-    """
-    # Extract raw data
-    post_title, post_url, excerpt, images, media_descriptions, tags = _extract_post_data(post)
-    
-    # Format content with character limit
-    post_content = _format_post_content(post_title, post_url, excerpt, tags, max_length)
-    
-    return post_content, images, media_descriptions, tags
 
 
 def _generate_missing_alt_text(images: List[str], media_descriptions: List[str], llm_client) -> List[str]:
@@ -729,14 +707,25 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                 
                 # Wait for all posts to complete. Allow enough time for the
                 # built-in transient-error retries in each client (per-attempt
-                # API timeouts plus exponential backoff).
+                # API timeouts plus exponential backoff). A slow account that
+                # exceeds the wait budget must NOT abort the rest of this post's
+                # processing (image cleanup, webmention sending, task_done), so
+                # the as_completed timeout is caught and we proceed with whatever
+                # results are ready. The executor's __exit__ still waits for the
+                # straggler to finish in the background.
                 results = []
-                for future in as_completed(futures, timeout=120):
-                    try:
-                        result = future.result()
-                        results.append(result)
-                    except Exception as e:
-                        logger.error(f"Future execution failed: {e}", exc_info=True)
+                try:
+                    for future in as_completed(futures, timeout=120):
+                        try:
+                            result = future.result()
+                            results.append(result)
+                        except Exception as e:
+                            logger.error(f"Future execution failed: {e}", exc_info=True)
+                except FuturesTimeoutError:
+                    logger.error(
+                        f"Timed out after 120s waiting for {len(futures)} posting task(s) "
+                        f"to complete; proceeding with {len(results)} result(s) ready so far"
+                    )
                 
                 # Log summary
                 success_count = sum(1 for r in results if r.get("success"))

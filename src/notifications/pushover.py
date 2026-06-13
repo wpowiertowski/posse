@@ -34,6 +34,7 @@ Security:
 """
 import os
 import logging
+import threading
 import time
 from typing import Optional, Dict, Any
 import requests
@@ -515,6 +516,12 @@ class PushoverLoggingHandler(logging.Handler):
         self.notifier = notifier
         self.rate_limit_seconds = rate_limit_seconds
         self._last_notification_time: float = 0.0
+        # Re-entrancy guard. Sending a notification can itself log at ERROR (e.g.
+        # the Pushover API is unreachable), which routes back into this handler.
+        # Without a guard that recurses until the stack overflows, since the
+        # rate-limit timestamp is only advanced on success. Per-thread so a
+        # failing emit on one thread can't suppress legitimate emits on another.
+        self._local = threading.local()
         # Default to ERROR level
         self.setLevel(logging.ERROR)
 
@@ -532,11 +539,17 @@ class PushoverLoggingHandler(logging.Handler):
         if not self.notifier.enabled:
             return
 
+        # Skip if we're already inside an emit on this thread: notifying can log
+        # at ERROR, which would re-enter here and recurse until the stack blows.
+        if getattr(self._local, "emitting", False):
+            return
+
         # Apply rate limiting
         current_time = time.time()
         if current_time - self._last_notification_time < self.rate_limit_seconds:
             return
 
+        self._local.emitting = True
         try:
             # Format the log message
             message = self.format(record)
@@ -554,3 +567,5 @@ class PushoverLoggingHandler(logging.Handler):
         except Exception:
             # Don't let notification failures break logging
             self.handleError(record)
+        finally:
+            self._local.emitting = False

@@ -72,6 +72,9 @@ class InteractionScheduler:
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._sweep_thread: Optional[threading.Thread] = None
+        # Monotonic count of completed sync cycles, used to throttle older posts
+        # to every Nth cycle regardless of wall-clock hour or sync interval.
+        self._sync_cycle = 0
         # Cache for Ghost posts to reduce API calls
         self._ghost_posts_cache: Dict[str, Dict[str, Any]] = {}
         self._ghost_posts_cache_time: Optional[datetime] = None
@@ -183,6 +186,11 @@ class InteractionScheduler:
         if not mappings:
             logger.debug("No syndication mappings found")
             return
+
+        # Advance the cycle counter so age-based throttling syncs older posts every
+        # Nth cycle. (Counting cycles rather than wall-clock hour parity avoids
+        # starving posts when the sync interval keeps every cycle on the same hour.)
+        self._sync_cycle += 1
 
         logger.info(f"Found {len(mappings)} posts with syndication mappings")
 
@@ -313,8 +321,10 @@ class InteractionScheduler:
         - Posts 2-7 days old: sync every 2nd cycle (moderate engagement)
         - Posts 7-30 days old: sync every 4th cycle (low engagement)
 
-        Uses a deterministic approach based on current time to ensure
-        posts eventually get synced even if scheduler restarts.
+        Throttling is based on a monotonic per-run cycle counter so older posts
+        are reliably synced every Nth cycle. (An earlier version keyed off the
+        wall-clock hour, which starved older posts whenever the configured sync
+        interval kept every cycle landing on the same-parity hour.)
 
         Args:
             post_age_days: Age of post in days
@@ -327,12 +337,10 @@ class InteractionScheduler:
             return True
         elif post_age_days < 7:
             # Sync every 2nd cycle for posts 2-7 days old
-            # Use hour of day to determine if we should sync
-            return self._now().hour % 2 == 0
+            return self._sync_cycle % 2 == 0
         else:
             # Sync every 4th cycle for posts 7-30 days old
-            # Use hour of day to determine if we should sync
-            return self._now().hour % 4 == 0
+            return self._sync_cycle % 4 == 0
 
     def trigger_manual_sync(self, ghost_post_id: str) -> None:
         """

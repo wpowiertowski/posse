@@ -27,7 +27,6 @@ from unittest.mock import patch, MagicMock
 
 from posse.posse import (
     _has_nosplit_tag,
-    _filter_nosplit_tag,
     _format_post_content,
     NOSPLIT_TAG,
     NOFEATURE_TAG
@@ -301,48 +300,6 @@ class TestNosplitTagDetection(unittest.TestCase):
             {"name": "#photography", "slug": "hash-photography"}
         ]
         self.assertFalse(_has_nosplit_tag(tags))
-
-    def test_filter_nosplit_tag_removes_tag(self):
-        """Test that _filter_nosplit_tag removes #nosplit from tags."""
-        tags = [
-            {"name": "#photography", "slug": "hash-photography"},
-            {"name": "#nosplit", "slug": "hash-nosplit"},
-            {"name": "#posse", "slug": "hash-posse"}
-        ]
-        filtered = _filter_nosplit_tag(tags)
-
-        self.assertEqual(len(filtered), 2)
-        tag_names = [t["name"] for t in filtered]
-        self.assertIn("#photography", tag_names)
-        self.assertIn("#posse", tag_names)
-        self.assertNotIn("#nosplit", tag_names)
-
-    def test_filter_nosplit_tag_case_insensitive(self):
-        """Test that _filter_nosplit_tag is case-insensitive."""
-        tags = [
-            {"name": "#photography", "slug": "hash-photography"},
-            {"name": "#NOSPLIT", "slug": "hash-nosplit"}
-        ]
-        filtered = _filter_nosplit_tag(tags)
-
-        self.assertEqual(len(filtered), 1)
-        self.assertEqual(filtered[0]["name"], "#photography")
-
-    def test_filter_nosplit_tag_preserves_other_tags(self):
-        """Test that _filter_nosplit_tag doesn't affect tags without #nosplit."""
-        tags = [
-            {"name": "#photography", "slug": "hash-photography"},
-            {"name": "#travel", "slug": "hash-travel"}
-        ]
-        filtered = _filter_nosplit_tag(tags)
-
-        self.assertEqual(len(filtered), 2)
-        self.assertEqual(filtered, tags)
-
-    def test_filter_nosplit_tag_empty_list(self):
-        """Test that _filter_nosplit_tag handles empty list."""
-        filtered = _filter_nosplit_tag([])
-        self.assertEqual(filtered, [])
 
 
 class TestServiceTagsInPostContent(unittest.TestCase):

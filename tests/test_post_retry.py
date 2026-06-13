@@ -173,11 +173,18 @@ class TestMastodonRetry(unittest.TestCase):
 class TestBlueskyTransientDetection(unittest.TestCase):
     """Bluesky transient-error classifier (structured atproto exceptions)."""
 
-    def test_500_status_detected(self):
-        self.assertTrue(BlueskyClient._is_transient_error(_request_exception(500)))
+    def test_500_status_not_retried(self):
+        # A bare 500 can be returned after the record was committed; retrying a
+        # non-idempotent send_post would risk a duplicate post.
+        self.assertFalse(BlueskyClient._is_transient_error(_request_exception(500)))
 
-    def test_502_status_detected(self):
-        self.assertTrue(BlueskyClient._is_transient_error(_request_exception(502)))
+    def test_502_status_not_retried(self):
+        # Gateway 502 — upstream commit state unknown, so do not retry.
+        self.assertFalse(BlueskyClient._is_transient_error(_request_exception(502)))
+
+    def test_504_status_not_retried(self):
+        # Gateway timeout — the write may have committed; do not retry.
+        self.assertFalse(BlueskyClient._is_transient_error(_request_exception(504)))
 
     def test_503_status_detected(self):
         self.assertTrue(BlueskyClient._is_transient_error(_request_exception(503)))

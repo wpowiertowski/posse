@@ -6,12 +6,34 @@ import json
 import logging
 import os
 import sqlite3
+import threading
 from typing import Any, Dict, Optional
 
 from jsonschema import ValidationError, validate
 from schema import INTERACTION_DATA_PAYLOAD_SCHEMA, SYNDICATION_MAPPING_PAYLOAD_SCHEMA
 
 logger = logging.getLogger(__name__)
+
+
+# Read-modify-write sequences on a row (load payload, mutate it, write it back)
+# are not atomic across SQLite connections, and several threads touch the same
+# rows concurrently: the event-processor thread pool (store_syndication_mapping),
+# the scheduler sync thread, and the dead-link sweep thread. A per-database
+# reentrant lock serializes those sequences within the process so concurrent
+# writers don't clobber each other. Keyed by absolute db path so every store
+# instance pointed at the same file shares one lock.
+_db_locks: Dict[str, threading.RLock] = {}
+_db_locks_guard = threading.Lock()
+
+
+def _get_db_lock(db_path: str) -> threading.RLock:
+    key = os.path.abspath(db_path)
+    with _db_locks_guard:
+        lock = _db_locks.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _db_locks[key] = lock
+        return lock
 
 
 def _normalize_interaction_payload(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -53,7 +75,24 @@ class InteractionDataStore:
         self.storage_path = storage_path
         os.makedirs(self.storage_path, mode=0o755, exist_ok=True)
         self.db_path = os.path.join(self.storage_path, "interactions.db")
+        self._lock = _get_db_lock(self.db_path)
         self._ensure_schema()
+
+    def transaction(self) -> threading.RLock:
+        """Return the per-database lock for guarding read-modify-write sequences.
+
+        Use as a context manager around a load/mutate/store sequence so it runs
+        atomically with respect to other threads writing the same row::
+
+            with store.transaction():
+                data = store.get(post_id)
+                data["x"] = ...
+                store.put(post_id, data)
+
+        The lock is reentrant, so nested ``with store.transaction()`` blocks on
+        the same thread are safe.
+        """
+        return self._lock
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)

@@ -144,6 +144,17 @@ class InteractionSyncService:
         # new replies after the sync completes.
         previous_reply_urls = self._collect_reply_urls(existing_data.get("platforms", {}))
 
+        # Capture which accounts already had interaction data. An account with no
+        # prior entry (first discovery, or a resurrection after dead-link
+        # suppression wiped its reply history) is seeded silently rather than
+        # notifying for every pre-existing reply as if it were brand new.
+        previously_present_accounts = {
+            (platform_name, account_name)
+            for platform_name, accounts in existing_data.get("platforms", {}).items()
+            if isinstance(accounts, dict)
+            for account_name in accounts
+        }
+
         # Check if we have existing data to preserve
         has_existing_mastodon = bool(existing_data.get("platforms", {}).get("mastodon", {}))
         has_existing_bluesky = bool(existing_data.get("platforms", {}).get("bluesky", {}))
@@ -281,12 +292,27 @@ class InteractionSyncService:
         except Exception as e:
             logger.error(f"Unexpected error during Bluesky interaction sync: {e}", exc_info=True)
 
-        # Notify about new replies before storing updated data
-        if self.notifier:
-            self._notify_new_replies(previous_reply_urls, interactions)
+        # Persist atomically with respect to the dead-link sweep and webhook-time
+        # syndication writes. This sync may have spent minutes on network calls
+        # against a snapshot taken at the top; before writing it back, re-read the
+        # mapping and drop any account the sweep confirmed deleted in the
+        # meantime, so a mid-sync suppression isn't resurrected by this write.
+        with self.data_store.transaction():
+            fresh_mapping = self._load_syndication_mapping(ghost_post_id) or {}
+            fresh_platforms = fresh_mapping.get("platforms", {})
+            for platform_name in ("mastodon", "bluesky"):
+                for acct, acct_data in fresh_platforms.get(platform_name, {}).items():
+                    if self._is_account_deleted(acct_data):
+                        self._drop_account(interactions, platform_name, acct)
 
-        # Store the interaction data
-        self._store_interaction_data(ghost_post_id, interactions)
+            # Notify about new replies before storing updated data
+            if self.notifier:
+                self._notify_new_replies(
+                    previous_reply_urls, interactions, previously_present_accounts
+                )
+
+            # Store the interaction data
+            self._store_interaction_data(ghost_post_id, interactions)
 
         # Log appropriate message based on sync results
         total_to_sync = mastodon_accounts_to_sync + bluesky_accounts_to_sync
@@ -338,22 +364,10 @@ class InteractionSyncService:
             return None
 
         try:
-            # Get the status
+            # Get the status. Favourite/reblog/reply totals come straight off the
+            # status object (favourites_count / reblogs_count / replies_count), so
+            # there is no need to page status_favourited_by / status_reblogged_by.
             status = client.api.status(status_id)
-
-            # Get favourites (with pagination for accounts) - limit to avoid timeouts
-            try:
-                favourited_by = client.api.status_favourited_by(status_id)
-            except (Timeout, RequestException, TypeError) as e:
-                logger.warning(f"Error fetching favourites for status {status_id}: {e}")
-                favourited_by = []
-
-            # Get reblogs (with pagination for accounts) - limit to avoid timeouts
-            try:
-                reblogged_by = client.api.status_reblogged_by(status_id)
-            except (Timeout, RequestException, TypeError) as e:
-                logger.warning(f"Error fetching reblogs for status {status_id}: {e}")
-                reblogged_by = []
 
             # Get context (replies)
             try:
@@ -362,24 +376,29 @@ class InteractionSyncService:
                 logger.warning(f"Timeout fetching context for status {status_id}: {e}")
                 context = {}
 
-            # Extract reply previews (limit to 10 most recent)
+            # Extract reply previews. Filter to direct replies first, THEN take the
+            # 10 most recent — slicing the raw descendants (which includes nested
+            # reply-to-reply chatter, oldest-first) would drop direct replies past
+            # the first 10 descendants and keep the oldest rather than the newest.
+            direct_replies = [
+                reply for reply in context.get("descendants", [])
+                if reply.get("in_reply_to_id") == status_id
+            ]
             reply_previews = []
-            for reply in context.get("descendants", [])[:10]:
-                # Only include direct replies, not replies to replies
-                if reply.get("in_reply_to_id") == status_id:
-                    # Convert datetime to ISO format string if needed
-                    created_at = reply.get("created_at", "")
-                    if hasattr(created_at, 'isoformat'):
-                        created_at = created_at.isoformat()
+            for reply in direct_replies[-10:]:
+                # Convert datetime to ISO format string if needed
+                created_at = reply.get("created_at", "")
+                if hasattr(created_at, 'isoformat'):
+                    created_at = created_at.isoformat()
 
-                    reply_previews.append({
-                        "author": f"@{reply['account']['acct']}",
-                        "author_url": reply['account']['url'],
-                        "author_avatar": reply['account']['avatar'],
-                        "content": self._strip_html(reply.get("content", "")),
-                        "created_at": created_at,
-                        "url": reply.get("url", "")
-                    })
+                reply_previews.append({
+                    "author": f"@{reply['account']['acct']}",
+                    "author_url": reply['account']['url'],
+                    "author_avatar": reply['account']['avatar'],
+                    "content": self._strip_html(reply.get("content", "")),
+                    "created_at": created_at,
+                    "url": reply.get("url", "")
+                })
 
             return {
                 "status_id": status_id,
@@ -515,21 +534,13 @@ class InteractionSyncService:
         # Try to sync, with one retry if token is expired
         for attempt in range(2):
             try:
-                # Get post thread (includes the post and replies)
+                # Get post thread (includes the post, its like/repost/reply totals,
+                # and the reply previews). The thread post view already carries
+                # like_count / repost_count / reply_count, so there's no need for
+                # separate get_likes / get_reposted_by calls (which also capped the
+                # totals at their page limit of 100).
                 thread_response = client.api.app.bsky.feed.get_post_thread({"uri": post_uri})
                 thread = thread_response.thread
-
-                # Get likes
-                likes_response = client.api.app.bsky.feed.get_likes({
-                    "uri": post_uri,
-                    "limit": 100
-                })
-
-                # Get reposts
-                reposts_response = client.api.app.bsky.feed.get_reposted_by({
-                    "uri": post_uri,
-                    "limit": 100
-                })
 
                 # Extract reply previews from thread
                 reply_previews = []
@@ -547,16 +558,13 @@ class InteractionSyncService:
                                 "url": f"https://bsky.app/profile/{author.handle}/post/{post.uri.split('/')[-1]}"
                             })
 
-                # Count interactions
-                like_count = len(likes_response.likes) if hasattr(likes_response, 'likes') else 0
-                repost_count = len(reposts_response.reposted_by) if hasattr(reposts_response, 'reposted_by') else 0
-
-                # Get reply count from thread post
-                reply_count = 0
-                if hasattr(thread, 'post') and hasattr(thread.post, 'reply_count'):
-                    reply_count = thread.post.reply_count
-                elif hasattr(thread, 'replies'):
-                    reply_count = len(thread.replies)
+                # Read interaction totals from the thread post view.
+                thread_post = thread.post if hasattr(thread, 'post') else None
+                like_count = getattr(thread_post, 'like_count', 0) or 0
+                repost_count = getattr(thread_post, 'repost_count', 0) or 0
+                reply_count = getattr(thread_post, 'reply_count', None)
+                if reply_count is None:
+                    reply_count = len(thread.replies) if hasattr(thread, 'replies') else 0
 
                 return {
                     "post_uri": post_uri,
@@ -695,18 +703,31 @@ class InteractionSyncService:
         self,
         previous_reply_urls: set,
         new_data: Dict[str, Any],
+        previously_present_accounts: Optional[set] = None,
     ) -> None:
         """Send notifications for replies that were not present in the previous sync.
 
         Args:
             previous_reply_urls: Set of reply URLs already known before this sync
             new_data: Freshly synced interaction data
+            previously_present_accounts: Set of (platform, account) tuples that
+                already had interaction data before this sync. Accounts absent
+                from this set are being populated for the first time (or after a
+                dead-link suppression wiped their history) and are seeded silently
+                instead of notifying for every pre-existing reply. When None, all
+                accounts are eligible (legacy behavior).
         """
         for platform_name, accounts in new_data.get("platforms", {}).items():
             if not isinstance(accounts, dict):
                 continue
             for account_name, account_data in accounts.items():
                 if not isinstance(account_data, dict):
+                    continue
+                if (
+                    previously_present_accounts is not None
+                    and (platform_name, account_name) not in previously_present_accounts
+                ):
+                    # No prior data for this account — seed without notifying.
                     continue
                 for reply in account_data.get("reply_previews", []):
                     url = reply.get("url")
@@ -881,71 +902,13 @@ class InteractionSyncService:
 
             # Phase 2 — re-read the mapping fresh and apply the decisions by status_id.
             # Only in-memory work happens here (no network), so the read-modify-write
-            # window is tiny and concurrent syndication writes survive.
-            fresh = self.data_store.get_syndication_mapping(ghost_post_id)
-            if not fresh:
-                continue
-            fresh_accounts = fresh.get("platforms", {}).get("mastodon", {})
-            mapping_changed = False
-
-            for account_name, status_results in results.items():
-                account_data = fresh_accounts.get(account_name)
-                if account_data is None:
-                    continue  # account concurrently removed / re-syndicated
-                was_deleted = self._is_account_deleted(account_data)
-                entries = account_data if isinstance(account_data, list) else [account_data]
-                account_changed = False
-
-                for entry in entries:
-                    if not isinstance(entry, dict):
-                        continue
-                    sid = str(entry.get("status_id") or "")
-                    if sid not in status_results:
-                        continue
-
-                    if status_results[sid]:
-                        # Resurrect: clear any accumulated dead state.
-                        dead_keys = ("deleted", "dead_strikes", "first_seen_dead", "last_dead_check")
-                        if any(k in entry for k in dead_keys):
-                            for k in dead_keys:
-                                entry.pop(k, None)
-                            account_changed = True
-                        continue
-
-                    # Confirmed 404 — record a strike and the check time (drives backoff).
-                    strikes = int(entry.get("dead_strikes", 0)) + 1
-                    entry["dead_strikes"] = strikes
-                    entry.setdefault("first_seen_dead", self._now_isoformat())
-                    entry["last_dead_check"] = self._now_isoformat()
-                    account_changed = True
-                    if strikes >= self.dead_link_confirm_threshold:
-                        entry["deleted"] = True
-                    else:
-                        stats["pending_strikes"] += 1
-
-                if account_changed:
-                    mapping_changed = True
-
-                now_deleted = self._is_account_deleted(account_data)
-                if now_deleted and not was_deleted:
-                    self._suppress_account_in_interaction_data(ghost_post_id, account_name)
-                    stats["newly_suppressed"] += 1
-                    logger.warning(
-                        f"Suppressed dead Mastodon link for post {ghost_post_id} "
-                        f"account '{account_name}' (confirmed 404)"
-                    )
-                elif was_deleted and not now_deleted:
-                    self._restore_account_in_interaction_data(
-                        ghost_post_id, account_name, account_data
-                    )
-                    stats["resurrected"] += 1
-                    logger.info(
-                        f"Restored Mastodon link for post {ghost_post_id} "
-                        f"account '{account_name}' (status reachable again)"
-                    )
-
-            if mapping_changed:
-                self.data_store.put_syndication_mapping(ghost_post_id, fresh)
+            # window is tiny. The lock serializes it against concurrent syndication
+            # writes (store_syndication_mapping) so neither clobbers the other.
+            with self.data_store.transaction():
+                fresh = self.data_store.get_syndication_mapping(ghost_post_id)
+                if not fresh:
+                    continue
+                self._apply_dead_link_decisions(ghost_post_id, fresh, results, stats)
 
         logger.info(
             f"Dead-link sweep complete: checked={stats['checked']}, "
@@ -954,6 +917,82 @@ class InteractionSyncService:
             f"pending_strikes={stats['pending_strikes']}"
         )
         return stats
+
+    def _apply_dead_link_decisions(
+        self,
+        ghost_post_id: str,
+        fresh: Dict[str, Any],
+        results: Dict[str, Dict[str, bool]],
+        stats: Dict[str, int],
+    ) -> None:
+        """Apply existence-check results to a freshly-read mapping and persist.
+
+        Caller must hold ``data_store.transaction()``. Mutates ``fresh`` in place,
+        flags/clears dead state per status, suppresses or restores interaction
+        data as accounts cross the deleted threshold, and writes the mapping back
+        if anything changed.
+        """
+        fresh_accounts = fresh.get("platforms", {}).get("mastodon", {})
+        mapping_changed = False
+
+        for account_name, status_results in results.items():
+            account_data = fresh_accounts.get(account_name)
+            if account_data is None:
+                continue  # account concurrently removed / re-syndicated
+            was_deleted = self._is_account_deleted(account_data)
+            entries = account_data if isinstance(account_data, list) else [account_data]
+            account_changed = False
+
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                sid = str(entry.get("status_id") or "")
+                if sid not in status_results:
+                    continue
+
+                if status_results[sid]:
+                    # Resurrect: clear any accumulated dead state.
+                    dead_keys = ("deleted", "dead_strikes", "first_seen_dead", "last_dead_check")
+                    if any(k in entry for k in dead_keys):
+                        for k in dead_keys:
+                            entry.pop(k, None)
+                        account_changed = True
+                    continue
+
+                # Confirmed 404 — record a strike and the check time (drives backoff).
+                strikes = int(entry.get("dead_strikes", 0)) + 1
+                entry["dead_strikes"] = strikes
+                entry.setdefault("first_seen_dead", self._now_isoformat())
+                entry["last_dead_check"] = self._now_isoformat()
+                account_changed = True
+                if strikes >= self.dead_link_confirm_threshold:
+                    entry["deleted"] = True
+                else:
+                    stats["pending_strikes"] += 1
+
+            if account_changed:
+                mapping_changed = True
+
+            now_deleted = self._is_account_deleted(account_data)
+            if now_deleted and not was_deleted:
+                self._suppress_account_in_interaction_data(ghost_post_id, account_name)
+                stats["newly_suppressed"] += 1
+                logger.warning(
+                    f"Suppressed dead Mastodon link for post {ghost_post_id} "
+                    f"account '{account_name}' (confirmed 404)"
+                )
+            elif was_deleted and not now_deleted:
+                self._restore_account_in_interaction_data(
+                    ghost_post_id, account_name, account_data
+                )
+                stats["resurrected"] += 1
+                logger.info(
+                    f"Restored Mastodon link for post {ghost_post_id} "
+                    f"account '{account_name}' (status reachable again)"
+                )
+
+        if mapping_changed:
+            self.data_store.put_syndication_mapping(ghost_post_id, fresh)
 
     def _within_recheck_backoff(self, entry: Dict[str, Any]) -> bool:
         """Return True if a confirmed-dead entry was rechecked too recently to retry.
@@ -976,17 +1015,18 @@ class InteractionSyncService:
 
     def _suppress_account_in_interaction_data(self, ghost_post_id: str, account_name: str) -> None:
         """Remove a Mastodon account from stored interaction data so the widget hides it."""
-        data = self.data_store.get(ghost_post_id)
-        if not data:
-            return
-        before = (
-            account_name in data.get("syndication_links", {}).get("mastodon", {})
-            or account_name in data.get("platforms", {}).get("mastodon", {})
-        )
-        self._drop_account(data, "mastodon", account_name)
-        if before:
-            data["updated_at"] = self._now_isoformat()
-            self.data_store.put(ghost_post_id, data)
+        with self.data_store.transaction():
+            data = self.data_store.get(ghost_post_id)
+            if not data:
+                return
+            before = (
+                account_name in data.get("syndication_links", {}).get("mastodon", {})
+                or account_name in data.get("platforms", {}).get("mastodon", {})
+            )
+            self._drop_account(data, "mastodon", account_name)
+            if before:
+                data["updated_at"] = self._now_isoformat()
+                self.data_store.put(ghost_post_id, data)
 
     def _restore_account_in_interaction_data(
         self, ghost_post_id: str, account_name: str, account_data: Any
@@ -999,11 +1039,12 @@ class InteractionSyncService:
         post_url = self._featured_post_url(account_data)
         if not post_url:
             return
-        data = self.data_store.get(ghost_post_id) or self._empty_interaction_data(ghost_post_id)
-        links = data.setdefault("syndication_links", {"mastodon": {}, "bluesky": {}})
-        links.setdefault("mastodon", {})[account_name] = {"post_url": post_url}
-        data["updated_at"] = self._now_isoformat()
-        self.data_store.put(ghost_post_id, data)
+        with self.data_store.transaction():
+            data = self.data_store.get(ghost_post_id) or self._empty_interaction_data(ghost_post_id)
+            links = data.setdefault("syndication_links", {"mastodon": {}, "bluesky": {}})
+            links.setdefault("mastodon", {})[account_name] = {"post_url": post_url}
+            data["updated_at"] = self._now_isoformat()
+            self.data_store.put(ghost_post_id, data)
 
     def _load_syndication_mapping(self, ghost_post_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -1368,27 +1409,30 @@ def update_interaction_data_on_syndication(
     tz_name = InteractionSyncService._normalize_timezone_name(timezone_name)
     now = datetime.now(ZoneInfo(tz_name)).isoformat()
 
-    existing = data_store.get(ghost_post_id)
-    if existing is None:
-        existing = {
-            "ghost_post_id": ghost_post_id,
-            "updated_at": now,
-            "syndication_links": {"mastodon": {}, "bluesky": {}},
-            "platforms": {"mastodon": {}, "bluesky": {}},
-        }
+    # Guard the read-modify-write against concurrent interaction-data writers
+    # (periodic sync, dead-link sweep) so this syndication link isn't lost.
+    with data_store.transaction():
+        existing = data_store.get(ghost_post_id)
+        if existing is None:
+            existing = {
+                "ghost_post_id": ghost_post_id,
+                "updated_at": now,
+                "syndication_links": {"mastodon": {}, "bluesky": {}},
+                "platforms": {"mastodon": {}, "bluesky": {}},
+            }
 
-    existing["updated_at"] = now
+        existing["updated_at"] = now
 
-    # Ensure structure is intact after loading (defensive, in case of partial data)
-    if not isinstance(existing.get("syndication_links"), dict):
-        existing["syndication_links"] = {"mastodon": {}, "bluesky": {}}
-    for p in ("mastodon", "bluesky"):
-        if p not in existing["syndication_links"]:
-            existing["syndication_links"][p] = {}
+        # Ensure structure is intact after loading (defensive, in case of partial data)
+        if not isinstance(existing.get("syndication_links"), dict):
+            existing["syndication_links"] = {"mastodon": {}, "bluesky": {}}
+        for p in ("mastodon", "bluesky"):
+            if p not in existing["syndication_links"]:
+                existing["syndication_links"][p] = {}
 
-    existing["syndication_links"][platform][account_name] = {"post_url": post_url}
+        existing["syndication_links"][platform][account_name] = {"post_url": post_url}
 
-    data_store.put(ghost_post_id, existing)
+        data_store.put(ghost_post_id, existing)
     logger.info(
         f"Updated interaction_data syndication_links for {ghost_post_id} "
         f"{platform}/{account_name}: {post_url}"
@@ -1452,6 +1496,35 @@ def store_syndication_mapping(
     """
     data_store = InteractionDataStore(storage_path)
 
+    # Serialize the whole read-modify-write so parallel posts to different
+    # accounts (each running store_syndication_mapping from its own thread-pool
+    # worker) don't read the same row and overwrite each other's entries.
+    with data_store.transaction():
+        _store_syndication_mapping_locked(
+            data_store,
+            ghost_post_id=ghost_post_id,
+            ghost_post_url=ghost_post_url,
+            platform=platform,
+            account_name=account_name,
+            post_data=post_data,
+            storage_path=storage_path,
+            split_info=split_info,
+            timezone_name=timezone_name,
+        )
+
+
+def _store_syndication_mapping_locked(
+    data_store: "InteractionDataStore",
+    ghost_post_id: str,
+    ghost_post_url: str,
+    platform: str,
+    account_name: str,
+    post_data: Dict[str, Any],
+    storage_path: str,
+    split_info: Optional[Dict[str, Any]],
+    timezone_name: str,
+) -> None:
+    """Read-modify-write body of store_syndication_mapping. Caller holds the lock."""
     # Load existing mapping from SQLite
     mapping = data_store.get_syndication_mapping(ghost_post_id)
 
