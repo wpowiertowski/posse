@@ -1,9 +1,9 @@
 """Tests for transient-error retries in Mastodon and Bluesky publish paths.
 
-When a syndication target returns a transient error (5xx, network blip,
-rate limit), the client should retry with exponential backoff a few
-times before giving up. Permanent errors should fail immediately
-without burning retry attempts.
+When a syndication target returns a transient error (5xx, connection blip),
+the client should retry with exponential backoff a few times before giving
+up. Permanent errors should fail immediately without burning retry attempts,
+and retries must not produce duplicate posts.
 """
 import unittest
 from unittest.mock import patch, MagicMock
@@ -14,6 +14,7 @@ from mastodon import (
     MastodonRatelimitError,
     MastodonServerError,
 )
+from atproto.exceptions import InvokeTimeoutError, NetworkError, RequestException
 
 from social.mastodon_client import MastodonClient
 from social.bluesky_client import BlueskyClient
@@ -28,6 +29,17 @@ def _make_mastodon_client(mock_mastodon):
         account_name="test",
     )
     return client, mock_api
+
+
+class _Resp:
+    """Minimal stand-in for an atproto Response carrying a status code."""
+
+    def __init__(self, status_code):
+        self.status_code = status_code
+
+
+def _request_exception(status_code):
+    return RequestException(response=_Resp(status_code))
 
 
 class TestMastodonRetry(unittest.TestCase):
@@ -71,18 +83,18 @@ class TestMastodonRetry(unittest.TestCase):
 
     @patch("social.base_client.time.sleep")
     @patch("social.mastodon_client.Mastodon")
-    def test_retries_on_rate_limit_then_succeeds(self, mock_mastodon, mock_sleep):
+    def test_rate_limit_is_not_retried(self, mock_mastodon, mock_sleep):
         client, mock_api = _make_mastodon_client(mock_mastodon)
 
-        mock_api.status_post.side_effect = [
-            MastodonRatelimitError("Rate limited"),
-            {"id": "3", "url": "https://mastodon.social/@u/3"},
-        ]
+        # Mastodon.py honors rate limits internally (ratelimit_method="wait"),
+        # so a 429 should never be retried here with blind backoff.
+        mock_api.status_post.side_effect = MastodonRatelimitError("Rate limited")
 
         result = client.post("Hello")
 
-        self.assertIsNotNone(result)
-        self.assertEqual(mock_api.status_post.call_count, 2)
+        self.assertIsNone(result)
+        self.assertEqual(mock_api.status_post.call_count, 1)
+        mock_sleep.assert_not_called()
 
     @patch("social.base_client.time.sleep")
     @patch("social.mastodon_client.Mastodon")
@@ -118,35 +130,77 @@ class TestMastodonRetry(unittest.TestCase):
         self.assertEqual(mock_api.status_post.call_count, 1)
         mock_sleep.assert_not_called()
 
+    @patch("social.base_client.time.sleep")
+    @patch("social.mastodon_client.Mastodon")
+    def test_idempotency_key_is_stable_across_retries(self, mock_mastodon, mock_sleep):
+        client, mock_api = _make_mastodon_client(mock_mastodon)
+
+        mock_api.status_post.side_effect = [
+            MastodonServerError("Mastodon API returned error", 503, "Service Unavailable", None),
+            {"id": "1", "url": "https://mastodon.social/@u/1"},
+        ]
+
+        client.post("Hello")
+
+        self.assertEqual(mock_api.status_post.call_count, 2)
+        keys = {call.kwargs["idempotency_key"] for call in mock_api.status_post.call_args_list}
+        # All attempts must share one non-empty key so the server dedupes a
+        # retry that lands after the original write already committed.
+        self.assertEqual(len(keys), 1)
+        self.assertTrue(next(iter(keys)))
+
+    @patch("social.base_client.time.sleep")
+    @patch("social.mastodon_client.Mastodon")
+    def test_media_upload_retries_on_transient(self, mock_mastodon, mock_sleep):
+        client, mock_api = _make_mastodon_client(mock_mastodon)
+
+        # First media_post attempt is a transient 503, second succeeds.
+        mock_api.media_post.side_effect = [
+            MastodonServerError("Mastodon API returned error", 503, "Service Unavailable", None),
+            {"id": "media-1"},
+        ]
+        mock_api.status_post.return_value = {"id": "1", "url": "https://mastodon.social/@u/1"}
+
+        with patch.object(client, "_download_image", return_value="/tmp/fake.jpg"):
+            result = client.post("Hello", media_urls=["https://example.com/a.jpg"])
+
+        self.assertIsNotNone(result)
+        self.assertEqual(mock_api.media_post.call_count, 2)
+        # The successfully uploaded media id must reach status_post.
+        self.assertEqual(mock_api.status_post.call_args.kwargs["media_ids"], ["media-1"])
+
 
 class TestBlueskyTransientDetection(unittest.TestCase):
-    """Bluesky transient-error classifier (string-based)."""
+    """Bluesky transient-error classifier (structured atproto exceptions)."""
 
-    def test_503_message_detected(self):
-        self.assertTrue(
-            BlueskyClient._is_transient_error(Exception("Server returned 503 Service Unavailable"))
-        )
+    def test_500_status_detected(self):
+        self.assertTrue(BlueskyClient._is_transient_error(_request_exception(500)))
 
-    def test_502_message_detected(self):
-        self.assertTrue(BlueskyClient._is_transient_error(Exception("HTTP 502 Bad Gateway")))
+    def test_502_status_detected(self):
+        self.assertTrue(BlueskyClient._is_transient_error(_request_exception(502)))
 
-    def test_429_message_detected(self):
-        self.assertTrue(BlueskyClient._is_transient_error(Exception("HTTP 429 Too Many Requests")))
+    def test_503_status_detected(self):
+        self.assertTrue(BlueskyClient._is_transient_error(_request_exception(503)))
 
-    def test_timeout_keyword_detected(self):
-        self.assertTrue(BlueskyClient._is_transient_error(Exception("Request timed out")))
+    def test_429_status_detected(self):
+        self.assertTrue(BlueskyClient._is_transient_error(_request_exception(429)))
 
-    def test_connection_keyword_detected(self):
-        self.assertTrue(BlueskyClient._is_transient_error(Exception("Connection reset by peer")))
+    def test_network_error_detected(self):
+        self.assertTrue(BlueskyClient._is_transient_error(NetworkError()))
 
-    def test_400_not_detected(self):
-        self.assertFalse(BlueskyClient._is_transient_error(Exception("HTTP 400 Bad Request")))
+    def test_read_timeout_not_retried(self):
+        # Read timeouts are ambiguous (the write may have committed), so they
+        # must not be retried — retrying is the main duplicate-post hazard.
+        self.assertFalse(BlueskyClient._is_transient_error(InvokeTimeoutError()))
 
-    def test_401_not_detected(self):
-        self.assertFalse(BlueskyClient._is_transient_error(Exception("HTTP 401 Unauthorized")))
+    def test_400_status_not_detected(self):
+        self.assertFalse(BlueskyClient._is_transient_error(_request_exception(400)))
 
-    def test_unrelated_message_not_detected(self):
-        self.assertFalse(BlueskyClient._is_transient_error(Exception("Invalid post content")))
+    def test_401_status_not_detected(self):
+        self.assertFalse(BlueskyClient._is_transient_error(_request_exception(401)))
+
+    def test_unrelated_exception_not_detected(self):
+        self.assertFalse(BlueskyClient._is_transient_error(ValueError("Invalid post content")))
 
 
 class TestRetryHelper(unittest.TestCase):
