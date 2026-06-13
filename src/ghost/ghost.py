@@ -1363,17 +1363,21 @@ def create_app(events_queue: Queue, notifier: Optional[PushoverNotifier] = None,
                     if platform in mapping.get("platforms", {}):
                         for account_name, account_data in mapping["platforms"][platform].items():
                             if isinstance(account_data, list):
-                                # Split posts - use the featured image post (split_index 0)
+                                # Split posts - present the featured image post
+                                # (split_index 0) among the entries not flagged deleted.
+                                alive = [e for e in account_data if not e.get("deleted")]
                                 featured = next(
-                                    (e for e in account_data if e.get("split_index") == 0),
-                                    account_data[0] if account_data else None,
+                                    (e for e in alive if e.get("split_index") == 0),
+                                    alive[0] if alive else None,
                                 )
                                 if featured:
                                     syndication_links[platform][account_name] = {
                                         "post_url": featured.get("post_url")
                                     }
                             else:
-                                # Single post
+                                # Single post - skip if confirmed deleted by the sweep
+                                if account_data.get("deleted"):
+                                    continue
                                 syndication_links[platform][account_name] = {"post_url": account_data.get("post_url")}
 
                 logger.debug(f"Retrieved syndication links for post: {ghost_post_id}")
