@@ -1,0 +1,34 @@
+name: Dependency Audit
+
+on:
+  pull_request:
+    paths:
+      - poetry.lock
+      - pyproject.toml
+      - Dockerfile
+  push:
+    branches: [ main ]
+    paths:
+      - poetry.lock
+      - pyproject.toml
+      - Dockerfile
+  # Weekly scan catches advisories published against versions we already
+  # run, independent of any dependency change landing.
+  schedule:
+    - cron: '30 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan poetry.lock against OSV
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        with:
+          scan-args: |-
+            --lockfile=./poetry.lock

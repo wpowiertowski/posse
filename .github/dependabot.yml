@@ -1,0 +1,38 @@
+version: 2
+updates:
+  # Python dependencies (pyproject.toml / poetry.lock)
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Wait 7 days after a release before proposing it. Most compromised
+    # PyPI releases are detected and yanked within days of publication,
+    # so never installing same-day releases avoids the dominant
+    # supply-chain attack pattern.
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  # Base image tag updates in the Dockerfile
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+
+  # GitHub Actions used in workflows
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
