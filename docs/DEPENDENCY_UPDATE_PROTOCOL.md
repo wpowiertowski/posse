@@ -9,7 +9,8 @@ and supply-chain attacks.
 |---|---|---|
 | Dependabot | `.github/dependabot.yml` | Weekly update PRs for pip, Docker base image, and GitHub Actions |
 | 7-day cooldown | `.github/dependabot.yml` | Never proposes a release younger than 7 days |
-| OSV audit | `.github/workflows/audit.yml` | Scans `poetry.lock` on every dependency PR and weekly on a schedule |
+| OSV audit | `.github/workflows/audit.yml` | Scans `poetry.lock` (Python deps) on every dependency PR and weekly on a schedule |
+| Image audit | `.github/workflows/audit.yml` | Trivy scans the built image for OS/base-image and library CVEs (zlib, BusyBox, etc.) |
 | Hash-pinned installs | `poetry.lock` | Poetry verifies package hashes at install time |
 
 The 7-day cooldown is the key supply-chain control: nearly every compromised
@@ -17,6 +18,11 @@ PyPI release in recent campaigns was detected and yanked within days of
 publication. Never installing same-day releases sidesteps the dominant attack
 pattern (maintainer-account phishing followed by a short-lived malicious
 release).
+
+The cooldown also delays Dependabot's *security* update PRs by up to 7 days,
+so do not rely on Dependabot for urgent fixes. A known advisory against a
+version we run is handled immediately through the manual Emergency path below,
+which bypasses the cooldown.
 
 ## Weekly
 
@@ -45,11 +51,14 @@ merging. Land the result through a normal PR.
 Major version bumps of direct dependencies are done individually, after
 reading the upstream changelog.
 
-Note: local compose services keep the Poetry virtualenv in the
-`poetry_cache` volume, which shadows whatever the image installed at build
-time. After changing `poetry.lock`, run `poetry sync` inside the container
-(as above) — rebuilding the image alone does not update the runtime
-environment.
+Note: each local compose service keeps its Poetry virtualenv in a cache
+volume (`poetry_cache` for the app, `poetry_cache_test` for the test
+service), which shadows whatever the image installed at build time. The two
+are kept separate because the app image installs only main deps while the
+test image adds dev deps — a shared volume would let whichever service ran
+first seed the venv for both. After changing `poetry.lock`, run `poetry sync`
+inside the container (as above) — rebuilding the image alone does not update
+the runtime environment.
 
 ## Emergency (advisory against a version we run)
 
