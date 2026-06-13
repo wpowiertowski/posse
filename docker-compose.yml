@@ -26,6 +26,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        POETRY_INSTALL_ARGS: "--with dev"
     container_name: posse-test
     volumes:
       - .:/app
