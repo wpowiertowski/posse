@@ -331,6 +331,27 @@ class TestSourceLinksToTarget:
         html = '<link rel="canonical" href="https://blog.example.com/post">'
         assert _source_links_to_target(html, "https://blog.example.com/post") is True
 
+    def test_ref_query_param_ignored(self):
+        # POSSE appends ?ref=<platform> to its own links; a source echoing that
+        # URL must still verify against the bare target.
+        html = '<a href="https://blog.example.com/post?ref=mastodon">Link</a>'
+        assert _source_links_to_target(html, "https://blog.example.com/post") is True
+
+    def test_scheme_difference_ignored(self):
+        html = '<a href="http://blog.example.com/post">Link</a>'
+        assert _source_links_to_target(html, "https://blog.example.com/post") is True
+
+    def test_href_inside_comment_not_matched(self):
+        # A link present only inside an HTML comment is not a visible mention.
+        html = '<!-- <a href="https://blog.example.com/post">hidden</a> --><p>nope</p>'
+        assert _source_links_to_target(html, "https://blog.example.com/post") is False
+
+    def test_relative_href_resolved_against_source(self):
+        html = '<a href="/post">Link</a>'
+        assert _source_links_to_target(
+            html, "https://blog.example.com/post", base_url="https://blog.example.com/feed"
+        ) is True
+
 
 class TestExtractHentryMetadata:
     def test_basic_hentry(self):
@@ -392,6 +413,7 @@ class TestVerifyWebmention:
         mock_response = MagicMock()
         mock_response.ok = True
         mock_response.status_code = 200
+        mock_response.is_redirect = False
         mock_response.encoding = "utf-8"
         mock_response.iter_content = MagicMock(return_value=[html.encode()])
         mock_response.close = MagicMock()
@@ -401,6 +423,7 @@ class TestVerifyWebmention:
         store.put_received_webmention(source, target, "2024-01-01T00:00:00Z")
 
         with patch("indieweb.receiver._is_private_or_loopback", return_value=False), \
+             patch("indieweb.webmention._is_private_or_loopback", return_value=False), \
              patch("indieweb.receiver._build_session") as mock_session:
             mock_session.return_value.get.return_value = mock_response
             verify_webmention(source, target, store)
@@ -415,6 +438,7 @@ class TestVerifyWebmention:
         mock_response = MagicMock()
         mock_response.ok = True
         mock_response.status_code = 200
+        mock_response.is_redirect = False
         mock_response.encoding = "utf-8"
         mock_response.iter_content = MagicMock(return_value=[html.encode()])
         mock_response.close = MagicMock()
@@ -424,6 +448,7 @@ class TestVerifyWebmention:
         store.put_received_webmention(source, target, "2024-01-01T00:00:00Z")
 
         with patch("indieweb.receiver._is_private_or_loopback", return_value=False), \
+             patch("indieweb.webmention._is_private_or_loopback", return_value=False), \
              patch("indieweb.receiver._build_session") as mock_session:
             mock_session.return_value.get.return_value = mock_response
             verify_webmention(source, target, store)
@@ -436,6 +461,7 @@ class TestVerifyWebmention:
         mock_response = MagicMock()
         mock_response.status_code = 404
         mock_response.ok = False
+        mock_response.is_redirect = False
         mock_response.close = MagicMock()
 
         source = "https://source.example.com/post"
@@ -443,6 +469,7 @@ class TestVerifyWebmention:
         store.put_received_webmention(source, target, "2024-01-01T00:00:00Z")
 
         with patch("indieweb.receiver._is_private_or_loopback", return_value=False), \
+             patch("indieweb.webmention._is_private_or_loopback", return_value=False), \
              patch("indieweb.receiver._build_session") as mock_session:
             mock_session.return_value.get.return_value = mock_response
             verify_webmention(source, target, store)
@@ -456,6 +483,7 @@ class TestVerifyWebmention:
         mock_response = MagicMock()
         mock_response.status_code = 410
         mock_response.ok = False
+        mock_response.is_redirect = False
         mock_response.close = MagicMock()
 
         source = "https://source.example.com/post"
@@ -463,6 +491,7 @@ class TestVerifyWebmention:
         store.put_received_webmention(source, target, "2024-01-01T00:00:00Z")
 
         with patch("indieweb.receiver._is_private_or_loopback", return_value=False), \
+             patch("indieweb.webmention._is_private_or_loopback", return_value=False), \
              patch("indieweb.receiver._build_session") as mock_session:
             mock_session.return_value.get.return_value = mock_response
             verify_webmention(source, target, store)

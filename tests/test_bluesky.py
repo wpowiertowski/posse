@@ -967,6 +967,49 @@ class TestBlueskyClient(unittest.TestCase):
         self.assertIsNotNone(result)
 
     @patch("social.bluesky_client.Client")
+    def test_url_with_balanced_parens_keeps_closing_paren(self, mock_client_class):
+        """A URL that legitimately ends in ')' must not have the paren stripped."""
+        mock_client_class.return_value = MagicMock()
+        client = BlueskyClient(
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password",
+        )
+
+        content = "See https://en.wikipedia.org/wiki/Python_(programming_language) now"
+        builder = client._build_rich_text(content)
+
+        # Text is preserved verbatim, and the single link facet covers the whole
+        # URL including its balanced trailing ')'.
+        self.assertEqual(builder.build_text(), content)
+        facets = builder.build_facets()
+        self.assertEqual(len(facets), 1)
+        link_text = content.encode("UTF-8")[
+            facets[0].index.byte_start:facets[0].index.byte_end
+        ].decode("UTF-8")
+        self.assertEqual(link_text, "https://en.wikipedia.org/wiki/Python_(programming_language)")
+
+    @patch("social.bluesky_client.Client")
+    def test_url_with_fragment_does_not_duplicate_as_hashtag(self, mock_client_class):
+        """A '#fragment' inside a URL must not be re-emitted as a hashtag facet."""
+        mock_client_class.return_value = MagicMock()
+        client = BlueskyClient(
+            instance_url="https://bsky.social",
+            handle="user.bsky.social",
+            app_password="test_password",
+        )
+
+        content = "see https://example.com/page#intro for details"
+        builder = client._build_rich_text(content)
+
+        # The fragment is part of the URL: text is not corrupted/duplicated and
+        # only the URL facet exists (no stray hashtag facet for '#intro').
+        self.assertEqual(builder.build_text(), content)
+        facets = builder.build_facets()
+        self.assertEqual(len(facets), 1)
+        self.assertIsInstance(facets[0].features[0], models.AppBskyRichtextFacet.Link)
+
+    @patch("social.bluesky_client.Client")
     def test_post_re_authenticates_before_posting(self, mock_client_class):
         """Test that post() re-authenticates before each post to avoid ExpiredToken errors."""
         # Setup mock API

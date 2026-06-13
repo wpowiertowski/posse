@@ -12,16 +12,17 @@ References:
 """
 
 import logging
-import re
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
-from urllib.parse import urlparse
+from html.parser import HTMLParser
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qsl, urljoin, urlparse
 
 import mf2py
 
 from indieweb.content_sanitizer import sanitize_content_html, sanitize_content_text
 from indieweb.webmention import (
     _build_session,
+    _checked_get,
     _is_private_or_loopback,
     _read_bounded_response,
     MAX_DISCOVERY_RESPONSE_BYTES,
@@ -61,11 +62,14 @@ def verify_webmention(source_url: str, target_url: str, store: Any, timeout: flo
 
     session = _build_session()
     try:
-        response = session.get(
+        # _checked_get re-validates every redirect hop against the SSRF guard, so
+        # an attacker-controlled redirect can't steer the fetch to an internal
+        # address after the initial source_url passed the check above.
+        response = _checked_get(
+            session,
             source_url,
             headers={"Accept": "text/html"},
             timeout=timeout,
-            allow_redirects=True,
             stream=True,
         )
     except Exception as e:
@@ -102,7 +106,7 @@ def verify_webmention(source_url: str, target_url: str, store: Any, timeout: flo
         html_body = body.decode("utf-8", errors="replace")
 
     # Verify source actually links to target
-    if not _source_links_to_target(html_body, target_url):
+    if not _source_links_to_target(html_body, target_url, base_url=source_url):
         logger.info(f"Source does not link to target: source={source_url}, target={target_url}")
         store.update_webmention_verification(
             source=source_url, target=target_url, status="rejected",
@@ -133,19 +137,65 @@ def verify_webmention(source_url: str, target_url: str, store: Any, timeout: flo
     return {"status": "verified", **metadata}
 
 
-def _source_links_to_target(html_body: str, target_url: str) -> bool:
-    """Check if the HTML body contains a link to the target URL."""
-    # Normalize target for comparison (strip trailing slash)
-    target_normalized = target_url.rstrip("/")
+class _LinkHrefExtractor(HTMLParser):
+    """Collect href values from real <a>/<link> elements.
 
-    # Check for exact URL match or match without trailing slash in href attributes
-    # This covers <a href="...">, <link href="...">, etc.
-    escaped_target = re.escape(target_url)
-    escaped_normalized = re.escape(target_normalized)
+    Using an HTML parser (rather than a regex over the raw markup) means hrefs
+    that appear only inside comments, <script>, or <template> blocks are not
+    treated as links to the target — those don't constitute a visible mention.
+    """
 
-    # Match href="target" or href='target' (with or without trailing slash)
-    pattern = rf'''href=["'](?:{escaped_target}|{escaped_normalized}/?)["']'''
-    return bool(re.search(pattern, html_body, re.IGNORECASE))
+    def __init__(self) -> None:
+        super().__init__()
+        self.hrefs: List[str] = []
+
+    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
+        if tag in ("a", "link"):
+            for name, value in attrs:
+                if name == "href" and value:
+                    self.hrefs.append(value)
+
+
+def _normalize_for_link_match(url: str) -> Optional[Tuple[str, str, tuple]]:
+    """Normalize a URL into a comparison key, or None if it can't be parsed.
+
+    Ignores differences that shouldn't defeat verification: the scheme
+    (http vs https), a trailing slash, the fragment, and a ``ref`` query
+    parameter (POSSE appends ``?ref=<platform>`` to its own syndicated links).
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    netloc = parsed.netloc.lower()
+    if not netloc:
+        return None
+    path = parsed.path.rstrip("/") or "/"
+    query = tuple(sorted(
+        (k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k != "ref"
+    ))
+    return (netloc, path, query)
+
+
+def _source_links_to_target(html_body: str, target_url: str, base_url: str = "") -> bool:
+    """Check whether the HTML body contains a visible link to the target URL."""
+    target_key = _normalize_for_link_match(target_url)
+    if target_key is None:
+        return False
+
+    parser = _LinkHrefExtractor()
+    try:
+        parser.feed(html_body)
+    except Exception as e:
+        logger.debug(f"HTML parse failed while verifying link to target: {e}")
+        return False
+
+    for href in parser.hrefs:
+        # Resolve relative hrefs against the source page when we know its URL.
+        resolved = urljoin(base_url, href) if base_url else href
+        if _normalize_for_link_match(resolved) == target_key:
+            return True
+    return False
 
 
 def _extract_hentry_metadata(

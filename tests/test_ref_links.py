@@ -97,6 +97,23 @@ class TestFormatPostContentRef(unittest.TestCase):
         self.assertLessEqual(len(content), 200)
         self.assertIn("?ref=mastodon", content)
 
+    def test_long_hashtags_do_not_corrupt_content(self):
+        # When tags + URL alone exceed the limit, the available text width goes
+        # negative. The clamp must yield empty body text rather than slicing with
+        # a negative index (which previously returned most of the over-length
+        # excerpt). The URL must still be present and intact.
+        tags = [{"name": "#" + "a" * 60, "slug": "a"}, {"name": "#" + "b" * 60, "slug": "b"}]
+        content = _format_post_content(
+            post_title="Title",
+            post_url="https://example.com/some/post",
+            excerpt="x" * 500,
+            tags=tags,
+            max_length=100,
+        )
+        # No leading run of the excerpt body survived the clamp.
+        self.assertFalse(content.startswith("x"))
+        self.assertIn("https://example.com/some/post", content)
+
 
 if __name__ == "__main__":
     unittest.main()

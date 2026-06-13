@@ -28,12 +28,56 @@ Running Tests:
     $ pytest tests/test_pushover.py -v
     $ pytest tests/test_pushover.py --cov=notifications
 """
+import logging
 import os
 import pytest
 from unittest.mock import patch, MagicMock
 import requests
 
-from notifications.pushover import PushoverNotifier
+from notifications.pushover import PushoverNotifier, PushoverLoggingHandler
+
+
+class TestPushoverLoggingHandler:
+    """Test suite for the logging handler that forwards ERROR logs to Pushover."""
+
+    def test_emit_does_not_recurse_when_send_logs_error(self):
+        """A send failure that itself logs at ERROR must not re-enter emit().
+
+        The notifier's _send_notification logs an error on failure; that log
+        record routes back through this handler. Without the re-entrancy guard
+        this recurses until the stack overflows, since the rate-limit timestamp
+        only advances on success.
+        """
+        notifier = MagicMock()
+        notifier.enabled = True
+
+        handler = PushoverLoggingHandler(notifier, rate_limit_seconds=0)
+
+        # Simulate notify_log_error failing by logging an ERROR through the same
+        # handler (as the real _send_notification does on RequestException).
+        call_count = {"n": 0}
+
+        def failing_notify(**kwargs):
+            call_count["n"] += 1
+            # Re-enter emit exactly as a logged error would.
+            record = logging.LogRecord(
+                name="notifications.pushover", level=logging.ERROR,
+                pathname=__file__, lineno=1,
+                msg="Failed to send Pushover notification", args=(), exc_info=None,
+            )
+            handler.emit(record)
+            return False
+
+        notifier.notify_log_error.side_effect = failing_notify
+
+        trigger = logging.LogRecord(
+            name="some.module", level=logging.ERROR,
+            pathname=__file__, lineno=1, msg="boom", args=(), exc_info=None,
+        )
+        # Must return without RecursionError; the re-entrant emit is suppressed,
+        # so notify_log_error is invoked exactly once.
+        handler.emit(trigger)
+        assert call_count["n"] == 1
 
 
 class TestPushoverNotifier:

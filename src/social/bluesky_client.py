@@ -142,8 +142,12 @@ class BlueskyClient(SocialMediaClient):
             split_multi_image_posts=split_multi_image_posts
         )
     
-    # HTTP status codes worth retrying: 5xx server errors and 429 rate limits.
-    _TRANSIENT_STATUS_CODES = frozenset({500, 502, 503, 504, 429})
+    # HTTP status codes worth retrying. Deliberately excludes 500/502/504: a
+    # bare 500 or a gateway 502/504 can be emitted *after* the upstream PDS has
+    # already committed the record, so retrying a non-idempotent send_post on
+    # those risks a duplicate post. 429 (rate limited) and 503 (service
+    # unavailable) are explicit "I did not process this request" signals.
+    _TRANSIENT_STATUS_CODES = frozenset({429, 503})
 
     @classmethod
     def _is_transient_error(cls, exception: Exception) -> bool:
@@ -156,8 +160,10 @@ class BlueskyClient(SocialMediaClient):
 
         - NetworkError: the request never got a response (connection refused,
           reset, DNS, etc.).
-        - RequestException with a 5xx/429 status: the server explicitly rejected
-          the request without committing it.
+        - RequestException with a 429 or 503 status: the server explicitly
+          refused to process the request (rate limited / unavailable). Ambiguous
+          5xx codes (500/502/504) are NOT retried — they can be returned after a
+          commit, which is exactly when a retry would duplicate the post.
 
         InvokeTimeoutError (a subclass of NetworkError) is deliberately excluded:
         a read timeout is ambiguous — the write may have succeeded server-side —
@@ -221,8 +227,17 @@ class BlueskyClient(SocialMediaClient):
         # Post-process URLs to remove common trailing punctuation
         processed_urls = []
         for url, start, end in urls:
-            # Remove trailing punctuation that's likely not part of the URL
-            while url and url[-1] in '.,;!?)':
+            # Remove trailing punctuation that's likely not part of the URL. A
+            # closing ')' is only stripped when it has no matching '(' inside the
+            # URL, so links that legitimately end in ')' — e.g. Wikipedia's
+            # ".../Python_(programming_language)" — keep their final paren.
+            while url:
+                last = url[-1]
+                if last == ')':
+                    if url.count('(') >= url.count(')'):
+                        break
+                elif last not in '.,;!?':
+                    break
                 url = url[:-1]
                 end -= 1
             if url:  # Only add if URL is not empty after stripping
@@ -239,6 +254,13 @@ class BlueskyClient(SocialMediaClient):
         # Build the rich text by processing content in order
         last_pos = 0
         for match_type, match_text, start, end in all_matches:
+            # Skip matches that overlap an already-emitted facet. This drops, for
+            # example, a "#fragment" that the hashtag regex finds *inside* a URL
+            # that was already emitted as a link — without it the fragment text
+            # would be duplicated and last_pos rewound, corrupting byte offsets.
+            if start < last_pos:
+                continue
+
             # Add any plain text before this match
             if start > last_pos:
                 text_builder.text(content[last_pos:start])
