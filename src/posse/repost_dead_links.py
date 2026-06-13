@@ -95,11 +95,21 @@ def _repost_one(
         return False
 
     content = _format_post_content(title, url, excerpt, tags, client.max_post_length, ref="mastodon")
-    result = client.post(
-        content=content,
-        media_urls=images if images else None,
-        media_descriptions=media_descriptions if media_descriptions else None,
-    )
+    try:
+        result = client.post(
+            content=content,
+            media_urls=images if images else None,
+            media_descriptions=media_descriptions if media_descriptions else None,
+        )
+    finally:
+        # client.post downloads images into the client image cache; clean them up
+        # like the normal syndication path does (see posse.post_to_account).
+        if images:
+            try:
+                client._remove_images(images)
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to clean up cached images for {ghost_post_id}: {cleanup_error}")
+
     if not isinstance(result, dict) or not result.get("id"):
         logger.error(f"Repost failed for {ghost_post_id} on '{account_name}'")
         return False

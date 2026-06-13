@@ -18,6 +18,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import tempfile
 import shutil
+from datetime import datetime, timezone
 
 from mastodon import MastodonNotFoundError
 
@@ -69,11 +70,14 @@ class TestDeadLinkPruning(unittest.TestCase):
             "platforms": {"mastodon": {"personal": {"favorites": 3}}, "bluesky": {}},
         })
 
-    def _service(self, client, threshold=2):
+    def _service(self, client, threshold=2, recheck_days=0):
+        # recheck_days defaults to 0 (backoff disabled) so existing assertions are
+        # deterministic and not time-dependent; the backoff test opts in explicitly.
         return InteractionSyncService(
             mastodon_clients=[client],
             storage_path=self.tmp,
             dead_link_confirm_threshold=threshold,
+            dead_link_recheck_days=recheck_days,
         )
 
     def _masto_entry(self):
@@ -238,6 +242,60 @@ class TestDeadLinkPruning(unittest.TestCase):
         self.assertNotIn("personal", result["syndication_links"]["mastodon"])
         self.assertNotIn("personal", result["platforms"]["mastodon"])
         mock_api.status.assert_not_called()
+
+    # -- recheck backoff for confirmed-dead entries ------------------------
+
+    @patch("social.mastodon_client.Mastodon")
+    def test_recently_checked_dead_entry_is_skipped(self, mock_mastodon_class):
+        client, mock_api = _make_client(mock_mastodon_class, MastodonNotFoundError("gone"))
+        recent = datetime.now(timezone.utc).isoformat()
+        self._seed_mapping({
+            "status_id": "1", "post_url": "u", "deleted": True,
+            "dead_strikes": 2, "first_seen_dead": recent, "last_dead_check": recent,
+        })
+
+        stats = self._service(client, recheck_days=7).prune_dead_links()
+
+        # Within backoff window -> no API call, nothing checked.
+        mock_api.status.assert_not_called()
+        self.assertEqual(stats["checked"], 0)
+
+    @patch("social.mastodon_client.Mastodon")
+    def test_stale_dead_entry_is_rechecked(self, mock_mastodon_class):
+        client, mock_api = _make_client(mock_mastodon_class, [{"id": "1"}])  # now alive
+        old = "2026-01-01T00:00:00+00:00"
+        self._seed_mapping({
+            "status_id": "1", "post_url": "u", "deleted": True,
+            "dead_strikes": 2, "first_seen_dead": old, "last_dead_check": old,
+        })
+
+        stats = self._service(client, recheck_days=7).prune_dead_links()
+
+        # Beyond backoff window -> rechecked and resurrected.
+        mock_api.status.assert_called_once()
+        self.assertNotIn("deleted", self._masto_entry())
+        self.assertEqual(stats["resurrected"], 1)
+
+    # -- concurrency: fresh re-read preserves a concurrent syndication -----
+
+    @patch("social.mastodon_client.Mastodon")
+    def test_concurrent_account_addition_survives_sweep(self, mock_mastodon_class):
+        # While the existence check for 'personal' runs, a syndication adds 'work' to
+        # the same post. The sweep must not clobber 'work' when it writes 'personal'.
+        def side_effect(status_id):
+            mapping = self.store.get_syndication_mapping(self.post_id)
+            mapping["platforms"]["mastodon"]["work"] = {"status_id": "9", "post_url": "uw"}
+            self.store.put_syndication_mapping(self.post_id, mapping)
+            raise MastodonNotFoundError("gone")
+        client, _ = _make_client(mock_mastodon_class, side_effect)
+        self._seed_mapping({"status_id": "1", "post_url": "u1"})
+
+        self._service(client, threshold=1).prune_dead_links()
+
+        accounts = self.store.get_syndication_mapping(self.post_id)["platforms"]["mastodon"]
+        self.assertTrue(accounts["personal"]["deleted"])   # personal flagged dead
+        self.assertIn("work", accounts)                    # concurrent add preserved
+        self.assertEqual(accounts["work"]["status_id"], "9")
 
 
 if __name__ == "__main__":

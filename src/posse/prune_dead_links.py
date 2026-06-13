@@ -30,6 +30,7 @@ def main() -> int:
     interactions_config = config.get("interactions", {})
     storage_path = interactions_config.get("cache_directory", "./data")
     dead_link_confirm_threshold = interactions_config.get("dead_link_confirm_threshold", 2)
+    dead_link_recheck_days = interactions_config.get("dead_link_recheck_days", 7)
 
     mastodon_clients = MastodonClient.from_config(config)
     enabled = [c for c in mastodon_clients if c.enabled]
@@ -43,6 +44,7 @@ def main() -> int:
         storage_path=storage_path,
         timezone_name=timezone_name,
         dead_link_confirm_threshold=dead_link_confirm_threshold,
+        dead_link_recheck_days=dead_link_recheck_days,
     )
 
     stats = service.prune_dead_links()

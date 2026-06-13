@@ -8,7 +8,7 @@ import logging
 import os
 import re
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from requests.exceptions import Timeout, RequestException
 from mastodon import MastodonNotFoundError
@@ -39,6 +39,7 @@ class InteractionSyncService:
         timezone_name: str = "UTC",
         notifier: Optional[Any] = None,
         dead_link_confirm_threshold: int = 2,
+        dead_link_recheck_days: int = 7,
     ):
         """Initialize the interaction sync service.
 
@@ -51,6 +52,9 @@ class InteractionSyncService:
             dead_link_confirm_threshold: Number of consecutive sweeps a Mastodon status
                 must return 404 before its syndication link is suppressed. Guards against
                 a single fluke 404 hiding a link that actually exists.
+            dead_link_recheck_days: Once a link is confirmed deleted, how long to wait
+                before re-verifying it again. Avoids re-hitting permanently-gone statuses
+                on every sweep while still allowing recovery if the post returns.
         """
         self.mastodon_clients = mastodon_clients or []
         self.bluesky_clients = bluesky_clients or []
@@ -59,6 +63,7 @@ class InteractionSyncService:
         self.timezone = ZoneInfo(self.timezone_name)
         self.notifier = notifier
         self.dead_link_confirm_threshold = max(1, int(dead_link_confirm_threshold))
+        self.dead_link_recheck_days = max(0, int(dead_link_recheck_days))
 
         # Create storage directory if it doesn't exist
         os.makedirs(self.storage_path, mode=0o755, exist_ok=True)
@@ -825,6 +830,10 @@ class InteractionSyncService:
         Records are never purged — entries are only flagged ``deleted: true`` while
         retaining ``status_id``/``post_url``.
 
+        Concurrency: existence checks (network) run against an in-memory snapshot; the
+        mapping is then re-read fresh and mutated by ``status_id`` immediately before the
+        write, so a syndication that lands on the same post mid-sweep is not clobbered.
+
         Returns:
             Stats dict with ``checked``, ``newly_suppressed``, ``resurrected`` and
             ``pending_strikes`` counts.
@@ -838,16 +847,51 @@ class InteractionSyncService:
         mappings = self.data_store.list_syndication_mappings()
         logger.info(f"Dead-link sweep starting over {len(mappings)} syndication mapping(s)")
 
-        for mapping in mappings:
-            ghost_post_id = str(mapping.get("ghost_post_id", ""))
+        for snapshot in mappings:
+            ghost_post_id = str(snapshot.get("ghost_post_id", ""))
             if not ghost_post_id:
                 continue
-            mastodon_accounts = mapping.get("platforms", {}).get("mastodon", {})
-            if not mastodon_accounts:
+            accounts = snapshot.get("platforms", {}).get("mastodon", {})
+            if not accounts:
                 continue
 
+            # Phase 1 — existence checks (network), no write held. Skip statuses still
+            # inside the recheck backoff so permanently-gone posts aren't re-hit every
+            # sweep. results: {account_name: {status_id: bool}} (unknown/skipped omitted).
+            results: Dict[str, Dict[str, bool]] = {}
+            for account_name, account_data in accounts.items():
+                entries = account_data if isinstance(account_data, list) else [account_data]
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    status_id = entry.get("status_id")
+                    if not status_id:
+                        continue
+                    if self._within_recheck_backoff(entry):
+                        continue
+                    stats["checked"] += 1
+                    exists = self._mastodon_status_exists(account_name, status_id)
+                    if exists is None:
+                        # Outage / unknown — never advance toward suppression.
+                        continue
+                    results.setdefault(account_name, {})[str(status_id)] = exists
+
+            if not results:
+                continue
+
+            # Phase 2 — re-read the mapping fresh and apply the decisions by status_id.
+            # Only in-memory work happens here (no network), so the read-modify-write
+            # window is tiny and concurrent syndication writes survive.
+            fresh = self.data_store.get_syndication_mapping(ghost_post_id)
+            if not fresh:
+                continue
+            fresh_accounts = fresh.get("platforms", {}).get("mastodon", {})
             mapping_changed = False
-            for account_name, account_data in list(mastodon_accounts.items()):
+
+            for account_name, status_results in results.items():
+                account_data = fresh_accounts.get(account_name)
+                if account_data is None:
+                    continue  # account concurrently removed / re-syndicated
                 was_deleted = self._is_account_deleted(account_data)
                 entries = account_data if isinstance(account_data, list) else [account_data]
                 account_changed = False
@@ -855,29 +899,24 @@ class InteractionSyncService:
                 for entry in entries:
                     if not isinstance(entry, dict):
                         continue
-                    status_id = entry.get("status_id")
-                    if not status_id:
+                    sid = str(entry.get("status_id") or "")
+                    if sid not in status_results:
                         continue
 
-                    stats["checked"] += 1
-                    exists = self._mastodon_status_exists(account_name, status_id)
-
-                    if exists is None:
-                        # Outage / unknown — never advance toward suppression.
-                        continue
-                    if exists:
+                    if status_results[sid]:
                         # Resurrect: clear any accumulated dead state.
-                        if any(k in entry for k in ("deleted", "dead_strikes", "first_seen_dead")):
-                            entry.pop("deleted", None)
-                            entry.pop("dead_strikes", None)
-                            entry.pop("first_seen_dead", None)
+                        dead_keys = ("deleted", "dead_strikes", "first_seen_dead", "last_dead_check")
+                        if any(k in entry for k in dead_keys):
+                            for k in dead_keys:
+                                entry.pop(k, None)
                             account_changed = True
                         continue
 
-                    # Confirmed 404 — record a strike.
+                    # Confirmed 404 — record a strike and the check time (drives backoff).
                     strikes = int(entry.get("dead_strikes", 0)) + 1
                     entry["dead_strikes"] = strikes
                     entry.setdefault("first_seen_dead", self._now_isoformat())
+                    entry["last_dead_check"] = self._now_isoformat()
                     account_changed = True
                     if strikes >= self.dead_link_confirm_threshold:
                         entry["deleted"] = True
@@ -906,7 +945,7 @@ class InteractionSyncService:
                     )
 
             if mapping_changed:
-                self.data_store.put_syndication_mapping(ghost_post_id, mapping)
+                self.data_store.put_syndication_mapping(ghost_post_id, fresh)
 
         logger.info(
             f"Dead-link sweep complete: checked={stats['checked']}, "
@@ -915,6 +954,25 @@ class InteractionSyncService:
             f"pending_strikes={stats['pending_strikes']}"
         )
         return stats
+
+    def _within_recheck_backoff(self, entry: Dict[str, Any]) -> bool:
+        """Return True if a confirmed-dead entry was rechecked too recently to retry.
+
+        Only confirmed-dead (``deleted``) entries back off; pending-strike and live
+        entries are always checked. ``dead_link_recheck_days == 0`` disables backoff.
+        """
+        if not entry.get("deleted") or self.dead_link_recheck_days <= 0:
+            return False
+        last = entry.get("last_dead_check") or entry.get("first_seen_dead")
+        if not last:
+            return False
+        try:
+            last_dt = datetime.fromisoformat(last)
+        except (ValueError, TypeError):
+            return False
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=self.timezone)
+        return (datetime.now(self.timezone) - last_dt) < timedelta(days=self.dead_link_recheck_days)
 
     def _suppress_account_in_interaction_data(self, ghost_post_id: str, account_name: str) -> None:
         """Remove a Mastodon account from stored interaction data so the widget hides it."""

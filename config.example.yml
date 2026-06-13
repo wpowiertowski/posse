@@ -126,6 +126,7 @@ interactions:
   # and links are restored automatically if the post becomes reachable again.
   dead_link_sweep_interval_hours: 24  # How often to sweep for dead links; 0 disables (default: 24)
   dead_link_confirm_threshold: 2  # Consecutive 404 sweeps before suppressing a link (default: 2)
+  dead_link_recheck_days: 7  # Days before re-verifying an already-confirmed-dead link (default: 7)
 
   # Privacy settings (optional)
   show_reply_content: true  # Show full comment text (default: true)

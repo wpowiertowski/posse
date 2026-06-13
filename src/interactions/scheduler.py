@@ -8,7 +8,7 @@ import logging
 import threading
 import time
 from typing import Optional, List, Any, Dict
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from interactions.interaction_sync import InteractionSyncService
@@ -69,9 +69,9 @@ class InteractionScheduler:
         self.timezone_name = self._normalize_timezone_name(timezone_name)
         self.timezone = ZoneInfo(self.timezone_name)
         self.dead_link_sweep_interval_hours = dead_link_sweep_interval_hours
-        self._last_dead_link_sweep: Optional[datetime] = None
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._sweep_thread: Optional[threading.Thread] = None
         # Cache for Ghost posts to reduce API calls
         self._ghost_posts_cache: Dict[str, Dict[str, Any]] = {}
         self._ghost_posts_cache_time: Optional[datetime] = None
@@ -119,6 +119,12 @@ class InteractionScheduler:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
+        # Run the dead-link sweep on its own thread so its many (slow) network checks
+        # never stall the regular interaction-sync cycle.
+        if self.dead_link_sweep_interval_hours and self.dead_link_sweep_interval_hours > 0:
+            self._sweep_thread = threading.Thread(target=self._sweep_loop, daemon=True)
+            self._sweep_thread.start()
+
     def stop(self, timeout: int = 30) -> None:
         """
         Stop the scheduler.
@@ -133,6 +139,8 @@ class InteractionScheduler:
         logger.info("Stopping InteractionScheduler")
         self._stop_event.set()
         self._thread.join(timeout=timeout)
+        if self._sweep_thread and self._sweep_thread.is_alive():
+            self._sweep_thread.join(timeout=timeout)
 
         if self._thread.is_alive():
             logger.warning("InteractionScheduler did not stop within timeout")
@@ -148,11 +156,6 @@ class InteractionScheduler:
                 self._sync_all_posts()
             except Exception as e:
                 logger.error(f"Error in scheduler sync cycle: {e}", exc_info=True)
-
-            try:
-                self._maybe_sweep_dead_links()
-            except Exception as e:
-                logger.error(f"Error in dead-link sweep: {e}", exc_info=True)
 
             # Sleep for the interval (check stop event periodically)
             for _ in range(self.sync_interval_minutes * 60):
@@ -251,29 +254,30 @@ class InteractionScheduler:
             log_msg += f", not_in_ghost={skipped_not_in_ghost}"
         logger.info(log_msg)
 
-    def _maybe_sweep_dead_links(self) -> None:
-        """Run the dead-link sweep if it is due.
+    def _sweep_loop(self) -> None:
+        """Background loop running the dead-link sweep on its own thread.
 
-        Runs once at startup (``_last_dead_link_sweep is None``) to clean up existing
-        dead links, then every ``dead_link_sweep_interval_hours``. The sweep checks ALL
-        syndication mappings regardless of the age window used by the regular sync, so
-        long-deleted (auto-deleted) posts are still discovered.
+        Runs once at startup (to clean up existing dead links), then every
+        ``dead_link_sweep_interval_hours``. The sweep checks ALL syndication mappings
+        regardless of the age window used by the regular sync, so long-deleted
+        (auto-deleted) posts are still discovered. Running on a dedicated thread keeps
+        the sweep's many network checks from stalling the regular sync cycle.
         """
-        if not self.dead_link_sweep_interval_hours or self.dead_link_sweep_interval_hours <= 0:
-            return
+        logger.info("Dead-link sweep thread started")
+        while not self._stop_event.is_set():
+            try:
+                logger.info("Running dead-link sweep")
+                self.sync_service.prune_dead_links()
+            except Exception as e:
+                logger.error(f"Error in dead-link sweep: {e}", exc_info=True)
 
-        now = self._now()
-        due = (
-            self._last_dead_link_sweep is None
-            or (now - self._last_dead_link_sweep)
-            >= timedelta(hours=self.dead_link_sweep_interval_hours)
-        )
-        if not due:
-            return
+            # Sleep for the interval (check stop event periodically)
+            for _ in range(int(self.dead_link_sweep_interval_hours * 3600)):
+                if self._stop_event.is_set():
+                    break
+                time.sleep(1)
 
-        logger.info("Running dead-link sweep")
-        self.sync_service.prune_dead_links()
-        self._last_dead_link_sweep = now
+        logger.info("Dead-link sweep thread stopped")
 
     def _get_post_age_days(self, mapping: dict) -> float:
         """

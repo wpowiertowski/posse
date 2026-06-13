@@ -127,6 +127,25 @@ class TestRepostOne(unittest.TestCase):
         posted = client.post.call_args.kwargs["content"]
         self.assertIn("https://blog.example.com/p/", posted)
 
+    def test_cleans_up_cached_images_after_post(self):
+        client = self._client()
+        # Local image in the post HTML so _extract_post_data returns it.
+        ghost_api = self._ghost_api({
+            "title": "Title", "url": "https://blog.example.com/p/",
+            "custom_excerpt": "", "tags": [],
+            "feature_image": "https://blog.example.com/feat.jpg", "feature_image_alt": "alt",
+            "html": "",
+        })
+        item = {"ghost_post_id": self.post_id, "ghost_post_url": "https://blog.example.com/p/",
+                "account_name": "personal"}
+
+        ok = repost_dead_links._repost_one(item, ghost_api, {"personal": client}, self.tmp, "UTC")
+
+        self.assertTrue(ok)
+        # Downloaded images must be cleaned up like the normal syndication path.
+        client._remove_images.assert_called_once()
+        self.assertIn("https://blog.example.com/feat.jpg", client._remove_images.call_args.args[0])
+
     def test_skips_when_ghost_post_missing(self):
         client = self._client()
         ghost_api = self._ghost_api(None)
