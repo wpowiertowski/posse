@@ -34,9 +34,15 @@ Security:
     - No credentials are logged or stored in code
     - Access token should be kept secret
 """
+import hashlib
 import logging
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
-from mastodon import Mastodon, MastodonError
+from mastodon import (
+    Mastodon,
+    MastodonError,
+    MastodonNetworkError,
+    MastodonServerError,
+)
 
 from social.base_client import SocialMediaClient
 
@@ -81,6 +87,18 @@ class MastodonClient(SocialMediaClient):
         self.notifier = notifier
         super().__init__(**kwargs)
     
+    @staticmethod
+    def _is_transient_error(exception: Exception) -> bool:
+        """Return True for Mastodon errors worth retrying.
+
+        Treats network failures and 5xx server errors as transient. Other API
+        errors (4xx, validation, auth) are not retried. Rate limits are handled
+        by Mastodon.py itself (ratelimit_method="wait", set in _initialize_api),
+        which blocks until the reset window and never surfaces as an exception
+        here, so retrying them separately would only ignore that reset window.
+        """
+        return isinstance(exception, (MastodonNetworkError, MastodonServerError))
+
     def _initialize_api(self) -> None:
         """Initialize the Mastodon API client.
 
@@ -92,7 +110,10 @@ class MastodonClient(SocialMediaClient):
         self.api = Mastodon(
             access_token=self.access_token,
             api_base_url=self.instance_url,
-            request_timeout=15  # 15 second timeout for API requests
+            request_timeout=15,  # 15 second timeout for API requests
+            # Block until the reset window on 429s instead of raising, so rate
+            # limits are honored precisely rather than retried with blind backoff.
+            ratelimit_method="wait",
         )
         
         # Verify credentials immediately to catch authentication issues
@@ -210,9 +231,14 @@ class MastodonClient(SocialMediaClient):
                     if media_descriptions and i < len(media_descriptions):
                         description = media_descriptions[i]
                     
-                    # Upload to Mastodon
+                    # Upload to Mastodon, retrying transient blips so a
+                    # temporary instance hiccup doesn't silently drop the image.
                     try:
-                        media = self.api.media_post(temp_path, description=description)
+                        media = self._retry_with_backoff(
+                            lambda: self.api.media_post(temp_path, description=description),
+                            is_transient=self._is_transient_error,
+                            operation_name=f"Mastodon media_post ({self.account_name})",
+                        )
                         media_ids.append(media["id"])
                         logger.debug(f"Uploaded media {url} with ID {media['id']}")
                     except MastodonError as e:
@@ -226,13 +252,33 @@ class MastodonClient(SocialMediaClient):
                                 error_msg
                             )
             
-            # Post status with media IDs
-            result = self.api.status_post(
-                status=content,
-                visibility=visibility,
-                sensitive=sensitive,
-                spoiler_text=spoiler_text,
-                media_ids=media_ids if media_ids else None
+            # Post status with media IDs. Retry on transient errors (network
+            # blips, 5xx) so a temporary instance hiccup doesn't drop the
+            # syndication. status_post is not naturally idempotent, so pass a
+            # stable Idempotency-Key derived from the post's content: if an
+            # attempt actually reached the server but the response was lost, the
+            # retry returns the original status instead of creating a duplicate.
+            idempotency_key = hashlib.sha256(
+                "|".join(
+                    [
+                        content,
+                        visibility or "",
+                        spoiler_text or "",
+                        ",".join(media_ids),
+                    ]
+                ).encode("utf-8")
+            ).hexdigest()
+            result = self._retry_with_backoff(
+                lambda: self.api.status_post(
+                    status=content,
+                    visibility=visibility,
+                    sensitive=sensitive,
+                    spoiler_text=spoiler_text,
+                    media_ids=media_ids if media_ids else None,
+                    idempotency_key=idempotency_key,
+                ),
+                is_transient=self._is_transient_error,
+                operation_name=f"Mastodon status_post ({self.account_name})",
             )
             logger.info(f"Successfully posted status to Mastodon: {result['url']}")
             return result

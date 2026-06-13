@@ -54,6 +54,7 @@ from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
 from PIL import Image
 from atproto import Client, client_utils, models
+from atproto.exceptions import InvokeTimeoutError, NetworkError, RequestException
 
 from social.base_client import SocialMediaClient
 
@@ -141,6 +142,36 @@ class BlueskyClient(SocialMediaClient):
             split_multi_image_posts=split_multi_image_posts
         )
     
+    # HTTP status codes worth retrying: 5xx server errors and 429 rate limits.
+    _TRANSIENT_STATUS_CODES = frozenset({500, 502, 503, 504, 429})
+
+    @classmethod
+    def _is_transient_error(cls, exception: Exception) -> bool:
+        """Return True for Bluesky errors that are safe to retry.
+
+        send_post is *not* idempotent — atproto generates a fresh record key per
+        call — so a retry after the write may have already committed would create
+        a duplicate post. We therefore only retry failures that almost certainly
+        happened before the server processed the write:
+
+        - NetworkError: the request never got a response (connection refused,
+          reset, DNS, etc.).
+        - RequestException with a 5xx/429 status: the server explicitly rejected
+          the request without committing it.
+
+        InvokeTimeoutError (a subclass of NetworkError) is deliberately excluded:
+        a read timeout is ambiguous — the write may have succeeded server-side —
+        and retrying it is the most likely way to produce duplicates.
+        """
+        if isinstance(exception, InvokeTimeoutError):
+            return False
+        if isinstance(exception, NetworkError):
+            return True
+        if isinstance(exception, RequestException):
+            status_code = getattr(exception.response, "status_code", None)
+            return status_code in cls._TRANSIENT_STATUS_CODES
+        return False
+
     def _initialize_api(self) -> None:
         """Initialize the Bluesky ATProto client.
         
@@ -460,8 +491,14 @@ class BlueskyClient(SocialMediaClient):
                             max_size=self.MAX_BLOB_SIZE,
                             max_dimension=self.IMAGE_MAX_DIMENSION
                         )
-                        upload_result = self.api.upload_blob(image_data)
-                        
+                        # Retry transient blips (connection errors, 5xx) so a
+                        # temporary outage doesn't silently drop the image.
+                        upload_result = self._retry_with_backoff(
+                            lambda: self.api.upload_blob(image_data),
+                            is_transient=self._is_transient_error,
+                            operation_name=f"Bluesky upload_blob ({self.account_name})",
+                        )
+
                         # Create Image object with blob reference and alt text
                         images.append(
                             models.AppBskyEmbedImages.Image(
@@ -485,9 +522,15 @@ class BlueskyClient(SocialMediaClient):
                 if images:
                     embed = models.AppBskyEmbedImages.Main(images=images)
             
-            # Send post using the ATProto client
-            result = self.api.send_post(text_builder, embed=embed)
-            
+            # Send post using the ATProto client. Retry on transient errors
+            # (network blips, 5xx, rate limits) so a temporary outage doesn't
+            # drop the syndication.
+            result = self._retry_with_backoff(
+                lambda: self.api.send_post(text_builder, embed=embed),
+                is_transient=self._is_transient_error,
+                operation_name=f"Bluesky send_post ({self.account_name})",
+            )
+
             logger.info(f"Successfully posted to Bluesky '{self.account_name}': {result.uri}")
             return {
                 "uri": result.uri,

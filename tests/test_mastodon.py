@@ -77,14 +77,16 @@ class TestMastodonClient(unittest.TestCase):
         # Post without media
         result = client.post("Test post")
         
-        # Verify status_post was called without media_ids
-        mock_api.status_post.assert_called_once_with(
-            status="Test post",
-            visibility="public",
-            sensitive=False,
-            spoiler_text=None,
-            media_ids=None
-        )
+        # Verify status_post was called without media_ids (an idempotency_key
+        # is also passed so retries don't create duplicate posts).
+        mock_api.status_post.assert_called_once()
+        status_args = mock_api.status_post.call_args.kwargs
+        self.assertEqual(status_args["status"], "Test post")
+        self.assertEqual(status_args["visibility"], "public")
+        self.assertFalse(status_args["sensitive"])
+        self.assertIsNone(status_args["spoiler_text"])
+        self.assertIsNone(status_args["media_ids"])
+        self.assertTrue(status_args["idempotency_key"])
         
         # Verify result
         self.assertIsNotNone(result)

@@ -727,9 +727,11 @@ def process_events(mastodon_clients: List["MastodonClient"] = None, bluesky_clie
                         )
                         futures.append(future)
                 
-                # Wait for all posts to complete (with timeout)
+                # Wait for all posts to complete. Allow enough time for the
+                # built-in transient-error retries in each client (per-attempt
+                # API timeouts plus exponential backoff).
                 results = []
-                for future in as_completed(futures, timeout=60):
+                for future in as_completed(futures, timeout=120):
                     try:
                         result = future.result()
                         results.append(result)
