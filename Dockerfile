@@ -1,7 +1,9 @@
 # Use Alpine base image which has BusyBox tar 1.37.0, not vulnerable to CVE-2025-45582
 # (CVE-2025-45582 only affects GNU tar <= 1.35)
 # CVE-2025-60876 fix: Install GNU wget to replace vulnerable BusyBox wget (1.37.0-r30)
-FROM python:3.14-alpine
+# Pinned by digest so a Docker Hub tag compromise can't silently change the
+# base image; Dependabot keeps the digest current alongside the tag.
+FROM python:3.14-alpine@sha256:003970a263347645cd23d4f90929ad16ba7ce7d808ee4674ffcc93cb21cc289f
 
 # CVE-2026-22184 fix: Explicitly upgrade zlib to >= 1.3.1.3 to fix critical buffer overflow
 # This critical vulnerability (CVSS 9.3) affects zlib <= 1.3.1.2 in the untgz utility
@@ -16,7 +18,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    POETRY_VERSION=2.2.1 \
+    POETRY_VERSION=2.4.1 \
     POETRY_HOME="/opt/poetry" \
     POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_IN_PROJECT=false \
@@ -38,14 +40,18 @@ WORKDIR /app
 # Copy dependency files
 COPY pyproject.toml poetry.lock* ./
 
+# Production images exclude dev dependencies (pytest etc.); the compose test
+# service overrides this with "--with dev".
+ARG POETRY_INSTALL_ARGS="--only main"
+
 # Install dependencies
-RUN poetry install --no-root
+RUN poetry install --no-root $POETRY_INSTALL_ARGS
 
 # Copy application code
 COPY . .
 
 # Install the project
-RUN poetry install
+RUN poetry install $POETRY_INSTALL_ARGS
 
 # Expose port
 EXPOSE 5000

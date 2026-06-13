@@ -26,11 +26,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        POETRY_INSTALL_ARGS: "--with dev"
     container_name: posse-test
     volumes:
       - .:/app
       - ./config.yml:/app/config.yml:ro
-      - poetry_cache:/root/.cache/pypoetry
+      # Separate volume from the app service: the Poetry virtualenv lives under
+      # the cache dir, and the test image installs dev deps (pytest) while the
+      # app image installs only main. Sharing one volume would let whichever
+      # service started first seed the venv, so running `docker compose up`
+      # before the tests would leave the test venv without pytest.
+      - poetry_cache_test:/root/.cache/pypoetry
     command: poetry run pytest
     profiles:
       - test
@@ -65,3 +72,4 @@ secrets:
   #   file: ./secrets/bluesky_professional_access_token.txt
 volumes:
   poetry_cache:
+  poetry_cache_test:
