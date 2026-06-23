@@ -6,12 +6,16 @@ on:
       - poetry.lock
       - pyproject.toml
       - Dockerfile
+      - .trivyignore
+      - osv-scanner.toml
   push:
     branches: [ main ]
     paths:
       - poetry.lock
       - pyproject.toml
       - Dockerfile
+      - .trivyignore
+      - osv-scanner.toml
   # Weekly scan catches advisories published against versions we already
   # run, independent of any dependency change landing.
   schedule:

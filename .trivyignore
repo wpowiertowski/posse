@@ -1,0 +1,18 @@
+# Trivy ignore file — consumed by the image-scan job in .github/workflows/audit.yml.
+#
+# GHSA-537c-gmf6-5ccf — "Vulnerable OpenSSL included in cryptography wheels"
+#
+# cryptography is not a first-party dependency: POSSE's own code never imports
+# it. It is pulled in transitively by atproto, whose every published release
+# (up to and including the latest, 0.0.68) constrains `cryptography <47`.
+# The advisory is only fixed in cryptography 48.0.1, so there is no version
+# that satisfies both atproto's ceiling and the fix — `poetry lock` fails to
+# resolve if we floor cryptography at >=48.0.1.
+#
+# The flaw lives in the OpenSSL statically bundled in cryptography's prebuilt
+# wheels, not in cryptography's own Python code. We accept this finding until
+# atproto relaxes its <47 pin (track https://github.com/MarshalX/atproto), at
+# which point cryptography should be floored at >=48.0.1 and this entry removed.
+#
+# Review by: 2026-09-01
+GHSA-537c-gmf6-5ccf

@@ -1,0 +1,15 @@
+# OSV-Scanner config — consumed by the osv-scan job in .github/workflows/audit.yml.
+# https://google.github.io/osv-scanner/configuration/
+
+# GHSA-537c-gmf6-5ccf — "Vulnerable OpenSSL included in cryptography wheels".
+#
+# cryptography is only present transitively via atproto, whose every published
+# release (through the latest, 0.0.68) pins `cryptography <47`. The advisory is
+# only fixed in 48.0.1, so no version satisfies both atproto's ceiling and the
+# fix. The flaw is in the OpenSSL bundled in cryptography's prebuilt wheels, not
+# in its Python code. Revisit once atproto relaxes the <47 pin, then floor
+# cryptography at >=48.0.1 and remove this entry.
+[[IgnoredVulns]]
+id = "GHSA-537c-gmf6-5ccf"
+ignoreUntil = 2026-09-01
+reason = "Transitive via atproto, which pins cryptography <47; fix is 48.0.1 (unsatisfiable). Bundled-OpenSSL wheel issue only."
