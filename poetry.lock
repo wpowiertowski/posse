@@ -32,14 +32,14 @@ trio = ["trio (>=0.31.0) ; python_version < \"3.10\"", "trio (>=0.32.0) ; python
 
 [[package]]
 name = "atproto"
-version = "0.0.68"
+version = "0.0.69"
 description = "The AT Protocol SDK"
 optional = false
 python-versions = "<3.15,>=3.9"
 groups = ["main"]
 files = [
-    {file = "atproto-0.0.68-py3-none-any.whl", hash = "sha256:ddd41964d7ccd2e84e278923f89c2182bc29892ec04d1b71e4211a8ab5081024"},
-    {file = "atproto-0.0.68.tar.gz", hash = "sha256:6ac124520ef9c40f20cc584cb1efa6f68a3a7a05f6275bfedf2438f31072eed8"},
+    {file = "atproto-0.0.69-py3-none-any.whl", hash = "sha256:fe902039142d26ca6543c9381713479cd7c13ff6b20dd0622b9cdfbf62f1e61d"},
+    {file = "atproto-0.0.69.tar.gz", hash = "sha256:3b42d495f95a5e8dbfc6abec4308552b07d8f73da96536fff1c7b2fcc5befe0d"},
 ]
 
 [package.dependencies]
@@ -1737,4 +1737,4 @@ watchdog = ["watchdog (>=2.3)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.14,<3.15"
-content-hash = "b50fcd42f2b5fab82ee42087b4de5841b4f64b6fa1be056dcfa10a17b6b56a5b"
+content-hash = "82585541abfa6fd4e3a28d978b59512c8908d308809669aabc59b665cab5c3e9"
