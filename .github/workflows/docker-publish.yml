@@ -34,7 +34,7 @@ jobs:
 
       - name: Extract metadata for Docker
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@v6.1.0
         with:
           images: ${{ secrets.DOCKER_HUB_USERNAME }}/posse
           tags: |
