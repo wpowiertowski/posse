@@ -8,16 +8,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.3.0] - 2026-09-01
+
+### Added
+
+- **Dead Mastodon syndication link detection** - Mastodon auto-delete removes older syndications server-side, leaving POSSE presenting dead links in the widget. An age-agnostic sweep (`InteractionSyncService.prune_dead_links`) now scans every mapping with a cheap existence check and suppresses links whose status is gone. It is outage-safe and self-healing: only a 404 confirmed across `dead_link_confirm_threshold` sweeps suppresses a link, transient failures change no state, and links are restored automatically if the status returns. `status_id`/`post_url` are always retained so a later repost can find them. Runs at startup and every `dead_link_sweep_interval_hours` on its own thread; manual trigger via `python -m posse.prune_dead_links` (#113)
+- **Repost tool for dead syndications** - `python -m posse.repost_dead_links` re-syndicates blog posts whose Mastodon status was deleted server-side, reusing the normal syndication path and overwriting the dead mapping so the widget shows the live link. Supports `--dry-run`, `--limit`, `--account`, and `--delay` (#113)
+- **Automatic retry of transient posting failures** - Publishing to Mastodon and Bluesky now retries up to 3 attempts with exponential backoff on network failures, 5xx, and rate limiting; permanent errors (4xx, validation, auth) still fail fast. Mastodon sends a stable `Idempotency-Key` so a retry after a lost response returns the original status instead of duplicating the post, and Bluesky does not retry read timeouts since the write may already have committed. Media uploads are retried too, so a temporary hiccup no longer silently drops an image (#114)
+- **Server-side sanitisation of webmention content** - Incoming `e-content` is filtered through an allowlist parser (`p`, `br`, `a`, `strong`, `em`, `blockquote`, `code`, `pre`) matching the widget's own sanitiser, guarding against stored XSS for any consumer reading `/api/webmentions` directly and stopping mf2py from storing JSON-LD or inline CSS scooped out of `<script>`/`<style>`. Existing rows can be cleaned in place with `make resanitize-webmentions` (`-dryrun` to preview) (#111)
+- **Automated dependency auditing** - Dependabot configuration (7-day cooldown), a weekly OSV scan of `poetry.lock`, and a Trivy image scan covering the base image and apk packages that the lockfile scan cannot see. The process is documented in `docs/DEPENDENCY_UPDATE_PROTOCOL.md` (#116)
+
+### Changed
+
+- **Syndicated URLs carry a `ref` parameter** - Each syndicated post URL now includes `?ref=mastodon` or `?ref=bluesky` so Ghost analytics attributes the referral instead of counting it as a direct visit; existing query strings and a pre-set `ref` are preserved (#112)
+- **Production image installs only main dependencies** - A `POETRY_INSTALL_ARGS` build arg defaults to `--only main`; the compose test service overrides it with `--with dev` and gets its own `poetry_cache_test` volume so the two services no longer share a virtualenv (#116)
+- **Older posts throttled by sync cycle count** instead of hour parity, making the interaction sync cadence independent of wall-clock time (#115)
+- **Dead code removed** - Dropped the unused `favourited_by`/`reblogged_by` and `get_likes`/`get_reposted_by` calls (counts already come from the status/thread), plus `_prepare_content` and `_filter_nosplit_tag` (#115)
+- **Dependency bumps** - gunicorn 23.0.0 → 26.2.0, Mastodon.py 2.1.4 → 2.2.2, atproto 0.0.65 → 0.0.71, Pillow 12.2.0 → 12.3.0, flask-cors 6.0.2 → 6.0.5, requests 2.33.1 → 2.34.2, Pygments 2.20.0 → 2.21.0, and the pinned GitHub Actions
+
 ### Fixed
 
-- **Posting and interaction sync against instances that omit `X-RateLimit-Reset`** - Pixelfed sends `X-RateLimit-Limit`/`Remaining` but no reset header, which made Mastodon.py raise `MastodonRatelimitError` on every request, breaking syndication and interaction sync for affected accounts. A session response hook now synthesizes a reset time (honouring `Retry-After` when present) only when the header is genuinely absent, leaving compliant instances untouched
+- **Concurrent writes clobbering interaction and mapping data** - A per-database lock now guards every interaction/mapping read-modify-write sequence, so parallel posts and the dead-link sweep can no longer overwrite each other; the periodic sync re-reads under the lock before writing and drops accounts suppressed mid-sync (#115)
+- **Image cleanup and webmention sending skipped on slow accounts** - An account hitting the `as_completed` timeout no longer bypasses image cleanup, webmention sending, and `task_done` (#115)
+- **Over-length posts from long hashtags and URLs** - `max_text_length` is now clamped so the appended hashtags and link cannot push a post past the platform limit (#115)
+- **Infinite recursion in Pushover notifications** - A per-thread re-entrancy guard stops the failure log routing back into the handler when the Pushover API is down (#115)
+- **Bluesky link facets** - Balanced trailing `)` is kept on URLs, and facets overlapping an already-emitted one (such as a `#fragment` inside a URL) are skipped (#115)
+- **Webmention verification false negatives** - Source pages are parsed for real anchors (ignoring comments and scripts) and target URLs are normalised for scheme, trailing slash, and `?ref=` before comparison (#115)
+- **Mastodon direct replies crowding out public ones** - Direct replies are filtered before the latest 10 are taken, rather than after (#115)
+- **Re-notification of old replies** - Newly (re)populated accounts are seeded silently instead of sending a Pushover alert for every historical reply (#115)
+- **Posting and interaction sync against instances that omit `X-RateLimit-Reset`** - Pixelfed sends `X-RateLimit-Limit`/`Remaining` but no reset header, which made Mastodon.py raise `MastodonRatelimitError` on every request, breaking syndication and interaction sync for affected accounts. A session response hook now synthesizes a reset time (honouring `Retry-After` when present) only when the header is genuinely absent, leaving compliant instances untouched (#162)
+- **Pushover integration test failing on Dependabot PRs** - CI writes empty secret files when the Pushover secrets are unavailable so the test skips instead of failing (#124)
 
 ### Security
 
-- **`cryptography` 46.0.7 → 50.0.1** - Resolves four advisories: a Bleichenbacher oracle in PKCS#7 `EnvelopedData` decryption (CVE-2026-69247), exponential certificate path-building from duplicate self-signed intermediates (CVE-2026-69249), wildcard DNS names escaping `permittedSubtrees` (CVE-2026-69248), and a vulnerable bundled OpenSSL (GHSA-537c-gmf6-5ccf)
-- **`atproto` 0.0.69 → 0.0.71** - Required for the above: 0.0.69 pinned `cryptography <47`, and 0.0.70 raised that ceiling to `<51`
-- **pip removed from the production image** - Trivy flagged the `msgpack` and `setuptools` copies vendored inside pip (GHSA-6v7p-g79w-8964, CVE-2025-47273). The newest pip still vendors the affected versions, so no upgrade clears them; pip is only needed to build the image, never to run it, so it is now dropped from the final layer
-- **Removed `.trivyignore` and `osv-scanner.toml`** - Their sole entry suppressed GHSA-537c-gmf6-5ccf, which was unfixable only because atproto pinned `cryptography <47`. That constraint is gone and the advisory is genuinely resolved, so the suppression is no longer needed. The project now carries no vulnerability suppressions
+- **SSRF via redirects in the webmention receiver** - Redirects are now followed manually with every hop re-validated against the private/loopback guard (source fetch and endpoint discovery), and outbound webmention POSTs no longer auto-follow redirects (#115)
+- **`urllib3` 2.6.3 → 2.7.0 and `idna` 3.11 → 3.18** - Fixes a cross-origin header leak (CVE-2026-44431), a decompression-bomb safeguard bypass (CVE-2026-44432), and CVE-2026-45409. All three sit directly in the webmention receiver's attack path, which fetches attacker-supplied URLs (#116)
+- **Base image pinned by digest** - `python:3.14-alpine` is pinned by sha256 so a Docker Hub tag compromise cannot silently swap the image; Dependabot keeps the digest current (#116)
+- **Poetry 2.2.1 → 2.4.1** - Clears an arbitrary file write via crafted package install (CVE-2026-34591) and two dulwich advisories (CVE-2026-42305, CVE-2026-42563) in build tooling (#116)
+- **`cryptography` 46.0.7 → 50.0.1** - Resolves four advisories: a Bleichenbacher oracle in PKCS#7 `EnvelopedData` decryption (CVE-2026-69247), exponential certificate path-building from duplicate self-signed intermediates (CVE-2026-69249), wildcard DNS names escaping `permittedSubtrees` (CVE-2026-69248), and a vulnerable bundled OpenSSL (GHSA-537c-gmf6-5ccf) (#163)
+- **`atproto` 0.0.69 → 0.0.71** - Required for the above: 0.0.69 pinned `cryptography <47`, and 0.0.70 raised that ceiling to `<51` (#163)
+- **pip removed from the production image** - Trivy flagged the `msgpack` and `setuptools` copies vendored inside pip (GHSA-6v7p-g79w-8964, CVE-2025-47273). The newest pip still vendors the affected versions, so no upgrade clears them; pip is only needed to build the image, never to run it, so it is now dropped from the final layer (#163)
+- **Removed `.trivyignore` and `osv-scanner.toml`** - Their sole entry suppressed GHSA-537c-gmf6-5ccf, which was unfixable only because atproto pinned `cryptography <47`. That constraint is gone and the advisory is genuinely resolved, so the suppression is no longer needed. The project now carries no vulnerability suppressions (#163)
 
 
 ## [1.2.1] - 2026-05-02
