@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Posting and interaction sync against instances that omit `X-RateLimit-Reset`** - Pixelfed sends `X-RateLimit-Limit`/`Remaining` but no reset header, which made Mastodon.py raise `MastodonRatelimitError` on every request, breaking syndication and interaction sync for affected accounts. A session response hook now synthesizes a reset time (honouring `Retry-After` when present) only when the header is genuinely absent, leaving compliant instances untouched
 
+### Security
+
+- **`cryptography` 46.0.7 → 50.0.1** - Resolves four advisories: a Bleichenbacher oracle in PKCS#7 `EnvelopedData` decryption (CVE-2026-69247), exponential certificate path-building from duplicate self-signed intermediates (CVE-2026-69249), wildcard DNS names escaping `permittedSubtrees` (CVE-2026-69248), and a vulnerable bundled OpenSSL (GHSA-537c-gmf6-5ccf)
+- **`atproto` 0.0.69 → 0.0.71** - Required for the above: 0.0.69 pinned `cryptography <47`, and 0.0.70 raised that ceiling to `<51`
+
 
 ## [1.2.1] - 2026-05-02
 
