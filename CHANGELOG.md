@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Posting and interaction sync against instances that omit `X-RateLimit-Reset`** - Pixelfed sends `X-RateLimit-Limit`/`Remaining` but no reset header, which made Mastodon.py raise `MastodonRatelimitError` on every request, breaking syndication and interaction sync for affected accounts. A session response hook now synthesizes a reset time (honouring `Retry-After` when present) only when the header is genuinely absent, leaving compliant instances untouched
+
 
 ## [1.2.1] - 2026-05-02
 

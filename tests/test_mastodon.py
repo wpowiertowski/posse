@@ -20,8 +20,15 @@ import unittest
 from unittest.mock import patch, MagicMock, call
 import tempfile
 import os
+import time
 
-from social.mastodon_client import MastodonClient
+from mastodon import MastodonRatelimitError
+from requests.structures import CaseInsensitiveDict
+
+from social.mastodon_client import (
+    MastodonClient,
+    RATELIMIT_RESET_FALLBACK_SECONDS,
+)
 
 
 class TestMastodonClient(unittest.TestCase):
@@ -276,6 +283,105 @@ class TestMastodonClient(unittest.TestCase):
         
         # Verify no API calls were made
         mock_mastodon.return_value.status_post.assert_not_called()
-        
+
         # Verify result is None
         self.assertIsNone(result)
+
+
+class TestRatelimitResetBackfill(unittest.TestCase):
+    """Test suite for the missing X-RateLimit-Reset workaround.
+
+    Pixelfed sends X-RateLimit-Limit/Remaining but no X-RateLimit-Reset, which
+    makes Mastodon.py raise MastodonRatelimitError on every request.
+    """
+
+    @staticmethod
+    def _response(headers):
+        """Build a stub response carrying case-insensitive headers."""
+        response = MagicMock()
+        response.headers = CaseInsensitiveDict(headers)
+        return response
+
+    def test_reset_injected_when_missing(self):
+        """A missing reset header is filled in with a future epoch time."""
+        response = self._response({
+            "X-RateLimit-Limit": "512",
+            "X-RateLimit-Remaining": "511",
+        })
+
+        MastodonClient._backfill_ratelimit_reset(response)
+
+        reset = int(response.headers["X-RateLimit-Reset"])
+        self.assertGreater(reset, int(time.time()))
+
+    def test_existing_reset_is_preserved(self):
+        """A well-behaved instance's reset header is left untouched."""
+        response = self._response({
+            "X-RateLimit-Remaining": "42",
+            "X-RateLimit-Reset": "2026-09-01T03:13:08.000Z",
+        })
+
+        MastodonClient._backfill_ratelimit_reset(response)
+
+        self.assertEqual(
+            response.headers["X-RateLimit-Reset"], "2026-09-01T03:13:08.000Z"
+        )
+
+    def test_no_injection_without_remaining_header(self):
+        """Without X-RateLimit-Remaining, Mastodon.py never reads reset."""
+        response = self._response({"Content-Type": "application/json"})
+
+        MastodonClient._backfill_ratelimit_reset(response)
+
+        self.assertNotIn("X-RateLimit-Reset", response.headers)
+
+    def test_retry_after_seconds_used_for_reset(self):
+        """Retry-After in seconds is preferred over the fallback window."""
+        response = self._response({
+            "X-RateLimit-Remaining": "0",
+            "Retry-After": "60",
+        })
+
+        before = int(time.time())
+        MastodonClient._backfill_ratelimit_reset(response)
+
+        reset = int(response.headers["X-RateLimit-Reset"])
+        # Allow a second of slack for clock movement during the call.
+        self.assertGreaterEqual(reset, before + 60)
+        self.assertLessEqual(reset, before + 61)
+
+    def test_malformed_retry_after_falls_back(self):
+        """An HTTP-date Retry-After falls back instead of raising."""
+        response = self._response({
+            "X-RateLimit-Remaining": "0",
+            "Retry-After": "Wed, 01 Sep 2026 03:13:08 GMT",
+        })
+
+        before = int(time.time())
+        MastodonClient._backfill_ratelimit_reset(response)
+
+        reset = int(response.headers["X-RateLimit-Reset"])
+        self.assertGreaterEqual(reset, before + RATELIMIT_RESET_FALLBACK_SECONDS)
+
+    @patch("social.mastodon_client.Mastodon")
+    def test_session_hook_registered_on_api_client(self, mock_mastodon):
+        """The client hands Mastodon.py a session carrying the hook."""
+        MastodonClient(
+            instance_url="https://pixelfed.social",
+            access_token="test_access_token",
+        )
+
+        session = mock_mastodon.call_args[1]["session"]
+        self.assertIn(
+            MastodonClient._backfill_ratelimit_reset, session.hooks["response"]
+        )
+
+    def test_ratelimit_error_is_not_retried(self):
+        """Rate limit errors must not be retried: posting is not idempotent.
+
+        The exception surfaces after the server has already processed the
+        request, so a retry risks duplicating a post.
+        """
+        self.assertFalse(
+            MastodonClient._is_transient_error(MastodonRatelimitError("boom"))
+        )
