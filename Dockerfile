@@ -53,6 +53,16 @@ COPY . .
 # Install the project
 RUN poetry install $POETRY_INSTALL_ARGS
 
+# Drop pip from the final image. Trivy flags the msgpack and setuptools copies
+# vendored inside pip (GHSA-6v7p-g79w-8964, CVE-2025-47273); the newest pip
+# still vendors the affected versions, so no upgrade clears them. pip is only
+# needed to build the image — Poetry installs with its own installer and can
+# still create virtualenvs — so removing it fixes the finding for real rather
+# than suppressing it, and shrinks the runtime attack surface.
+RUN poetry run pip uninstall -y pip setuptools wheel 2>/dev/null || true; \
+    pip uninstall -y pip 2>/dev/null || true; \
+    rm -rf /root/.cache/virtualenv
+
 # Expose port
 EXPOSE 5000
 
