@@ -3,7 +3,7 @@
 # CVE-2025-60876 fix: Install GNU wget to replace vulnerable BusyBox wget (1.37.0-r30)
 # Pinned by digest so a Docker Hub tag compromise can't silently change the
 # base image; Dependabot keeps the digest current alongside the tag.
-FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92
+FROM python:3.14-alpine@sha256:3f818d6811ff5f3f2b5e5d836df3d25c2dd2e588d3b4981338a8ba17e422f74f
 
 # CVE-2026-22184 fix: Explicitly upgrade zlib to >= 1.3.1.3 to fix critical buffer overflow
 # This critical vulnerability (CVSS 9.3) affects zlib <= 1.3.1.2 in the untgz utility
