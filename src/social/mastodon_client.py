@@ -36,7 +36,9 @@ Security:
 """
 import hashlib
 import logging
+import time
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
+import requests
 from mastodon import (
     Mastodon,
     MastodonError,
@@ -50,6 +52,11 @@ if TYPE_CHECKING:
     from notifications.pushover import PushoverNotifier
 
 logger = logging.getLogger(__name__)
+
+# How long to assume a rate limit window lasts when an instance reports a
+# remaining-request count but no reset time. Only consulted once a limit is
+# actually hit, since ratelimit_method="wait" sleeps until the reset.
+RATELIMIT_RESET_FALLBACK_SECONDS = 300
 
 
 class MastodonClient(SocialMediaClient):
@@ -99,6 +106,41 @@ class MastodonClient(SocialMediaClient):
         """
         return isinstance(exception, (MastodonNetworkError, MastodonServerError))
 
+    @staticmethod
+    def _backfill_ratelimit_reset(response, *args, **kwargs) -> None:
+        """Synthesize an X-RateLimit-Reset header when an instance omits it.
+
+        Mastodon.py parses rate limit headers whenever X-RateLimit-Remaining is
+        present, and reads X-RateLimit-Reset unconditionally once it does. Some
+        Mastodon-API-compatible servers (Pixelfed, notably) send the limit and
+        remaining headers but not the reset one, so every single request to them
+        fails with MastodonRatelimitError. Filling in a plausible reset time
+        keeps those instances usable.
+
+        Only fires when the reset header is genuinely absent, so instances that
+        behave correctly are left untouched.
+        """
+        headers = response.headers
+        if "X-RateLimit-Remaining" not in headers or "X-RateLimit-Reset" in headers:
+            return
+
+        delay = RATELIMIT_RESET_FALLBACK_SECONDS
+        retry_after = headers.get("Retry-After")
+        if retry_after:
+            try:
+                delay = int(retry_after)
+            except ValueError:
+                # Retry-After may be an HTTP date rather than seconds; the
+                # fallback window is good enough for the rare 429.
+                pass
+
+        # Epoch seconds as a bare integer string: Mastodon.py tries int() first
+        # and only falls back to date parsing if that fails.
+        headers["X-RateLimit-Reset"] = str(int(time.time()) + delay)
+        logger.debug(
+            f"Instance omitted X-RateLimit-Reset; assuming a {delay}s window"
+        )
+
     def _initialize_api(self) -> None:
         """Initialize the Mastodon API client.
 
@@ -107,6 +149,11 @@ class MastodonClient(SocialMediaClient):
         Raises:
             Exception: If Mastodon API initialization fails
         """
+        # Mastodon.py routes every request through this session, so the hook
+        # repairs rate limit headers for all API calls, not just posting.
+        session = requests.Session()
+        session.hooks["response"].append(self._backfill_ratelimit_reset)
+
         self.api = Mastodon(
             access_token=self.access_token,
             api_base_url=self.instance_url,
@@ -114,6 +161,7 @@ class MastodonClient(SocialMediaClient):
             # Block until the reset window on 429s instead of raising, so rate
             # limits are honored precisely rather than retried with blind backoff.
             ratelimit_method="wait",
+            session=session,
         )
         
         # Verify credentials immediately to catch authentication issues
