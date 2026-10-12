@@ -8,7 +8,9 @@ FROM python:3.14-alpine@sha256:3f818d6811ff5f3f2b5e5d836df3d25c2dd2e588d3b498133
 # CVE-2026-22184 fix: Explicitly upgrade zlib to >= 1.3.1.3 to fix critical buffer overflow
 # This critical vulnerability (CVSS 9.3) affects zlib <= 1.3.1.2 in the untgz utility
 # Install GNU wget to mitigate CVE-2025-60876 (BusyBox wget vulnerability)
-RUN apk add --no-cache --upgrade zlib wget
+# Upgrade libuuid to >= 2.42.3-r1 for util-linux CVE-2026-53612/53613/53614,
+# CVE-2026-76642 and CVE-2026-78408/78409/78410
+RUN apk add --no-cache --upgrade zlib wget libuuid
 
 # Install build dependencies for Python packages with C extensions
 RUN apk add --no-cache gcc musl-dev libffi-dev

@@ -30,7 +30,7 @@ Pillow = "^12.2.0"
 mf2py = "^2.0.1"
 cryptography = ">=50.0.1"
 Pygments = ">=2.20.0"
-werkzeug = ">=3.1.6"
+werkzeug = ">=3.1.9"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.3"
