@@ -33,14 +33,14 @@ trio = ["trio (>=0.32.0)"]
 
 [[package]]
 name = "atproto"
-version = "0.0.72"
+version = "0.0.73"
 description = "The AT Protocol SDK"
 optional = false
 python-versions = "<3.15,>=3.9"
 groups = ["main"]
 files = [
-    {file = "atproto-0.0.72-py3-none-any.whl", hash = "sha256:239ca1c54cb4c878f625581b44abd1f0018b7b55419f7ca886468641ecb7fb09"},
-    {file = "atproto-0.0.72.tar.gz", hash = "sha256:eec904188b0beba165a7cc14ccc6a190b3ce061fecac4db3b9166e2500b02a41"},
+    {file = "atproto-0.0.73-py3-none-any.whl", hash = "sha256:772dbef364788385724b1724434a42c56b9aeeec0e480c70f6b7edd7f65f1e77"},
+    {file = "atproto-0.0.73.tar.gz", hash = "sha256:0dc0e7f60ce99113b3371528d368e47566b44344812c7b0047229eda8b07eb13"},
 ]
 
 [package.dependencies]
@@ -50,6 +50,7 @@ dnspython = ">=2.4.0,<3"
 httpx = ">=0.25.0,<0.29.0"
 libipld = ">=3.0.1,<4"
 pydantic = ">=2.7,<3"
+tlds = ">=2026093003"
 typing-extensions = ">=4.8.0,<5"
 websockets = ">=15,<18"
 zstandard = ">=0.24.0,<0.26.0"
@@ -913,14 +914,14 @@ files = [
 
 [[package]]
 name = "mastodon-py"
-version = "2.2.2"
+version = "2.3.3"
 description = "Python wrapper for the Mastodon API"
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "mastodon_py-2.2.2-py3-none-any.whl", hash = "sha256:d18a107517836c783c93c9f2e713b4fad909fcd017f5036d2ce93d3dfd781904"},
-    {file = "mastodon_py-2.2.2.tar.gz", hash = "sha256:07131f6ac8820462de25b7641622b01b22f2b9ab6b3e7252749442f51fd30778"},
+    {file = "mastodon_py-2.3.3-py3-none-any.whl", hash = "sha256:12fccdbc3765bb4d06079eb7cf8e37aca6d06ec6a48da993141dd865955d5444"},
+    {file = "mastodon_py-2.3.3.tar.gz", hash = "sha256:a3cda3db86d65809957c978aef8ac7fb3dfc93abfeda3f1c6bdef4c79090ab7b"},
 ]
 
 [package.dependencies]
@@ -936,6 +937,7 @@ magic = ["python-magic ; platform_system != \"Windows\"", "python-magic-bin ; pl
 test = ["pytest", "pytest-cov", "pytest-mock", "pytest-recording", "pytest-retry", "pytz", "requests-mock", "vcrpy"]
 test-old = ["pytest", "pytest-cov", "pytest-mock", "pytest-recording", "pytz", "requests-mock", "vcrpy"]
 webpush = ["cryptography (>=1.6.0)", "http_ece (>=1.0.5)"]
+websocket-streaming = ["websocket-client (>=1.0.0)"]
 
 [[package]]
 name = "mf2py"
@@ -1579,6 +1581,18 @@ files = [
 ]
 
 [[package]]
+name = "tlds"
+version = "2026093003"
+description = "Automatically updated list of valid TLDs taken directly from IANA"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "tlds-2026093003-py2.py3-none-any.whl", hash = "sha256:3cb9452b79f08957bf868d407d40625897ac3215d6bbe8b3fdd38dce753cd41e"},
+    {file = "tlds-2026093003.tar.gz", hash = "sha256:573e8eb20d9f5dcbaed6fdfc56f2fd6047e6fef6282af24147589e87700a32bb"},
+]
+
+[[package]]
 name = "typing-extensions"
 version = "4.16.0"
 description = "Backported and Experimental Type Hints for Python 3.9+"
@@ -1847,4 +1861,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.14,<3.15"
-content-hash = "aeeb9ef0b45c18e18fc77d8b81f06c56beaf3bd498ac4c791f42c33711dbdd26"
+content-hash = "48f994ea2b0ff66d12447fd0b9574df8c231126f24dd51b062fd7e66a66da561"
