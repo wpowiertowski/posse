@@ -239,7 +239,18 @@ curl https://posse.example.com/api/interactions/abc123
             "author_avatar": "https://...",
             "content": "Great post!",
             "created_at": "2026-01-27T09:00:00Z",
-            "url": "https://mastodon.social/@commenter/789"
+            "url": "https://mastodon.social/@commenter/789",
+            "children": [
+              {
+                "author": "@user",
+                "author_url": "https://mastodon.social/@user",
+                "author_avatar": "https://...",
+                "content": "@commenter Thanks!",
+                "created_at": "2026-01-27T09:30:00Z",
+                "url": "https://mastodon.social/@user/790",
+                "children": []
+              }
+            ]
           }
         ]
       }
@@ -257,6 +268,14 @@ curl https://posse.example.com/api/interactions/abc123
   }
 }
 ```
+
+`reply_previews` holds the direct replies to the syndicated post. Each one carries the
+conversation beneath it in `children`, a tree of previews with the same shape, so the
+blog author's own answers are included. Each direct reply gets up to 20 nested replies,
+at most 10 levels deep. When the cap is hit, the replies closest to the direct reply are
+kept. Mastodon replies, direct and nested, include only public and unlisted statuses.
+New nested replies trigger Pushover notifications like direct ones, except replies from the
+syndicating account itself.
 
 ### POST /api/interactions/<post_id>/sync
 

@@ -306,6 +306,61 @@ class TestNotifyNewReplies:
 # InteractionSyncService: notifier wired into sync_post_interactions
 # ---------------------------------------------------------------------------
 
+class TestNestedReplyNotifications:
+    """Replies nested in ``children`` are collected and notified, except the account's own."""
+
+    OWN = "https://masto/@me"
+
+    def _service(self, notifier):
+        svc = InteractionSyncService.__new__(InteractionSyncService)
+        svc.notifier = notifier
+        return svc
+
+    def _data(self):
+        def reply(url, author_url, children=()):
+            return {"url": url, "author": "@x", "author_url": author_url,
+                    "content": "hi", "created_at": "2026-01-01T00:00:00Z",
+                    "children": list(children)}
+        return {"platforms": {"mastodon": {"personal": {
+            "post_url": f"{self.OWN}/100",
+            "reply_previews": [
+                reply("https://masto/@a/1", "https://masto/@a", [
+                    reply("https://masto/@me/2", self.OWN),  # author answering
+                    reply("https://masto/@b/3", "https://masto/@b", [
+                        reply("https://masto/@c/4", "https://masto/@c"),
+                    ]),
+                ]),
+            ],
+        }}}}
+
+    def test_collect_reply_urls_includes_nested(self):
+        urls = self._service(None)._collect_reply_urls(self._data()["platforms"])
+        assert urls == {"https://masto/@a/1", "https://masto/@me/2",
+                        "https://masto/@b/3", "https://masto/@c/4"}
+
+    def test_notifies_for_new_nested_replies_but_not_own(self):
+        notifier = MagicMock()
+        self._service(notifier)._notify_new_replies({"https://masto/@a/1"}, self._data())
+
+        notified = {c[1]["reply_url"] for c in notifier.notify_new_social_reply.call_args_list}
+        assert notified == {"https://masto/@b/3", "https://masto/@c/4"}
+
+    def test_bluesky_own_replies_skipped(self):
+        notifier = MagicMock()
+        data = {"platforms": {"bluesky": {"main": {
+            "post_url": "https://bsky.app/profile/me.example/post/abc",
+            "reply_previews": [{
+                "url": "https://bsky.app/profile/a.example/post/1", "author_url": "https://bsky.app/profile/a.example",
+                "children": [{
+                    "url": "https://bsky.app/profile/me.example/post/2",
+                    "author_url": "https://bsky.app/profile/me.example", "children": [],
+                }],
+            }],
+        }}}}
+        self._service(notifier)._notify_new_replies({"https://bsky.app/profile/a.example/post/1"}, data)
+        notifier.notify_new_social_reply.assert_not_called()
+
+
 class TestSyncPostInteractionsNotifications:
     """Integration-level test: sync_post_interactions calls the notifier for new replies."""
 
@@ -378,6 +433,7 @@ class TestSyncPostInteractionsNotifications:
             "descendants": [
                 {
                     "in_reply_to_id": "111",
+                    "visibility": "public",
                     "account": {
                         "acct": "old",
                         "url": "https://mastodon.social/@old",
@@ -389,6 +445,7 @@ class TestSyncPostInteractionsNotifications:
                 },
                 {
                     "in_reply_to_id": "111",
+                    "visibility": "public",
                     "account": {
                         "acct": "new",
                         "url": "https://mastodon.social/@new",
@@ -464,6 +521,7 @@ class TestSyncPostInteractionsNotifications:
             "descendants": [
                 {
                     "in_reply_to_id": "222",
+                    "visibility": "public",
                     "account": {"acct": "x", "url": "https://mastodon.social/@x", "avatar": ""},
                     "content": "same reply",
                     "created_at": "2026-01-01T00:00:00Z",

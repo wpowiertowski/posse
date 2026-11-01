@@ -7,7 +7,8 @@ posts on Mastodon and Bluesky and stores them for display in Ghost widgets.
 import logging
 import os
 import re
-from typing import Dict, Any, List, Optional
+from collections import deque
+from typing import Callable, Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from requests.exceptions import Timeout, RequestException
@@ -16,6 +17,17 @@ from mastodon import MastodonNotFoundError
 from interactions.storage import InteractionDataStore
 
 logger = logging.getLogger(__name__)
+
+# Bounds on the nested replies captured beneath each direct reply to a syndicated
+# post. Depth counts from the direct reply (its own replies are level 1) and the
+# reply cap applies per direct reply. Together they keep the stored payload, which
+# the widget fetches on every page view, from growing with long conversations.
+REPLY_THREAD_MAX_DEPTH = 10
+REPLY_THREAD_MAX_REPLIES = 20
+
+# Mastodon visibilities that are publicly readable. The authenticated context
+# endpoint also returns followers-only and direct statuses the account can see.
+PUBLIC_MASTODON_VISIBILITIES = ("public", "unlisted")
 
 
 class InteractionSyncService:
@@ -376,29 +388,39 @@ class InteractionSyncService:
                 logger.warning(f"Timeout fetching context for status {status_id}: {e}")
                 context = {}
 
+            # Descendants are the whole reply tree, flattened. Index it by parent so
+            # direct replies and each reply's own thread can be looked up.
+            replies_by_parent: Dict[str, List[Dict[str, Any]]] = {}
+            for reply in context.get("descendants", []):
+                parent_id = reply.get("in_reply_to_id")
+                if parent_id is not None:
+                    replies_by_parent.setdefault(str(parent_id), []).append(reply)
+
+            def nested_replies(reply: Dict[str, Any]) -> List[Dict[str, Any]]:
+                # Threads carry only publicly readable statuses, which also drops
+                # anything nested below a followers-only or direct one.
+                if reply.get("id") is None:
+                    return []
+                return [
+                    r for r in replies_by_parent.get(str(reply["id"]), [])
+                    if r.get("visibility") in PUBLIC_MASTODON_VISIBILITIES
+                ]
+
             # Extract reply previews. Filter to direct replies first, THEN take the
             # 10 most recent — slicing the raw descendants (which includes nested
             # reply-to-reply chatter, oldest-first) would drop direct replies past
             # the first 10 descendants and keep the oldest rather than the newest.
             direct_replies = [
-                reply for reply in context.get("descendants", [])
-                if reply.get("in_reply_to_id") == status_id
+                r for r in replies_by_parent.get(str(status_id), [])
+                if r.get("visibility") in PUBLIC_MASTODON_VISIBILITIES
             ]
             reply_previews = []
             for reply in direct_replies[-10:]:
-                # Convert datetime to ISO format string if needed
-                created_at = reply.get("created_at", "")
-                if hasattr(created_at, 'isoformat'):
-                    created_at = created_at.isoformat()
-
-                reply_previews.append({
-                    "author": f"@{reply['account']['acct']}",
-                    "author_url": reply['account']['url'],
-                    "author_avatar": reply['account']['avatar'],
-                    "content": self._strip_html(reply.get("content", "")),
-                    "created_at": created_at,
-                    "url": reply.get("url", "")
-                })
+                preview = self._mastodon_reply_preview(reply)
+                preview["children"] = self._build_reply_thread(
+                    reply, nested_replies, self._mastodon_reply_preview
+                )
+                reply_previews.append(preview)
 
             return {
                 "status_id": status_id,
@@ -538,25 +560,24 @@ class InteractionSyncService:
                 # and the reply previews). The thread post view already carries
                 # like_count / repost_count / reply_count, so there's no need for
                 # separate get_likes / get_reposted_by calls (which also capped the
-                # totals at their page limit of 100).
-                thread_response = client.api.app.bsky.feed.get_post_thread({"uri": post_uri})
+                # totals at their page limit of 100). Depth counts from the
+                # syndicated post, so direct replies take one level of it.
+                thread_response = client.api.app.bsky.feed.get_post_thread(
+                    {"uri": post_uri, "depth": REPLY_THREAD_MAX_DEPTH + 1}
+                )
                 thread = thread_response.thread
 
                 # Extract reply previews from thread
                 reply_previews = []
                 if hasattr(thread, 'replies') and thread.replies:
-                    for reply in thread.replies[:10]:  # Limit to 10 most recent
+                    visible = self._bluesky_nested_replies(thread)
+                    for reply in visible[-10:]:  # Limit to 10 most recent
                         if hasattr(reply, 'post'):
-                            post = reply.post
-                            author = post.author
-                            reply_previews.append({
-                                "author": f"@{author.handle}",
-                                "author_url": f"https://bsky.app/profile/{author.handle}",
-                                "author_avatar": author.avatar if hasattr(author, 'avatar') else None,
-                                "content": post.record.text if hasattr(post.record, 'text') else "",
-                                "created_at": post.record.created_at if hasattr(post.record, 'created_at') else "",
-                                "url": f"https://bsky.app/profile/{author.handle}/post/{post.uri.split('/')[-1]}"
-                            })
+                            preview = self._bluesky_reply_preview(reply)
+                            preview["children"] = self._build_reply_thread(
+                                reply, self._bluesky_nested_replies, self._bluesky_reply_preview
+                            )
+                            reply_previews.append(preview)
 
                 # Read interaction totals from the thread post view.
                 thread_post = thread.post if hasattr(thread, 'post') else None
@@ -677,6 +698,83 @@ class InteractionSyncService:
             "updated_at": self._now_isoformat()
         }
 
+    @staticmethod
+    def _build_reply_thread(
+        root: Any,
+        get_children: Callable[[Any], List[Any]],
+        make_preview: Callable[[Any], Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Return the replies nested beneath ``root`` as a tree of reply previews.
+
+        Each preview holds its own replies in ``children``. The walk is breadth-first
+        so that once ``REPLY_THREAD_MAX_REPLIES`` is reached, replies closest to
+        ``root`` are kept over the tail of a long back-and-forth.
+
+        Args:
+            root: Platform reply object whose thread to capture
+            get_children: Returns the platform reply objects answering a given one
+            make_preview: Builds a reply preview (with empty ``children``) from one
+
+        Returns:
+            List of reply previews answering ``root``, each with nested ``children``
+        """
+        thread: List[Dict[str, Any]] = []
+        queue = deque([(root, thread, 1)])
+        captured = 0
+        while queue:
+            node, siblings, depth = queue.popleft()
+            for child in get_children(node):
+                if captured >= REPLY_THREAD_MAX_REPLIES:
+                    return thread
+                preview = make_preview(child)
+                siblings.append(preview)
+                captured += 1
+                if depth < REPLY_THREAD_MAX_DEPTH:
+                    queue.append((child, preview["children"], depth + 1))
+        return thread
+
+    def _mastodon_reply_preview(self, reply: Dict[str, Any]) -> Dict[str, Any]:
+        """Build a reply preview from a Mastodon status, with no ``children`` yet."""
+        # Convert datetime to ISO format string if needed
+        created_at = reply.get("created_at", "")
+        if hasattr(created_at, 'isoformat'):
+            created_at = created_at.isoformat()
+
+        return {
+            "author": f"@{reply['account']['acct']}",
+            "author_url": reply['account']['url'],
+            "author_avatar": reply['account']['avatar'],
+            "content": self._strip_html(reply.get("content", "")),
+            "created_at": created_at,
+            "url": reply.get("url", ""),
+            "children": []
+        }
+
+    @staticmethod
+    def _bluesky_reply_preview(reply: Any) -> Dict[str, Any]:
+        """Build a reply preview from a Bluesky thread view post, with no ``children`` yet."""
+        post = reply.post
+        author = post.author
+        return {
+            "author": f"@{author.handle}",
+            "author_url": f"https://bsky.app/profile/{author.handle}",
+            "author_avatar": author.avatar if hasattr(author, 'avatar') else None,
+            "content": post.record.text if hasattr(post.record, 'text') else "",
+            "created_at": post.record.created_at if hasattr(post.record, 'created_at') else "",
+            "url": f"https://bsky.app/profile/{author.handle}/post/{post.uri.split('/')[-1]}",
+            "children": []
+        }
+
+    @staticmethod
+    def _bluesky_nested_replies(reply: Any) -> List[Any]:
+        """Return the visible replies to a Bluesky thread view post.
+
+        Blocked and not-found entries in the thread carry no ``post`` and are skipped.
+        Replies come back in no guaranteed order, so they are sorted oldest first.
+        """
+        visible = [r for r in (getattr(reply, 'replies', None) or []) if hasattr(r, 'post')]
+        return sorted(visible, key=lambda r: str(getattr(r.post.record, 'created_at', '') or ''))
+
     def _collect_reply_urls(self, platforms_data: Dict[str, Any]) -> set:
         """Collect all reply URLs from platforms interaction data.
 
@@ -693,11 +791,31 @@ class InteractionSyncService:
             for _account_name, account_data in accounts.items():
                 if not isinstance(account_data, dict):
                     continue
-                for reply in account_data.get("reply_previews", []):
+                for reply, _nested in self._walk_replies(account_data.get("reply_previews", [])):
                     url = reply.get("url")
                     if url:
                         urls.add(url)
         return urls
+
+    @staticmethod
+    def _walk_replies(previews: List[Dict[str, Any]], nested: bool = False):
+        """Yield ``(reply, is_nested)`` for every reply preview and its descendants."""
+        for reply in previews:
+            yield reply, nested
+            yield from InteractionSyncService._walk_replies(reply.get("children") or [], True)
+
+    @staticmethod
+    def _account_profile_url(platform_name: str, post_url: Optional[str]) -> Optional[str]:
+        """Derive the syndicating account's profile URL from its post URL.
+
+        Mastodon post URLs look like ``https://host/@user/123`` and Bluesky ones like
+        ``https://bsky.app/profile/handle/post/abc``. Matching a reply's author_url
+        against this identifies the account's own replies without extra API calls.
+        """
+        if not post_url:
+            return None
+        segments = post_url.rstrip("/").rsplit("/", 2 if platform_name == "bluesky" else 1)
+        return segments[0] if len(segments) > 1 else None
 
     def _notify_new_replies(
         self,
@@ -729,9 +847,15 @@ class InteractionSyncService:
                 ):
                     # No prior data for this account — seed without notifying.
                     continue
-                for reply in account_data.get("reply_previews", []):
+                own_profile_url = self._account_profile_url(
+                    platform_name, account_data.get("post_url")
+                )
+                for reply, is_nested in self._walk_replies(account_data.get("reply_previews", [])):
                     url = reply.get("url")
                     if not url or url in previous_reply_urls:
+                        continue
+                    # The account answering inside its own threads is not news.
+                    if is_nested and own_profile_url and reply.get("author_url") == own_profile_url:
                         continue
                     # This is a new reply — send a notification
                     try:

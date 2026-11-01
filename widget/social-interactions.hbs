@@ -751,6 +751,25 @@
             container.style.display = 'block';
         }
 
+        // Convert a POSSE reply preview, and the thread beneath it, to the widget's reply shape.
+        // Threads are capped at 10 levels by POSSE; the same limit guards against odd data here.
+        function mapPosseReply(reply, platform, depth = 0) {
+            const children = (depth < 10 && Array.isArray(reply.children))
+                ? reply.children.map(child => mapPosseReply(child, platform, depth + 1))
+                : [];
+            return {
+                type: 'posse',
+                platform: platform,
+                author: reply.author || 'Anonymous',
+                authorAvatar: reply.author_avatar || '',
+                authorUrl: reply.author_url || '#',
+                content: reply.content || '',
+                timestamp: reply.created_at,
+                url: reply.url || '#',
+                children: children
+            };
+        }
+
         // Extract reply previews from POSSE data
         function getPosseReplies(posseData) {
             const replies = [];
@@ -762,16 +781,7 @@
                 Object.values(posseData.platforms.mastodon).forEach(account => {
                     if (account.reply_previews && Array.isArray(account.reply_previews)) {
                         account.reply_previews.forEach(reply => {
-                            replies.push({
-                                type: 'posse',
-                                platform: 'mastodon',
-                                author: reply.author || 'Anonymous',
-                                authorAvatar: reply.author_avatar || '',
-                                authorUrl: reply.author_url || '#',
-                                content: reply.content || '',
-                                timestamp: reply.created_at,
-                                url: reply.url || '#'
-                            });
+                            replies.push(mapPosseReply(reply, 'mastodon'));
                         });
                     }
                 });
@@ -782,22 +792,60 @@
                 Object.values(posseData.platforms.bluesky).forEach(account => {
                     if (account.reply_previews && Array.isArray(account.reply_previews)) {
                         account.reply_previews.forEach(reply => {
-                            replies.push({
-                                type: 'posse',
-                                platform: 'bluesky',
-                                author: reply.author || 'Anonymous',
-                                authorAvatar: reply.author_avatar || '',
-                                authorUrl: reply.author_url || '#',
-                                content: reply.content || '',
-                                timestamp: reply.created_at,
-                                url: reply.url || '#'
-                            });
+                            replies.push(mapPosseReply(reply, 'bluesky'));
                         });
                     }
                 });
             }
 
             return replies;
+        }
+
+        // Render one reply and, recursively, the thread beneath it
+        function renderReplyHtml(reply, depth) {
+            let html = '';
+            const name = escapeHtmlWm(reply.author);
+            const safePhotoUrl = sanitizeUrlWm(reply.authorAvatar, '');
+            const safeAuthorUrl = sanitizeUrlWm(reply.authorUrl, '#');
+            const content = reply.content;
+            const timestamp = reply.timestamp;
+            const safeSourceUrl = sanitizeUrlWm(reply.url, '#');
+
+            html += `<div class="webmention-comment"${depth > 0 ? ' style="margin-left:1rem;padding-left:0.75rem;border-left:2px solid rgba(128,128,128,0.3)"' : ''}>`;
+            html += `<div class="webmention-comment-header">`;
+
+            if (safePhotoUrl) {
+                html += `<img src="${escapeHtmlWm(safePhotoUrl)}" alt="${name}" class="webmention-avatar" loading="lazy">`;
+            } else {
+                html += `<span class="webmention-avatar webmention-avatar-placeholder">${name.charAt(0).toUpperCase()}</span>`;
+            }
+
+            html += `<div class="webmention-meta">`;
+            html += `<a href="${escapeHtmlWm(safeAuthorUrl)}" target="_blank" rel="noopener" class="webmention-author">${name}</a>`;
+            html += ` <span class="webmention-time">${formatTimestampWm(timestamp)}</span>`;
+            html += `</div>`;
+            html += `</div>`;
+
+            if (content) {
+                if (reply.type === 'posse') {
+                    // For POSSE replies, escape and preserve line breaks
+                    const escapedContent = escapeHtmlWm(content).replace(/\n/g, '<br>');
+                    html += `<div class="webmention-content">${escapedContent}</div>`;
+                } else {
+                    // For webmentions, allow only safe subset of HTML.
+                    const sanitized = sanitizeWebmentionHtmlContent(content);
+                    html += `<div class="webmention-content">${sanitized}</div>`;
+                }
+            }
+
+            html += `<a href="${escapeHtmlWm(safeSourceUrl)}" target="_blank" rel="noopener" class="webmention-source-link">View source →</a>`;
+            // The thread beneath this reply, oldest first, stays under its parent
+            (reply.children || [])
+                .slice()
+                .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0))
+                .forEach(child => { html += renderReplyHtml(child, depth + 1); });
+            html += `</div>`;
+            return html;
         }
 
         function renderWebmentionComments(comments, posseReplies = [], posseData = null) {
@@ -835,42 +883,7 @@
             let html = '<h4>Comments & Replies</h4>';
 
             allReplies.forEach(reply => {
-                const name = escapeHtmlWm(reply.author);
-                const safePhotoUrl = sanitizeUrlWm(reply.authorAvatar, '');
-                const safeAuthorUrl = sanitizeUrlWm(reply.authorUrl, '#');
-                const content = reply.content;
-                const timestamp = reply.timestamp;
-                const safeSourceUrl = sanitizeUrlWm(reply.url, '#');
-
-                html += `<div class="webmention-comment">`;
-                html += `<div class="webmention-comment-header">`;
-
-                if (safePhotoUrl) {
-                    html += `<img src="${escapeHtmlWm(safePhotoUrl)}" alt="${name}" class="webmention-avatar" loading="lazy">`;
-                } else {
-                    html += `<span class="webmention-avatar webmention-avatar-placeholder">${name.charAt(0).toUpperCase()}</span>`;
-                }
-
-                html += `<div class="webmention-meta">`;
-                html += `<a href="${escapeHtmlWm(safeAuthorUrl)}" target="_blank" rel="noopener" class="webmention-author">${name}</a>`;
-                html += ` <span class="webmention-time">${formatTimestampWm(timestamp)}</span>`;
-                html += `</div>`;
-                html += `</div>`;
-
-                if (content) {
-                    if (reply.type === 'posse') {
-                        // For POSSE replies, escape and preserve line breaks
-                        const escapedContent = escapeHtmlWm(content).replace(/\n/g, '<br>');
-                        html += `<div class="webmention-content">${escapedContent}</div>`;
-                    } else {
-                        // For webmentions, allow only safe subset of HTML.
-                        const sanitized = sanitizeWebmentionHtmlContent(content);
-                        html += `<div class="webmention-content">${sanitized}</div>`;
-                    }
-                }
-
-                html += `<a href="${escapeHtmlWm(safeSourceUrl)}" target="_blank" rel="noopener" class="webmention-source-link">View source →</a>`;
-                html += `</div>`;
+                html += renderReplyHtml(reply, 0);
             });
 
             // Add respond options at the end
