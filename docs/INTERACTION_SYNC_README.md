@@ -273,7 +273,9 @@ curl https://posse.example.com/api/interactions/abc123
 conversation beneath it in `children`, a tree of previews with the same shape, so the
 blog author's own answers are included. Each direct reply gets up to 20 nested replies,
 at most 10 levels deep. When the cap is hit, the replies closest to the direct reply are
-kept. Mastodon threads include only public and unlisted statuses.
+kept. Mastodon replies, direct and nested, include only public and unlisted statuses.
+New nested replies trigger Pushover notifications like direct ones, except replies from the
+syndicating account itself.
 
 ### POST /api/interactions/<post_id>/sync
 

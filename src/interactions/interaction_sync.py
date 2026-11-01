@@ -410,7 +410,10 @@ class InteractionSyncService:
             # 10 most recent — slicing the raw descendants (which includes nested
             # reply-to-reply chatter, oldest-first) would drop direct replies past
             # the first 10 descendants and keep the oldest rather than the newest.
-            direct_replies = replies_by_parent.get(str(status_id), [])
+            direct_replies = [
+                r for r in replies_by_parent.get(str(status_id), [])
+                if r.get("visibility") in PUBLIC_MASTODON_VISIBILITIES
+            ]
             reply_previews = []
             for reply in direct_replies[-10:]:
                 preview = self._mastodon_reply_preview(reply)
@@ -567,7 +570,8 @@ class InteractionSyncService:
                 # Extract reply previews from thread
                 reply_previews = []
                 if hasattr(thread, 'replies') and thread.replies:
-                    for reply in thread.replies[:10]:  # Limit to 10 most recent
+                    visible = self._bluesky_nested_replies(thread)
+                    for reply in visible[-10:]:  # Limit to 10 most recent
                         if hasattr(reply, 'post'):
                             preview = self._bluesky_reply_preview(reply)
                             preview["children"] = self._build_reply_thread(
@@ -766,8 +770,10 @@ class InteractionSyncService:
         """Return the visible replies to a Bluesky thread view post.
 
         Blocked and not-found entries in the thread carry no ``post`` and are skipped.
+        Replies come back in no guaranteed order, so they are sorted oldest first.
         """
-        return [r for r in (getattr(reply, 'replies', None) or []) if hasattr(r, 'post')]
+        visible = [r for r in (getattr(reply, 'replies', None) or []) if hasattr(r, 'post')]
+        return sorted(visible, key=lambda r: str(getattr(r.post.record, 'created_at', '') or ''))
 
     def _collect_reply_urls(self, platforms_data: Dict[str, Any]) -> set:
         """Collect all reply URLs from platforms interaction data.
@@ -785,11 +791,31 @@ class InteractionSyncService:
             for _account_name, account_data in accounts.items():
                 if not isinstance(account_data, dict):
                     continue
-                for reply in account_data.get("reply_previews", []):
+                for reply, _nested in self._walk_replies(account_data.get("reply_previews", [])):
                     url = reply.get("url")
                     if url:
                         urls.add(url)
         return urls
+
+    @staticmethod
+    def _walk_replies(previews: List[Dict[str, Any]], nested: bool = False):
+        """Yield ``(reply, is_nested)`` for every reply preview and its descendants."""
+        for reply in previews:
+            yield reply, nested
+            yield from InteractionSyncService._walk_replies(reply.get("children") or [], True)
+
+    @staticmethod
+    def _account_profile_url(platform_name: str, post_url: Optional[str]) -> Optional[str]:
+        """Derive the syndicating account's profile URL from its post URL.
+
+        Mastodon post URLs look like ``https://host/@user/123`` and Bluesky ones like
+        ``https://bsky.app/profile/handle/post/abc``. Matching a reply's author_url
+        against this identifies the account's own replies without extra API calls.
+        """
+        if not post_url:
+            return None
+        segments = post_url.rstrip("/").rsplit("/", 2 if platform_name == "bluesky" else 1)
+        return segments[0] if len(segments) > 1 else None
 
     def _notify_new_replies(
         self,
@@ -821,9 +847,15 @@ class InteractionSyncService:
                 ):
                     # No prior data for this account — seed without notifying.
                     continue
-                for reply in account_data.get("reply_previews", []):
+                own_profile_url = self._account_profile_url(
+                    platform_name, account_data.get("post_url")
+                )
+                for reply, is_nested in self._walk_replies(account_data.get("reply_previews", [])):
                     url = reply.get("url")
                     if not url or url in previous_reply_urls:
+                        continue
+                    # The account answering inside its own threads is not news.
+                    if is_nested and own_profile_url and reply.get("author_url") == own_profile_url:
                         continue
                     # This is a new reply — send a notification
                     try:
